@@ -3,7 +3,7 @@
     <string name="app_name">FantaFormula 1</string>
     <string name="app_tagline">La lega di pronostici F1 tra amici</string>
 
-    <!-- Navigazione / generiche -->
+    <!-- Azioni e stati generici -->
     <string name="azione_indietro">Indietro</string>
     <string name="azione_riprova">Riprova</string>
     <string name="azione_chiudi">Chiudi</string>
@@ -11,7 +11,97 @@
     <string name="azione_annulla">Annulla</string>
     <string name="azione_elimina">Elimina</string>
     <string name="azione_modifica">Modifica</string>
+    <string name="azione_continua">Continua</string>
+    <string name="azione_crea">Crea</string>
+    <string name="azione_unisciti">Unisciti</string>
+    <string name="azione_applica">Applica</string>
+    <string name="azione_copia">Copia codice</string>
+    <string name="azione_copied">Codice copiato</string>
     <string name="stato_caricamento">Caricamento in corso…</string>
     <string name="stato_errore">Si è verificato un errore</string>
     <string name="stato_vuoto">Nessun elemento da mostrare</string>
+    <string name="errore_rete">Connessione assente: controlla la rete e riprova</string>
+
+    <!-- Configurazione Supabase -->
+    <string name="config_titolo">Configurazione</string>
+    <string name="config_sottotitolo">Collega l\'app al tuo progetto Supabase</string>
+    <string name="config_url">URL del progetto</string>
+    <string name="config_url_hint">https://xyzcompany.supabase.co</string>
+    <string name="config_anon_key">Chiave anon pubblica</string>
+    <string name="config_anon_hint">eyJhbGciOiJIUzI1NiIsInR5cCI6…</string>
+    <string name="config_salva">Salva configurazione</string>
+    <string name="config_salvata">Configurazione salvata</string>
+    <string name="config_mancante_titolo">Configurazione Supabase mancante</string>
+    <string name="config_mancante_testo">Inserisci l\'URL del progetto e la chiave anon per collegare la lega al cloud.</string>
+    <string name="config_reset">Ripristina valori predefiniti</string>
+    <string name="config_reset_done">Ripristinati i valori predefiniti</string>
+    <string name="config_valori_default">Valori predefiniti da build</string>
+    <string name="config_override_attivo">Valori personalizzati attivi</string>
+    <string name="config_url_invalido">L\'URL deve iniziare con http:// o https://</string>
+    <string name="config_key_vuota">La chiave anon non può essere vuota</string>
+    <string name="config_test_in_corso">Verifica della connessione…</string>
+    <string name="config_test_ok">Connessione riuscita</string>
+    <string name="config_test_ko">Connessione fallita: controlla URL e chiave</string>
+    <string name="config_servono_credenziali">Per continuare serve una configurazione Supabase valida</string>
+
+    <!-- Autenticazione -->
+    <string name="auth_titolo">Accedi alla tua lega</string>
+    <string name="auth_sottotitolo">Crea un account oppure accedi con email e password</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_nome">Nome visualizzato</string>
+    <string name="auth_nome_hint">Come ti chiameranno gli altri giocatori</string>
+    <string name="auth_accedi">Accedi</string>
+    <string name="auth_registrati">Registrati</string>
+    <string name="auth_hai_account">Hai già un account? Accedi</string>
+    <string name="auth_non_hai_account">Non hai un account? Registrati</string>
+    <string name="auth_esci">Esci</string>
+    <string name="auth_esci_conferma">Vuoi davvero uscire?</string>
+    <string name="auth_registrazione_ok">Account creato. Benvenuto in FantaFormula 1!</string>
+    <string name="auth_accesso_ok">Accesso effettuato</string>
+    <string name="auth_min_lunghezza">Inserisci almeno 6 caratteri</string>
+    <string name="auth_email_non_valida">Inserisci un indirizzo email valido</string>
+    <string name="auth_nome_min">Inserisci un nome di almeno 2 caratteri</string>
+
+    <!-- Leghe -->
+    <string name="leghe_titolo">Le tue leghe</string>
+    <string name="leghe_vuoto">Non fai ancora parte di nessuna lega</string>
+    <string name="leghe_vuoto_sub">Crea una lega e invita i tuoi amici, oppure unisciti con un codice invito.</string>
+    <string name="lega_crea_titolo">Crea una lega</string>
+    <string name="lega_crea_sottotitolo">Sarai l\'amministratore: potrai inserire calendario, risultati e regole.</string>
+    <string name="lega_nome">Nome della lega</string>
+    <string name="lega_nome_hint">Es. Amici del Gran Premio</string>
+    <string name="lega_unisciti_titolo">Unisciti a una lega</string>
+    <string name="lega_codice">Codice invito</string>
+    <string name="lega_codice_hint">ABC123</string>
+    <string name="lega_creato">Lega creata</string>
+    <string name="lega_unito">Ti sei unito alla lega</string>
+    <string name="lega_titolo_generico">Lega</string>
+    <string name="lega_membri">Membri</string>
+    <string name="lega_regole">Regole</string>
+    <string name="lega_gare">Gare</string>
+    <string name="lega_classifica">Classifica</string>
+    <string name="lega_codice_invito">Codice invito</string>
+    <string name="lega_admin">Amministratore</string>
+    <string name="lega_giocatore">Giocatore</string>
+    <string name="lega_abbandona">Abbandona la lega</string>
+    <string name="lega_abbandona_conferma">Se abbandoni la lega perdi l\'accesso ai pronostici e alla classifica. Vuoi continuare?</string>
+    <string name="lega_abbandonata">Hai abbandonato la lega</string>
+    <string name="lega_ancora_una">Crea o unisciti a una lega per iniziare a giocare.</string>
+    <string name="membri_vuoto">Nessun membro presente</string>
+    <string name="membri_conta">%d membri</string>
+
+    <!-- Nomi dei tipi di pronostico (usati da PredictionType) -->
+    <string name="tipo_WINNER">Vincitore</string>
+    <string name="tipo_PODIUM">Podio</string>
+    <string name="tipo_POLE">Pole position</string>
+    <string name="tipo_FASTEST_LAP">Giro veloce</string>
+    <string name="tipo_DRIVER_EXACT_POSITION">Posizione esatta</string>
+    <string name="tipo_DRIVER_POSITION_RANGE">Fascia di posizione</string>
+    <string name="tipo_HEAD_TO_HEAD">Testa a testa</string>
+    <string name="tipo_DRIVER_DNF">Ritiro (DNF)</string>
+    <string name="tipo_DRIVER_POINTS_OVER_UNDER">Punti pilota over/under</string>
+    <string name="tipo_SPRINT_WINNER">Vincitore sprint</string>
+    <string name="tipo_SAFETY_CAR_COUNT_OVER_UNDER">Safety car over/under</string>
+    <string name="tipo_PIT_STOPS_OVER_UNDER">Pit stop over/under</string>
 </resources>
