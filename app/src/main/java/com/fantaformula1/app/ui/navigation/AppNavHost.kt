@@ -20,10 +20,12 @@ import androidx.navigation.compose.rememberNavController
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.AuthState
 import com.fantaformula1.app.ui.auth.AuthScreen
+import com.fantaformula1.app.ui.calendar.CalendarScreen
 import com.fantaformula1.app.ui.config.ConfigScreen
 import com.fantaformula1.app.ui.leagues.LeagueMembersScreen
 import com.fantaformula1.app.ui.leagues.LeagueScreen
 import com.fantaformula1.app.ui.leagues.LeaguesScreen
+import com.fantaformula1.app.ui.results.RaceResultScreen
 import com.fantaformula1.app.ui.components.LoadingState
 
 /**
@@ -131,6 +133,28 @@ fun AppNavHost(
                 leagueId = leagueId,
                 onBack = { navController.popBackStack() },
                 onOpenMembers = { id -> navController.navigate(Routes.leagueMembers(id)) },
+                onOpenCalendar = { id -> navController.navigate(Routes.calendar(id)) },
+            )
+        }
+
+        composable(Routes.CALENDAR) { entry ->
+            val leagueId = entry.arguments?.getString("leagueId").orEmpty()
+            CalendarScreen(
+                container = container,
+                leagueId = leagueId,
+                onBack = { navController.popBackStack() },
+                onOpenResult = { raceId, _ ->
+                    navController.navigate(Routes.raceResults(raceId))
+                },
+            )
+        }
+
+        composable(Routes.RACE_RESULTS) { entry ->
+            val raceId = entry.arguments?.getString("raceId").orEmpty()
+            RaceResultScreen(
+                container = container,
+                raceId = raceId,
+                onBack = { navController.popBackStack() },
             )
         }
 

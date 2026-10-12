@@ -81,3 +81,32 @@ fun SectionTitle(
         modifier = modifier.padding(top = 16.dp, bottom = 4.dp),
     )
 }
+
+/**
+ * Campo numerico opzionale: stringa vuota = valore assente (null).
+ * Usato nei form risultati dove quasi tutti i campi sono opzionali.
+ */
+@Composable
+fun FantaNumberField(
+    value: Int?,
+    onValueChange: (Int?) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    hint: String = "",
+    error: String? = null,
+    enabled: Boolean = true,
+) {
+    FantaTextField(
+        value = value?.toString().orEmpty(),
+        onValueChange = { input ->
+            val cleaned = input.filter { it.isDigit() }.take(2)
+            onValueChange(cleaned.toIntOrNull())
+        },
+        label = label,
+        hint = hint,
+        error = error,
+        enabled = enabled,
+        keyboardType = KeyboardType.Number,
+        modifier = modifier,
+    )
+}

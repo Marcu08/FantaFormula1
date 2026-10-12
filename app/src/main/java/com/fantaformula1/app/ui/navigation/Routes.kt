@@ -18,6 +18,9 @@ object Routes {
     const val LEAGUE_STANDINGS = "league/{leagueId}/standings"
     fun leagueStandings(leagueId: String) = "league/$leagueId/standings"
 
+    const val CALENDAR = "league/{leagueId}/calendar"
+    fun calendar(leagueId: String) = "league/$leagueId/calendar"
+
     const val RACE = "race/{raceId}"
     fun race(raceId: String) = "race/$raceId"
 

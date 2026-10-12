@@ -4,8 +4,10 @@ import android.content.Context
 import com.fantaformula1.app.data.config.SupabaseConfigStore
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
+import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.SupabaseAuthRepository
 import com.fantaformula1.app.data.repository.SupabaseLeagueRepository
+import com.fantaformula1.app.data.repository.SupabaseRaceRepository
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 
 /**
@@ -28,6 +30,8 @@ class AppContainer(context: Context) {
     val authRepository: AuthRepository = SupabaseAuthRepository(supabaseHolder)
 
     val leagueRepository: LeagueRepository = SupabaseLeagueRepository(supabaseHolder, authRepository)
+
+    val raceRepository: RaceRepository = SupabaseRaceRepository(supabaseHolder, authRepository)
 
     /**
      * Applica la configurazione Supabase e carica l'eventuale sessione salvata.

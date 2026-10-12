@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,6 +56,7 @@ fun LeagueScreen(
     leagueId: String,
     onBack: () -> Unit,
     onOpenMembers: (String) -> Unit,
+    onOpenCalendar: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: LeaguesViewModel = viewModel {
@@ -127,6 +129,16 @@ fun LeagueScreen(
                             Icon(Icons.Outlined.Groups, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.lega_membri))
+                        }
+                    }
+                    item {
+                        TextButton(
+                            onClick = { onOpenCalendar(leagueId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Outlined.Flag, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.lega_gare))
                         }
                     }
                 }

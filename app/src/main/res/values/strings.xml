@@ -17,6 +17,7 @@
     <string name="azione_applica">Applica</string>
     <string name="azione_copia">Copia codice</string>
     <string name="azione_copied">Codice copiato</string>
+    <string name="azione_aggiorna">Aggiorna</string>
     <string name="stato_caricamento">Caricamento in corso…</string>
     <string name="stato_errore">Si è verificato un errore</string>
     <string name="stato_vuoto">Nessun elemento da mostrare</string>
@@ -104,4 +105,53 @@
     <string name="tipo_SPRINT_WINNER">Vincitore sprint</string>
     <string name="tipo_SAFETY_CAR_COUNT_OVER_UNDER">Safety car over/under</string>
     <string name="tipo_PIT_STOPS_OVER_UNDER">Pit stop over/under</string>
+
+    <!-- Calendario gare -->
+    <string name="calendario_titolo">Calendario</string>
+    <string name="calendario_vuoto">Nessuna gara nel calendario</string>
+    <string name="calendario_vuoto_admin">Aggiungi la prima gara per iniziare a raccogliere pronostici.</string>
+    <string name="calendario_vuoto_sub">L\'amministratore della lega deve ancora aggiungere le gare.</string>
+    <string name="gara_nuova">Nuova gara</string>
+    <string name="gara_modifica">Modifica gara</string>
+    <string name="gara_elimina">Elimina gara</string>
+    <string name="gara_elimina_ok">Gara eliminata</string>
+    <string name="gara_elimina_conferma">Vuoi eliminare la gara \"%1$s\"? Anche i pronostici collegati verranno rimossi.</string>
+    <string name="gara_nome">Nome della gara</string>
+    <string name="gara_nome_hint">Es. Gran Premio d\'Italia</string>
+    <string name="gara_round">Round</string>
+    <string name="gara_paese">Paese</string>
+    <string name="gara_deadline_label">Deadline pronostici</string>
+    <string name="gara_deadline_hint">2026-03-15 14:00</string>
+    <string name="gara_deadline">Deadline: %1$s</string>
+    <string name="gara_sprint_label">Gara con sprint</string>
+    <string name="gara_sprint">Sprint</string>
+    <string name="gara_salvata">Gara salvata</string>
+    <string name="gara_risultati">Risultati</string>
+    <string name="gara_round_name">Round %1$d · %2$s</string>
+    <string name="stato_programmata">Programmata</string>
+    <string name="stato_aperta">Aperta</string>
+    <string name="stato_chiusa">Chiusa</string>
+    <string name="stato_completata">Completata</string>
+
+    <!-- Risultati gara (form admin) -->
+    <string name="risultati_titolo">Risultati</string>
+    <string name="risultato_salvato">Risultato salvato</string>
+    <string name="risultati_deadline">Deadline %1$s</string>
+    <string name="risultati_sola_lettura">Solo l\'amministratore può inserire o modificare i risultati.</string>
+    <string name="sezione_gara">Dati della gara</string>
+    <string name="sezione_piloti">Piloti</string>
+    <string name="piloti_istruzioni">Compila almeno i piloti classificati: griglia, posizione, DNF, penalità e pit stop.</string>
+    <string name="campo_safety_car">Safety car</string>
+    <string name="campo_bandiere_rosse">B. rosse</string>
+    <string name="campo_giri">Giri</string>
+    <string name="campo_meteo">Meteo</string>
+    <string name="campo_note">Note</string>
+    <string name="campo_griglia">Griglia</string>
+    <string name="campo_posizione">Posizione</string>
+    <string name="campo_posizione_sprint">Pos. sprint</string>
+    <string name="campo_giro_veloce">Giro veloce</string>
+    <string name="campo_dnf">Ritiro (DNF)</string>
+    <string name="campo_motivo_dnf">Motivo del ritiro</string>
+    <string name="campo_penalita">Penalità</string>
+    <string name="campo_pit_stop">Pit stop</string>
 </resources>
