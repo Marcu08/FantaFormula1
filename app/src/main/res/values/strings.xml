@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FantaFormula 1</string>
+    <string name="app_tagline">La lega di pronostici F1 tra amici</string>
+
+    <!-- Navigazione / generiche -->
+    <string name="azione_indietro">Indietro</string>
+    <string name="azione_riprova">Riprova</string>
+    <string name="azione_chiudi">Chiudi</string>
+    <string name="azione_salva">Salva</string>
+    <string name="azione_annulla">Annulla</string>
+    <string name="azione_elimina">Elimina</string>
+    <string name="azione_modifica">Modifica</string>
+    <string name="stato_caricamento">Caricamento in corso…</string>
+    <string name="stato_errore">Si è verificato un errore</string>
+    <string name="stato_vuoto">Nessun elemento da mostrare</string>
+</resources>

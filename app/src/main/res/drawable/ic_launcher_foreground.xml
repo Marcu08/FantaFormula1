@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icona FantaFormula 1: tre "scie" di velocità inclinate in rosso F1. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- scia alta -->
+    <path
+        android:fillColor="#E10600"
+        android:pathData="M28,38 L74,38 L66,50 L20,50 Z" />
+    <!-- scia centrale (più lunga) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,54 L84,54 L76,66 L12,66 Z" />
+    <!-- scia bassa -->
+    <path
+        android:fillColor="#E10600"
+        android:pathData="M34,70 L84,70 L76,82 L26,82 Z" />
+</vector>

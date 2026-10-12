@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema base della shell: l'UI è interamente Jetpack Compose,
+         questo serve solo per la window (splash/status bar di default). -->
+    <style name="Theme.FantaFormula1" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/f1_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

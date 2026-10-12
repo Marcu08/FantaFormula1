@@ -1,0 +1,18 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IDE
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Non versionare i segreti locali (contengono URL/chiavi Supabase e percorsi SDK)
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
