@@ -1,0 +1,259 @@
+package com.fantaformula1.app.ui.predictions
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.fantaformula1.app.core.domain.PredictionEntry
+import com.fantaformula1.app.core.domain.PredictionType
+import com.fantaformula1.app.core.domain.PredictionValidation
+import com.fantaformula1.app.core.domain.Race
+import com.fantaformula1.app.core.domain.RacePrediction
+import com.fantaformula1.app.core.domain.Rules
+import com.fantaformula1.app.core.domain.isSprintRelated
+import com.fantaformula1.app.data.repository.League
+import com.fantaformula1.app.data.repository.LeagueRepository
+import com.fantaformula1.app.data.repository.PredictionRepository
+import com.fantaformula1.app.data.repository.RaceRepository
+import com.fantaformula1.app.data.repository.UserException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.time.Instant
+
+sealed interface PredictionEvent {
+    data object Saved : PredictionEvent
+    data class Failure(val message: String) : PredictionEvent
+}
+
+/** Bozza di un pronostico per tipo: campi numerici come stringhe. */
+data class DraftEntry(
+    val type: PredictionType,
+    val driverIds: List<String> = emptyList(),
+    val position: String = "",
+    val rangeMin: String = "",
+    val rangeMax: String = "",
+    val threshold: String = "",
+    val over: Boolean? = null,
+    val booleanValue: Boolean? = null,
+) {
+    fun toDomain(): PredictionEntry = PredictionEntry(
+        type = type,
+        driverIds = driverIds,
+        position = position.toIntOrNull(),
+        rangeMin = rangeMin.toIntOrNull(),
+        rangeMax = rangeMax.toIntOrNull(),
+        threshold = threshold.toDoubleOrNull(),
+        over = over,
+        booleanValue = booleanValue,
+    )
+
+    val complete: Boolean
+        get() = when (type) {
+            PredictionType.DRIVER_EXACT_POSITION -> driverIds.size == 1 && position.isNotBlank()
+            PredictionType.DRIVER_POSITION_RANGE ->
+                driverIds.size == 1 && rangeMin.isNotBlank() && rangeMax.isNotBlank()
+            PredictionType.DRIVER_DNF -> driverIds.size == 1 && booleanValue != null
+            PredictionType.DRIVER_POINTS_OVER_UNDER ->
+                driverIds.size == 1 && threshold.isNotBlank() && over != null
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            PredictionType.PIT_STOPS_OVER_UNDER,
+            -> threshold.isNotBlank() && over != null
+            PredictionType.PODIUM -> driverIds.size == 3
+            PredictionType.HEAD_TO_HEAD -> driverIds.size == 2
+            else -> driverIds.size == 1
+        }
+
+    companion object {
+        fun of(type: PredictionType): DraftEntry = DraftEntry(type = type)
+
+        fun from(entry: PredictionEntry): DraftEntry = DraftEntry(
+            type = entry.type,
+            driverIds = entry.driverIds,
+            position = entry.position?.toString().orEmpty(),
+            rangeMin = entry.rangeMin?.toString().orEmpty(),
+            rangeMax = entry.rangeMax?.toString().orEmpty(),
+            threshold = entry.threshold?.toString().orEmpty(),
+            over = entry.over,
+            booleanValue = entry.booleanValue,
+        )
+    }
+}
+
+data class OtherPrediction(
+    val userId: String,
+    val displayName: String,
+    val prediction: RacePrediction,
+)
+
+data class PredictionUiState(
+    val loading: Boolean = true,
+    val race: Race? = null,
+    val league: League? = null,
+    val rules: Rules = Rules(),
+    val mine: RacePrediction? = null,
+    val drafts: List<DraftEntry> = emptyList(),
+    val others: List<OtherPrediction> = emptyList(),
+    val canSubmit: Boolean = false,
+    val deadlinePassed: Boolean = false,
+    val saving: Boolean = false,
+    val saved: Boolean = false,
+    val errors: List<String> = emptyList(),
+    val error: String? = null,
+) {
+    /** Tipi di pronostico da mostrare nel form. */
+    val visibleTypes: List<PredictionType>
+        get() = rules.enabledTypes
+            .filter { !it.isSprintRelated || race?.isSprint == true }
+            .sortedBy { it.ordinal }
+}
+
+class PredictionViewModel(
+    private val raceRepository: RaceRepository,
+    private val leagueRepository: LeagueRepository,
+    private val predictionRepository: PredictionRepository,
+    private val raceId: String,
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(PredictionUiState())
+    val uiState: StateFlow<PredictionUiState> = _uiState
+
+    private val _events = MutableSharedFlow<PredictionEvent>()
+    val events: SharedFlow<PredictionEvent> = _events.asSharedFlow()
+
+    init {
+        load()
+    }
+
+    fun load() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null) }
+            runCatching {
+                val race = raceRepository.race(raceId)
+                    ?: throw UserException("Gara non trovata")
+                val league = leagueRepository.league(race.leagueId)
+                val mine = predictionRepository.myPrediction(raceId)
+                val others = predictionRepository.othersPredictions(raceId)
+                val names = leagueRepository.members(race.leagueId)
+                    .associate { it.userId to it.displayName }
+                Quad(race, league, mine, others.map { (id, p) ->
+                    OtherPrediction(id, names[id] ?: "Giocatore", p)
+                })
+            }.onSuccess { (race, league, mine, others) ->
+                val rules = league?.rules ?: Rules()
+                val deadlinePassed = race.isDeadlinePassed()
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        race = race,
+                        league = league,
+                        rules = rules,
+                        mine = mine,
+                        drafts = if (mine != null) {
+                            mine.entries.map(DraftEntry::from)
+                        } else {
+                            rules.enabledTypes
+                                .filter { !it.isSprintRelated || race.isSprint }
+                                .sortedBy { type -> type.ordinal }
+                                .map(DraftEntry::of)
+                        },
+                        others = others,
+                        canSubmit = !deadlinePassed &&
+                            (mine == null || rules.allowEditUntilDeadline),
+                        deadlinePassed = deadlinePassed,
+                        saved = mine != null,
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(loading = false, error = throwable.message ?: "Si è verificato un errore")
+                }
+            }
+        }
+    }
+
+    fun toggleDriver(type: PredictionType, driverId: String) {
+        val max = PredictionValidation.requiredDrivers(type)
+        updateDraft(type) { draft ->
+            val selected = draft.driverIds
+            val newSelection = when {
+                driverId in selected -> selected - driverId
+                selected.size >= max -> selected.drop(1) + driverId
+                else -> selected + driverId
+            }
+            draft.copy(driverIds = newSelection)
+        }
+    }
+
+    fun setPosition(type: PredictionType, value: String) =
+        updateDraft(type) { it.copy(position = value.filter(Char::isDigit).take(2)) }
+
+    fun setRangeMin(type: PredictionType, value: String) =
+        updateDraft(type) { it.copy(rangeMin = value.filter(Char::isDigit).take(2)) }
+
+    fun setRangeMax(type: PredictionType, value: String) =
+        updateDraft(type) { it.copy(rangeMax = value.filter(Char::isDigit).take(2)) }
+
+    fun setThreshold(type: PredictionType, value: String) =
+        updateDraft(type) {
+            it.copy(threshold = value.filter { c -> c.isDigit() || c == '.' }.take(6))
+        }
+
+    fun setOver(type: PredictionType, value: Boolean) =
+        updateDraft(type) { it.copy(over = value) }
+
+    fun setBooleanValue(type: PredictionType, value: Boolean) =
+        updateDraft(type) { it.copy(booleanValue = value) }
+
+    private fun updateDraft(type: PredictionType, transform: (DraftEntry) -> DraftEntry) {
+        _uiState.update { state ->
+            state.copy(
+                drafts = state.drafts.map { if (it.type == type) transform(it) else it },
+                errors = emptyList(),
+            )
+        }
+    }
+
+    fun save() {
+        val state = _uiState.value
+        if (state.saving || !state.canSubmit) return
+        val race = state.race ?: return
+
+        val entries = state.drafts
+            .filter { it.complete }
+            .map { it.toDomain() }
+        val prediction = RacePrediction(raceId = raceId, entries = entries)
+
+        viewModelScope.launch {
+            val errors = PredictionValidation.validate(
+                prediction = prediction,
+                rules = state.rules,
+                isSprintRace = race.isSprint,
+            )
+            if (errors.isNotEmpty()) {
+                _uiState.update { it.copy(errors = errors) }
+                _events.emit(PredictionEvent.Failure(errors.first()))
+                return@launch
+            }
+
+            _uiState.update { it.copy(saving = true, errors = emptyList()) }
+            try {
+                predictionRepository.savePrediction(raceId, race.leagueId, prediction)
+                _uiState.update { it.copy(saving = false, saved = true, mine = prediction) }
+                _events.emit(PredictionEvent.Saved)
+            } catch (e: UserException) {
+                _uiState.update { it.copy(saving = false, errors = listOf(e.message)) }
+                _events.emit(PredictionEvent.Failure(e.message))
+            } catch (e: Exception) {
+                val message = e.message ?: "Impossibile salvare il pronostico"
+                _uiState.update { it.copy(saving = false, errors = listOf(message)) }
+                _events.emit(PredictionEvent.Failure(message))
+            }
+        }
+    }
+}
+
+/** Tupla comoda a 4 elementi per il caricamento iniziale. */
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)

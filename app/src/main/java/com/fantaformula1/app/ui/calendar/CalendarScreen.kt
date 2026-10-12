@@ -70,6 +70,7 @@ fun CalendarScreen(
     leagueId: String,
     onBack: () -> Unit,
     onOpenResult: (raceId: String, leagueId: String) -> Unit,
+    onOpenPrediction: (raceId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: CalendarViewModel = viewModel {
@@ -169,6 +170,7 @@ fun CalendarScreen(
                             race = race,
                             isAdmin = state.isAdmin,
                             onOpenResult = { onOpenResult(race.id, race.leagueId) },
+                            onOpenPrediction = { onOpenPrediction(race.id) },
                             onEdit = { viewModel.openEditForm(race) },
                             onDelete = { confirmDelete = race },
                         )
@@ -209,6 +211,7 @@ private fun RaceCard(
     race: Race,
     isAdmin: Boolean,
     onOpenResult: () -> Unit,
+    onOpenPrediction: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -284,6 +287,9 @@ private fun RaceCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                TextButton(onClick = onOpenPrediction) {
+                    Text(stringResource(R.string.lega_pronostici))
+                }
                 TextButton(onClick = onOpenResult) {
                     Text(stringResource(R.string.gara_risultati))
                 }

@@ -81,6 +81,7 @@
     <string name="lega_membri">Membri</string>
     <string name="lega_regole">Regole</string>
     <string name="lega_gare">Gare</string>
+    <string name="lega_pronostici">Pronostici</string>
     <string name="lega_classifica">Classifica</string>
     <string name="lega_codice_invito">Codice invito</string>
     <string name="lega_admin">Amministratore</string>
@@ -154,4 +155,23 @@
     <string name="campo_motivo_dnf">Motivo del ritiro</string>
     <string name="campo_penalita">Penalità</string>
     <string name="campo_pit_stop">Pit stop</string>
+
+    <!-- Pronostici -->
+    <string name="pronostici_titolo">Pronostici</string>
+    <string name="pronostico_salvato">Pronostico salvato</string>
+    <string name="pronostico_invato">Hai già inviato il tuo pronostico</string>
+    <string name="pronostico_chiuso">Pronostici chiusi: i risultati degli altri giocatori sono visibili qui sotto.</string>
+    <string name="pronostico_scadenza">I pronostici chiudono il %1$s</string>
+    <string name="pronostico_sempre_aperta">Gara sempre aperta ai pronostici</string>
+    <string name="pronostico_punti">%1$s punti</string>
+    <string name="pronostico_scegli_pilota">Scegli %1$d pilota/i</string>
+    <string name="pronostico_ritira">Il pilota ritira</string>
+    <string name="pronostico_soglia">Soglia</string>
+    <string name="pronostico_sopra">Sopra</string>
+    <string name="pronostico_sotto">Sotto</string>
+    <string name="pronostici_altri">Pronostici degli altri</string>
+    <string name="pronostici_altri_vuoto">Nessun altro giocatore ha ancora inviato il pronostico.</string>
+    <string name="campo_da">Da</string>
+    <string name="campo_a">A</string>
+    <string name="azione_invia">Invia</string>
 </resources>

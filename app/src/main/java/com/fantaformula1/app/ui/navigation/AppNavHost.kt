@@ -25,6 +25,7 @@ import com.fantaformula1.app.ui.config.ConfigScreen
 import com.fantaformula1.app.ui.leagues.LeagueMembersScreen
 import com.fantaformula1.app.ui.leagues.LeagueScreen
 import com.fantaformula1.app.ui.leagues.LeaguesScreen
+import com.fantaformula1.app.ui.predictions.PredictionScreen
 import com.fantaformula1.app.ui.results.RaceResultScreen
 import com.fantaformula1.app.ui.components.LoadingState
 
@@ -146,6 +147,18 @@ fun AppNavHost(
                 onOpenResult = { raceId, _ ->
                     navController.navigate(Routes.raceResults(raceId))
                 },
+                onOpenPrediction = { raceId ->
+                    navController.navigate(Routes.racePrediction(raceId))
+                },
+            )
+        }
+
+        composable(Routes.RACE_PREDICTION) { entry ->
+            val raceId = entry.arguments?.getString("raceId").orEmpty()
+            PredictionScreen(
+                container = container,
+                raceId = raceId,
+                onBack = { navController.popBackStack() },
             )
         }
 
