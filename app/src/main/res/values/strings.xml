@@ -174,4 +174,38 @@
     <string name="campo_da">Da</string>
     <string name="campo_a">A</string>
     <string name="azione_invia">Invia</string>
+
+    <!-- Classifica -->
+    <string name="classifica_titolo">Classifica</string>
+    <string name="classifica_tab_classifica">Classifica</string>
+    <string name="classifica_tab_gare">Punti per gara</string>
+    <string name="classifica_dettaglio">%1$d gare vinte su %2$d pronostici</string>
+    <string name="classifica_vuota">Nessun punteggio ancora</string>
+    <string name="classifica_vuota_sub">Gioca almeno una gara con risultato inserito per vedere la classifica.</string>
+    <string name="classifica_nessuna_gara">Nessuna gara nel calendario</string>
+    <string name="classifica_senza_risultato">Senza risultato</string>
+    <string name="classifica_nessun_pronostico">Nessun pronostico leggibile per questa gara.</string>
+
+    <!-- Regole della lega -->
+    <string name="regole_titolo">Regole della lega</string>
+    <string name="regole_salvate">Regole salvate</string>
+    <string name="regole_sola_lettura">Solo l\'amministratore può modificare le regole.</string>
+    <string name="regole_nome">Nome delle regole</string>
+    <string name="regole_preset_f1">Preset F1 ufficiale</string>
+    <string name="regole_preset_arcade">Preset Arcade</string>
+    <string name="regole_sezione_tipi">Tipi di pronostico e punti</string>
+    <string name="regole_sezione_premi">Punti del podio</string>
+    <string name="regole_sezione_moltiplicatori">Moltiplicatori</string>
+    <string name="regole_sezione_spareggio">Spareggio in classifica</string>
+    <string name="regole_sezione_opzioni">Opzioni</string>
+    <string name="regole_punti_podio">Punti per posizione di podio</string>
+    <string name="regole_podio_pos">%1$d° posto</string>
+    <string name="regole_punti_tipo">%1$s punti</string>
+    <string name="regole_punti_campo">Punti</string>
+    <string name="regole_fattore_quasi">Fattore posizione quasi indovinata</string>
+    <string name="regole_molt_dnf">Moltiplicatore DNF</string>
+    <string name="regole_molt_penalita">Moltiplicatore penalità</string>
+    <string name="regole_molt_sprint">Moltiplicatore sprint</string>
+    <string name="regole_reveal">Mostra i pronostici degli altri dopo la deadline</string>
+    <string name="regole_allow_edit">Consenti modifiche fino alla deadline</string>
 </resources>

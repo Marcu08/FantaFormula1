@@ -27,6 +27,8 @@ import com.fantaformula1.app.ui.leagues.LeagueScreen
 import com.fantaformula1.app.ui.leagues.LeaguesScreen
 import com.fantaformula1.app.ui.predictions.PredictionScreen
 import com.fantaformula1.app.ui.results.RaceResultScreen
+import com.fantaformula1.app.ui.rules.RulesScreen
+import com.fantaformula1.app.ui.standings.StandingsScreen
 import com.fantaformula1.app.ui.components.LoadingState
 
 /**
@@ -135,6 +137,26 @@ fun AppNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenMembers = { id -> navController.navigate(Routes.leagueMembers(id)) },
                 onOpenCalendar = { id -> navController.navigate(Routes.calendar(id)) },
+                onOpenStandings = { id -> navController.navigate(Routes.leagueStandings(id)) },
+                onOpenRules = { id -> navController.navigate(Routes.leagueRules(id)) },
+            )
+        }
+
+        composable(Routes.LEAGUE_STANDINGS) { entry ->
+            val leagueId = entry.arguments?.getString("leagueId").orEmpty()
+            StandingsScreen(
+                container = container,
+                leagueId = leagueId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.LEAGUE_RULES) { entry ->
+            val leagueId = entry.arguments?.getString("leagueId").orEmpty()
+            RulesScreen(
+                container = container,
+                leagueId = leagueId,
+                onBack = { navController.popBackStack() },
             )
         }
 

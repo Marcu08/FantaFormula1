@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +58,8 @@ fun LeagueScreen(
     onBack: () -> Unit,
     onOpenMembers: (String) -> Unit,
     onOpenCalendar: (String) -> Unit,
+    onOpenStandings: (String) -> Unit,
+    onOpenRules: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: LeaguesViewModel = viewModel {
@@ -139,6 +142,26 @@ fun LeagueScreen(
                             Icon(Icons.Outlined.Flag, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.lega_gare))
+                        }
+                    }
+                    item {
+                        TextButton(
+                            onClick = { onOpenStandings(leagueId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Outlined.EmojiEvents, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.lega_classifica))
+                        }
+                    }
+                    item {
+                        TextButton(
+                            onClick = { onOpenRules(leagueId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Outlined.Settings, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.lega_regole))
                         }
                     }
                 }
