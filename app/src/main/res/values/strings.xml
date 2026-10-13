@@ -229,6 +229,7 @@
     <string name="dashboard_pronostico_salvato">Pronostico salvato</string>
     <string name="dashboard_compila">Compila pronostico</string>
     <string name="dashboard_modifica">Modifica pronostico</string>
+    <string name="dashboard_scadenza_imminente">Scadenza imminente!</string>
 
     <!-- Classifica -->
     <string name="classifica_distanza">-%1$s dal precedente</string>

@@ -83,14 +83,31 @@ class F1SyncRepository(
                     emptyList()
                 }
                 val resultData = F1Mapper.toRaceResultData(results, qualifying, sprint)
+
+                // Dati di gara reali dai pit stops: senza questo, le previsioni
+                // sui pit stop giocherebbero su valori sempre a 0. Un fallimento
+                // dell'endpoint non blocca la sincronizzazione della gara.
+                val pitStops = runCatching {
+                    f1ApiClient.pitStops(SEASON, race.round)
+                }.getOrDefault(emptyList())
+                val pitStopsByDriver = F1Mapper.pitStopsByDriver(pitStops)
+                val totalLaps = F1Mapper.raceLaps(results)
+
+                val enriched = resultData.copy(
+                    drivers = resultData.drivers.map { driver ->
+                        driver.copy(pitStops = pitStopsByDriver[driver.driverId] ?: driver.pitStops)
+                    },
+                    laps = totalLaps ?: resultData.laps,
+                )
+
                 // Non salvare dati non conformi alle invarianti del motore di
                 // punteggio: la gara resta senza esito e si riprovera' dopo.
-                val errors = RaceResultValidation.validate(resultData, race.isSprint)
+                val errors = RaceResultValidation.validate(enriched, race.isSprint)
                 if (errors.isNotEmpty()) {
                     skipped++
                     return@forEach
                 }
-                raceRepository.saveResult(race.id, race.leagueId, resultData)
+                raceRepository.saveResult(race.id, race.leagueId, enriched)
                 completed++
             }
             SyncResult.Success(completed = completed, skipped = skipped)

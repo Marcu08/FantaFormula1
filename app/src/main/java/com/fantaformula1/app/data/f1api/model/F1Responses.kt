@@ -38,6 +38,16 @@ data class F1Race(
     @SerialName("Results") val results: List<F1Result>? = null,
     @SerialName("QualifyingResults") val qualifyingResults: List<F1QualifyingResult>? = null,
     @SerialName("SprintResults") val sprintResults: List<F1SprintResult>? = null,
+    @SerialName("PitStops") val pitStops: List<F1PitStop>? = null,
+)
+
+@Serializable
+data class F1PitStop(
+    @SerialName("driverId") val driverId: String,
+    @SerialName("stop") val stop: String? = null,
+    @SerialName("lap") val lap: String? = null,
+    @SerialName("duration") val duration: String? = null,
+    @SerialName("time") val time: String? = null,
 )
 
 @Serializable
@@ -68,6 +78,8 @@ data class F1Result(
     val points: String? = null,
     val grid: String? = null,
     val status: String? = null,
+    /** Giri completati dal pilota (Ergast): il massimo e' il totale di gara. */
+    @SerialName("laps") val laps: String? = null,
     @SerialName("Driver") val driver: F1Driver,
     @SerialName("Constructor") val constructor: F1Constructor? = null,
     @SerialName("Time") val time: F1Time? = null,
@@ -110,4 +122,25 @@ data class F1Time(
 data class F1FastestLap(
     val rank: String? = null,
     @SerialName("Time") val time: F1Time? = null,
+)
+
+/**
+ * Risposta dell'endpoint `f1/{season}/{round}/pitstops.json`: la struttura
+ * MRData contiene PitStopTable (non RaceTable come gli altri endpoint).
+ */
+@Serializable
+data class F1PitStopResponse(
+    @SerialName("MRData") val mrData: F1PitStopMRData,
+)
+
+@Serializable
+data class F1PitStopMRData(
+    @SerialName("PitStopTable") val pitStopTable: F1PitStopTable,
+)
+
+@Serializable
+data class F1PitStopTable(
+    val season: String? = null,
+    val round: String? = null,
+    @SerialName("PitStops") val pitStops: List<F1PitStop> = emptyList(),
 )

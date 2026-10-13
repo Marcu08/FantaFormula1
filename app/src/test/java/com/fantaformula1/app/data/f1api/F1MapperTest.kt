@@ -6,6 +6,7 @@ import com.fantaformula1.app.data.f1api.model.F1Circuit
 import com.fantaformula1.app.data.f1api.model.F1Driver
 import com.fantaformula1.app.data.f1api.model.F1FastestLap
 import com.fantaformula1.app.data.f1api.model.F1Location
+import com.fantaformula1.app.data.f1api.model.F1PitStop
 import com.fantaformula1.app.data.f1api.model.F1QualifyingResult
 import com.fantaformula1.app.data.f1api.model.F1Race
 import com.fantaformula1.app.data.f1api.model.F1Result
@@ -337,6 +338,71 @@ class F1MapperTest {
 
         assertFalse(F1Mapper.isPast(noDate, today))
         assertFalse(F1Mapper.isPast(badDate, today))
+    }
+
+    @Test
+    fun `pitStopsByDriver conta le fermate per pilota`() {
+        val pitStops = listOf(
+            F1PitStop(driverId = "max_verstappen", lap = "12"),
+            F1PitStop(driverId = "max_verstappen", lap = "34"),
+            F1PitStop(driverId = "lando_norris", lap = "15"),
+            F1PitStop(driverId = "pierre_gasly", lap = "18"),
+            F1PitStop(driverId = "pierre_gasly", lap = "30"),
+            F1PitStop(driverId = "pierre_gasly", lap = "44"),
+        )
+
+        val counts = F1Mapper.pitStopsByDriver(pitStops)
+
+        assertEquals(2, counts["VER"])
+        assertEquals(1, counts["NOR"])
+        assertEquals(3, counts["GAS"])
+    }
+
+    @Test
+    fun `pitStopsByDriver scarta i piloti non in catalogo e i conteggi assurdi`() {
+        val pitStops = listOf(
+            F1PitStop(driverId = "michael_schumacher", lap = "10"),
+            F1PitStop(driverId = "max_verstappen", lap = "12"),
+            F1PitStop(driverId = "max_verstappen", lap = "13"),
+            F1PitStop(driverId = "max_verstappen", lap = "14"),
+            F1PitStop(driverId = "max_verstappen", lap = "15"),
+            F1PitStop(driverId = "max_verstappen", lap = "16"),
+            F1PitStop(driverId = "max_verstappen", lap = "17"),
+            F1PitStop(driverId = "max_verstappen", lap = "18"),
+            F1PitStop(driverId = "max_verstappen", lap = "19"),
+            F1PitStop(driverId = "max_verstappen", lap = "20"), // 9 fermate: oltre il massimo
+        )
+
+        val counts = F1Mapper.pitStopsByDriver(pitStops)
+
+        assertNull(counts["SCH"] ?: counts["michael_schumacher"])
+        // 9 fermate supera il massimo: il conteggio viene scartato (dati malformati).
+        assertFalse(counts.containsKey("VER"))
+    }
+
+    @Test
+    fun `pitStopsByDriver su lista vuota restituisce mappa vuota`() {
+        assertEquals(emptyMap<String, Int>(), F1Mapper.pitStopsByDriver(emptyList()))
+    }
+
+    @Test
+    fun `raceLaps restituisce il massimo dei giri completati`() {
+        val withLaps = listOf(
+            F1Result(position = "1", laps = "57", driver = F1Driver(driverId = "max_verstappen")),
+            F1Result(position = "2", laps = "57", driver = F1Driver(driverId = "lando_norris")),
+            F1Result(position = "18", laps = "12", driver = F1Driver(driverId = "pierre_gasly")),
+        )
+
+        assertEquals(57, F1Mapper.raceLaps(withLaps))
+    }
+
+    @Test
+    fun `raceLaps senza dati restituisce null`() {
+        val results = listOf(
+            F1Result(position = "1", driver = F1Driver(driverId = "max_verstappen")),
+        )
+        assertNull(F1Mapper.raceLaps(results))
+        assertNull(F1Mapper.raceLaps(emptyList()))
     }
 
     private fun result(

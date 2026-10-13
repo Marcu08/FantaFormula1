@@ -3,6 +3,7 @@ package com.fantaformula1.app.data.f1api
 import com.fantaformula1.app.core.domain.DriverRaceResult
 import com.fantaformula1.app.core.domain.DriversCatalog
 import com.fantaformula1.app.core.domain.RaceResultData
+import com.fantaformula1.app.data.f1api.model.F1PitStop
 import com.fantaformula1.app.data.f1api.model.F1QualifyingResult
 import com.fantaformula1.app.data.f1api.model.F1Race
 import com.fantaformula1.app.data.f1api.model.F1Result
@@ -29,6 +30,9 @@ data class F1RaceCreate(
 object F1Mapper {
 
     private val isoParser = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+    /** Massimo pit stop per pilota accettato dai dati API (difesa da dati malformati). */
+    private const val MAX_PIT_STOPS = 8
 
     /** True se il round ha una sessione sprint nel calendario. */
     fun hasSprint(race: F1Race): Boolean =
@@ -173,6 +177,30 @@ object F1Mapper {
             .distinct()
             .mapIndexed { index, appId -> appId to (index + 1) }
             .toMap()
+
+    /**
+     * Conteggio pit stop per pilota (app ID) dai pit stops Ergast: una riga
+     * per ogni fermata, quindi il conteggio e' il numero di righe per driver.
+     * I piloti non presenti nel catalogo vengono scartati; per sicurezza un
+     * pilota non supera un massimo ragionevole di fermate (protegge da dati
+     * malformati senza inventare regole).
+     */
+    fun pitStopsByDriver(
+        pitStops: List<F1PitStop>,
+        maxPerDriver: Int = MAX_PIT_STOPS,
+    ): Map<String, Int> =
+        pitStops
+            .mapNotNull { stop -> F1DriverMapping.toAppId(stop.driverId) }
+            .groupingBy { it }
+            .eachCount()
+            .filterValues { it in 1..maxPerDriver }
+
+    /**
+     * Giri totali della gara: il massimo dei giri completati dai piloti
+     * (Ergast fornisce `laps` per ogni risultato). Null se nessun dato.
+     */
+    fun raceLaps(raceResults: List<F1Result>): Int? =
+        raceResults.mapNotNull { it.laps?.toIntOrNull() }.maxOrNull()
 
     /**
      * Un pilota e' classificato se ha finito o ha giri di ritardo.

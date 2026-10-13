@@ -1,5 +1,7 @@
 package com.fantaformula1.app.data.f1api
 
+import com.fantaformula1.app.data.f1api.model.F1PitStop
+import com.fantaformula1.app.data.f1api.model.F1PitStopResponse
 import com.fantaformula1.app.data.f1api.model.F1QualifyingResult
 import com.fantaformula1.app.data.f1api.model.F1Race
 import com.fantaformula1.app.data.f1api.model.F1Response
@@ -13,6 +15,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -104,6 +107,20 @@ class F1ApiClient {
         response.mrData.raceTable.races.firstOrNull()?.sprintResults.orEmpty()
     }
 
+    /**
+     * Pit stop per un determinato round (uno per ogni fermata dei box).
+     * Il default Ergast e' 30 righe: con il limite a 100 si copre un GP
+     * completo senza paginazione.
+     */
+    suspend fun pitStops(season: Int, round: Int): List<F1PitStop> = throttled {
+        val response: F1PitStopResponse = client
+            .get("f1/$season/$round/pitstops.json") {
+                parameter("limit", PIT_STOPS_LIMIT)
+            }
+            .body()
+        response.mrData.pitStopTable.pitStops
+    }
+
     companion object {
         private const val BASE_URL = "https://api.jolpi.ca/ergast/"
         private const val DEFAULT_SEASON = 2026
@@ -111,5 +128,6 @@ class F1ApiClient {
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val MAX_RETRIES = 2
         private const val MIN_REQUEST_INTERVAL_MS = 300L
+        private const val PIT_STOPS_LIMIT = "100"
     }
 }

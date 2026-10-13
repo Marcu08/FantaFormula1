@@ -300,6 +300,11 @@ private fun NextRaceCard(
                 )
                 race.deadline?.let { deadline ->
                     val remaining = java.time.Duration.between(now, deadline)
+                    // Urgenza: meno di un'ora alla chiusura. Evidenziata con
+                    // colore E etichetta testuale, non solo colore.
+                    val urgent = open &&
+                        !remaining.isNegative && !remaining.isZero &&
+                        remaining <= java.time.Duration.ofMinutes(60)
                     Text(
                         text = buildString {
                             append(
@@ -312,9 +317,17 @@ private fun NextRaceCard(
                                 append(" · ")
                                 append(stringResource(R.string.dashboard_tra, countdownText(remaining)))
                             }
+                            if (urgent) {
+                                append(" · ")
+                                append(stringResource(R.string.dashboard_scadenza_imminente))
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (urgent) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 } ?: Text(
                     text = stringResource(R.string.pronostico_sempre_aperta),

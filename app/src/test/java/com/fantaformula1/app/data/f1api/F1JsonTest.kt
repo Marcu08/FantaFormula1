@@ -1,6 +1,7 @@
 package com.fantaformula1.app.data.f1api
 
 import com.fantaformula1.app.core.domain.RaceResultValidation
+import com.fantaformula1.app.data.f1api.model.F1PitStopResponse
 import com.fantaformula1.app.data.f1api.model.F1Response
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -125,6 +126,25 @@ class F1JsonTest {
         assertEquals(2, qualifying.size)
         assertEquals("1", qualifying[0].position)
         assertEquals("max_verstappen", qualifying[0].driver.driverId)
+    }
+
+    @Test
+    fun `pitstops ergast viene deserializzato e contato`() {
+        val payload = """
+            {"MRData":{"xmlns":"http://ergast.com/mrd/1.5","series":"f1",
+            "url":"http://ergast.com/api/f1/2026/1/pitstops.json","limit":"100","offset":"0","total":"3",
+            "PitStopTable":{"season":"2026","round":"1","PitStops":[
+              {"driverId":"max_verstappen","lap":"14","stop":"1","duration":"22.315","time":"14:21:22"},
+              {"driverId":"max_verstappen","lap":"38","stop":"2","duration":"21.873","time":"14:52:30"},
+              {"driverId":"lando_norris","lap":"20","stop":"1","duration":"23.102","time":"14:31:40"}
+            ]}}}
+        """.trimIndent()
+
+        val response = F1Json.decodeFromString(F1PitStopResponse.serializer(), payload)
+        val counts = F1Mapper.pitStopsByDriver(response.mrData.pitStopTable.pitStops)
+
+        assertEquals(2, counts["VER"])
+        assertEquals(1, counts["NOR"])
     }
 
     @Test
