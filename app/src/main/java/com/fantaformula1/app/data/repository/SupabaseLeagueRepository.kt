@@ -6,6 +6,7 @@ import com.fantaformula1.app.data.model.LeagueMemberDto
 import com.fantaformula1.app.data.model.ProfileDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.util.AppJson
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -133,11 +134,28 @@ class SupabaseLeagueRepository(
         val client = requireClient()
         val userId = authRepository.currentUserId()
             ?: throw UserException("Devi essere autenticato per abbandonare una lega")
-        client.from("league_members").delete {
-            filter {
-                eq("league_id", leagueId)
-                eq("user_id", userId)
+
+        // B17: l'ultimo admin non puo' abbandonare, altrimenti la lega resta
+        // senza nessuno che puo' inserire risultati o modificare le regole.
+        val currentMembers = members(leagueId)
+        val iAmAdmin = currentMembers.any { it.userId == userId && it.isAdmin }
+        if (iAmAdmin && currentMembers.count { it.isAdmin } <= 1) {
+            throw UserException(
+                "Sei l'unico amministratore: promuovi un altro membro prima di abbandonare",
+            )
+        }
+
+        try {
+            client.from("league_members").delete {
+                filter {
+                    eq("league_id", leagueId)
+                    eq("user_id", userId)
+                }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            throw UserException(mapFunctionError(throwable, "abbandonare la lega"))
         }
     }
 
@@ -165,6 +183,8 @@ class SupabaseLeagueRepository(
     ): String {
         val raw = try {
             client.postgrest.rpc(function, parameters).data
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapFunctionError(throwable, emptyFallback))
         }

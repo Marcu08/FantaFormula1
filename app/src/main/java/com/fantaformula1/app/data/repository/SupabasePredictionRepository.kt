@@ -5,6 +5,7 @@ import com.fantaformula1.app.data.model.PredictionRowDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.util.AppJson
 import com.fantaformula1.app.data.util.nowIsoInstantString
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -100,6 +101,8 @@ class SupabasePredictionRepository(
                     ),
                 )
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable))
         }
@@ -115,6 +118,8 @@ class SupabasePredictionRepository(
                     eq("user_id", userId)
                 }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable))
         }
@@ -132,15 +137,20 @@ class SupabasePredictionRepository(
     private fun requireClient() = holder.get()
         ?: throw UserException("Configurazione Supabase mancante: apri le impostazioni e inserisci URL e chiave.")
 
+    /**
+     * Mappa l'errore di scrittura in un messaggio leggibile.
+     *
+     * Nota: la RLS del DB rifiuta le scritture dopo la deadline con un
+     * "permission denied" generico, quindi quel ramo NON puo' essere tradotto
+     * in "hai finito i permessi": il motivo reale piu' frequente e' la deadline.
+     */
     private fun mapWriteError(throwable: Throwable): String {
         val raw = throwable.message?.lowercase().orEmpty()
+        val isRlsOrPermission =
+            raw.contains("row-level security") || raw.contains("permission denied")
         return when {
-            raw.contains("row-level security") || raw.contains("permission denied") ->
+            isRlsOrPermission || raw.contains("violates check constraint") || raw.contains("deadline") ->
                 "La deadline è passata: non puoi più modificare il pronostico"
-            raw.contains("violates check constraint") || raw.contains("deadline") ->
-                "La deadline è passata: non puoi più modificare il pronostico"
-            raw.contains("permission") ->
-                "Non hai i permessi per questa operazione"
             else -> throwable.message ?: "Si è verificato un errore"
         }
     }

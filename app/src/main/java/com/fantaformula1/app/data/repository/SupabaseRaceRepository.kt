@@ -11,6 +11,7 @@ import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.util.AppJson
 import com.fantaformula1.app.data.util.nowIsoInstantString
 import com.fantaformula1.app.data.util.parseInstantMillis
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -60,7 +61,14 @@ private data class RaceUpdateDto(
     val name: String,
     val country: String? = null,
     @SerialName("is_sprint") val isSprint: Boolean = false,
-    val deadline: String? = null,
+    /**
+     * Deadline della gara. Il campo NON ha default: cosi' viene serializzato
+     * SEMPRE, anche quando e' null, e l'admin puo' davvero cancellare la
+     * scadenza (il Json di supabase-kt omette i campi con default uguale al
+     * valore, quindi con un default a null il PATCH non mandava il campo e la
+     * colonna restava invariata — B27).
+     */
+    val deadline: String?,
 )
 
 @Serializable
@@ -135,6 +143,8 @@ class SupabaseRaceRepository(
         )
         try {
             client.from("races").insert(dto)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable, "creare la gara"))
         }
@@ -173,6 +183,8 @@ class SupabaseRaceRepository(
                     deadline = deadline?.trim()?.ifBlank { null },
                 ),
             ) { filter { eq("id", raceId) } }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable, "aggiornare la gara"))
         }
@@ -184,6 +196,8 @@ class SupabaseRaceRepository(
             client.from("races").update(RaceStatusDto(status.stored)) {
                 filter { eq("id", raceId) }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable, "aggiornare lo stato della gara"))
         }
@@ -193,6 +207,8 @@ class SupabaseRaceRepository(
         val client = requireClient()
         try {
             client.from("races").delete { filter { eq("id", raceId) } }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable, "eliminare la gara"))
         }
@@ -214,7 +230,11 @@ class SupabaseRaceRepository(
         result: RaceResultData,
     ) {
         val client = requireClient()
-        val errors = RaceResultValidation.validate(result)
+        // B2: la validazione deve conoscere la tipologia della gara, altrimenti
+        // le posizioni sprint vengono sempre rifiutate.
+        val race = race(raceId)
+            ?: throw UserException("Gara non trovata")
+        val errors = RaceResultValidation.validate(result, isSprintRace = race.isSprint)
         if (errors.isNotEmpty()) throw UserException(errors.first())
 
         val normalized = result.copy(raceId = raceId)
@@ -222,6 +242,11 @@ class SupabaseRaceRepository(
         val enteredBy = authRepository.currentUserId()
 
         try {
+            // B21: il passaggio "update, e se non ha aggiornato righe allora
+            // insert" non e' atomico. Il cambio di stato va fatto SOLO dopo che
+            // il write del risultato ha davvero avuto successo: prima veniva
+            // eseguito anche quando l'insert falliva, lasciando la gara marcata
+            // COMPLETED senza un risultato leggibile.
             val updated = client.from("race_results").update(
                 RaceResultUpdateDto(
                     result = encoded,
@@ -241,13 +266,32 @@ class SupabaseRaceRepository(
                     ),
                 )
             }
-            updateStatus(raceId, RaceStatus.COMPLETED)
+
+            // Stato della gara: un errore qui non deve mascherare il fatto che
+            // il risultato e' stato scritto, quindi il messaggio lo dice chiaro.
+            try {
+                updateStatus(raceId, RaceStatus.COMPLETED)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                // Il risultato e' a posto: il messaggio lo dice esplicitamente
+                // invece di apparire come un fallimento del salvataggio.
+                throw UserException(STATO_GARA_FALLITO)
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
+            // Già un messaggio destinato all'utente: non va riscritto.
+            if (throwable is UserException && throwable.message == STATO_GARA_FALLITO) {
+                throw throwable
+            }
             throw UserException(mapWriteError(throwable, "salvare il risultato"))
         }
     }
 
-    // ---------------------------------------------------------------------
+    /** Esito parziale: il risultato e' scritto ma lo stato della gara no. */
+    private val STATO_GARA_FALLITO =
+        "Risultato salvato, ma non sono riuscito ad aggiornare lo stato della gara. Ricarica."
 
     /**
      * Ritorna la stagione attiva della lega, creandola se non esiste.
@@ -272,6 +316,8 @@ class SupabaseRaceRepository(
                     put("p_name", name)
                 },
             ).data
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapWriteError(throwable, "creare la stagione"))
         }

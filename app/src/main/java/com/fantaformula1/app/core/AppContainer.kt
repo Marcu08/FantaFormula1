@@ -45,11 +45,24 @@ class AppContainer(context: Context) {
 
     /**
      * Applica la configurazione Supabase e carica l'eventuale sessione salvata.
-     * Da chiamare una sola volta all'avvio dell'app.
+     *
+     * B25: idempotente. Poteva essere chiamata due volte all'avvio (Application
+     * + primo Composable), e ogni chiamata creava un nuovo client chiudendo
+     * quello precedente. Ora la seconda chiamata e' un no-op finche' la
+     * configurazione non cambia.
+     *
+     * B8: aspetta l'inizializzazione del plugin Auth prima di leggere l'utente.
      */
     suspend fun initialize() {
         val config = configStore.current()
-        supabaseHolder.configure(config)
+        val changed = config != supabaseHolder.currentConfigOrNull()
+        if (changed) {
+            supabaseHolder.configure(config)
+        }
+        // Attende il ripristino della sessione: senza questo, subito dopo la
+        // creazione del client currentUserOrNull() puo' dare null a causa di
+        // una condizione di gara e l'utente veniva mostrato come disconnesso.
+        supabaseHolder.awaitAuthInitialization()
         authRepository.refresh()
     }
 }

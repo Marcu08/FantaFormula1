@@ -1,21 +1,23 @@
 package com.fantaformula1.app.data.repository
 
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
-import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.rpc
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
- * Autenticazione email + password su Supabase Auth.
+ * Registrazione e accesso email + password su Supabase Auth.
  *
- * Dopo la registrazione il trigger `on_auth_user_created` crea la riga in
- * `profiles`; qui la allineiamo con il nome scelto dall'utente.
+ * Il nome scelto dall'utente viene passato ai metadata (`display_name`) in
+ * fase di registrazione: e' il trigger `on_auth_user_created` sul database a
+ * creare la riga in `profiles`. Questo client non scrive in `profiles`.
  */
 class SupabaseAuthRepository(
     private val holder: SupabaseHolder,
@@ -57,6 +59,8 @@ class SupabaseAuthRepository(
                 this.email = email.trim()
                 this.password = password
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapAuthError(throwable))
         }
@@ -65,24 +69,20 @@ class SupabaseAuthRepository(
 
     override suspend fun signUp(email: String, password: String, displayName: String) {
         val client = requireClient()
+        val name = displayName.trim()
         try {
             client.auth.signUpWith(Email) {
                 this.email = email.trim()
                 this.password = password
+                // B7: il nome va nei metadata dell'utente (campo `data` della
+                // config). Supabase lo salva in `user_metadata` e il trigger
+                // `on_auth_user_created` lo usa per la riga in `profiles`.
+                this.data = buildJsonObject { put("display_name", name) }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (throwable: Throwable) {
             throw UserException(mapAuthError(throwable))
-        }
-
-        val user = client.auth.currentUserOrNull()
-        if (user != null) {
-            // Il trigger ha gia' creato il profilo con l'email come nome:
-            // lo sostituiamo con il nome effettivo scelto dall'utente.
-            runCatching {
-                client.from("profiles").update(
-                    mapOf("display_name" to displayName.trim()),
-                ) { filter { eq("id", user.id) } }
-            }
         }
         refresh()
     }
@@ -103,6 +103,24 @@ class SupabaseAuthRepository(
     private fun mapAuthError(throwable: Throwable): String {
         val status = extractStatus(throwable)
         val raw = throwable.message?.lowercase().orEmpty()
+
+        // B26: la rete ha la priorita'. Se il dispositivo non arriva a Supabase
+        // (URL errato, chiave errata, offline) non ha senso dire "password
+        // sbagliata": prima i problemi di connessione, poi il resto.
+        if (raw.contains("unable to resolve host") || raw.contains("connection") ||
+            raw.contains("network") || raw.contains("timeout") ||
+            raw.contains("no address associated") || raw.contains("unreachable")
+        ) {
+            return "Connessione assente: controlla la rete e la configurazione"
+        }
+        // URL/chiave di Supabase non validi: l'host non risolve o la richiesta
+        // viene respinta a monte dell'Auth. Non e' un problema di credenziali.
+        if (raw.contains("invalid url") || raw.contains("illegal character") ||
+            raw.contains("failed to execute request") || status == HttpStatusCode.BadRequest
+        ) {
+            return "Configurazione Supabase non valida: controlla URL e chiave"
+        }
+
         return when {
             status == HttpStatusCode.Conflict || raw.contains("already registered") ||
                 raw.contains("already been registered") || raw.contains("email_exists") ->
@@ -120,10 +138,6 @@ class SupabaseAuthRepository(
 
             status == HttpStatusCode.TooManyRequests || raw.contains("rate limit") ->
                 "Troppi tentativi: riprova tra qualche istante"
-
-            raw.contains("unable to resolve host") || raw.contains("connection") ||
-                raw.contains("network") || raw.contains("timeout") ->
-                "Connessione assente: controlla la rete e la configurazione"
 
             else -> throwable.message?.takeIf { it.isNotBlank() }
                 ?: "Si è verificato un errore durante l'accesso"
