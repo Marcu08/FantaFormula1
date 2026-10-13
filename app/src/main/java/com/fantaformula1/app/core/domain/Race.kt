@@ -46,6 +46,14 @@ data class Race(
         status != RaceStatus.CLOSED && status != RaceStatus.COMPLETED && !isDeadlinePassed(now)
 
     /**
+     * True se la gara e' gia' passata: deadline superata oppure risultato
+     * registrato. Usata dal calendario per nascondere le gare precedenti e
+     * mostrare solo quelle a venire.
+     */
+    fun isPastRace(now: Instant = Instant.now()): Boolean =
+        status == RaceStatus.COMPLETED || isDeadlinePassed(now)
+
+    /**
      * Stato effettivo della gara, derivato da `status`, deadline e presenza
      * di un risultato (B20). Usato ovunque in UI per mostrare uno stato
      * coerente tra calendario, pronostici e classifica.

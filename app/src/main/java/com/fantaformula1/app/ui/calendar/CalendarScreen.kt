@@ -167,14 +167,11 @@ fun CalendarScreen(
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
-            // Le gare gia' completate escono dalla lista principale: restano
-            // raggiungibili nella sezione richiudibile in fondo (risultati).
-            val upcoming = state.races.filter {
-                it.effectiveStatus() != RaceStatus.COMPLETED
-            }
-            val completed = state.races.filter {
-                it.effectiveStatus() == RaceStatus.COMPLETED
-            }
+            // Dal calendario si vedono solo le gare a venire: le gare passate
+            // (deadline superata o gia' completate) restano nella sezione
+            // richiudibile in fondo, per consultare i risultati.
+            val upcoming = state.races.filterNot { it.isPastRace() }
+            val past = state.races.filter { it.isPastRace() }
             var showCompleted by remember { mutableStateOf(false) }
 
             when {
@@ -212,7 +209,7 @@ fun CalendarScreen(
                             )
                         }
                     }
-                    if (upcoming.isEmpty() && completed.isNotEmpty()) {
+                    if (upcoming.isEmpty() && past.isNotEmpty()) {
                         item(key = "all_done") {
                             Text(
                                 text = stringResource(R.string.calendario_tutte_completate),
@@ -231,8 +228,8 @@ fun CalendarScreen(
                             onDelete = { confirmDelete = race },
                         )
                     }
-                    if (completed.isNotEmpty()) {
-                        item(key = "completed_toggle") {
+                    if (past.isNotEmpty()) {
+                        item(key = "past_toggle") {
                             TextButton(
                                 onClick = { showCompleted = !showCompleted },
                                 modifier = Modifier.fillMaxWidth(),
@@ -252,14 +249,14 @@ fun CalendarScreen(
                                     } else {
                                         stringResource(
                                             R.string.calendario_completate_mostra,
-                                            completed.size,
+                                            past.size,
                                         )
                                     },
                                 )
                             }
                         }
                         if (showCompleted) {
-                            items(completed, key = { it.id }) { race ->
+                            items(past, key = { it.id }) { race ->
                                 RaceCard(
                                     race = race,
                                     isAdmin = state.isAdmin,
