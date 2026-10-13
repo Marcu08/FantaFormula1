@@ -38,7 +38,7 @@
     <string name="config_reset_done">Ripristinati i valori predefiniti</string>
     <string name="config_valori_default">Valori predefiniti da build</string>
     <string name="config_override_attivo">Valori personalizzati attivi</string>
-    <string name="config_url_invalido">L\'URL deve iniziare con http:// o https://</string>
+    <string name="config_url_invalido">L\'URL deve iniziare con https://</string>
     <string name="config_key_vuota">La chiave anon non può essere vuota</string>
     <string name="config_test_in_corso">Verifica della connessione…</string>
     <string name="config_test_ok">Connessione riuscita</string>
@@ -211,4 +211,8 @@
     <string name="regole_punti_sprint_effettivi">Sprint: %1$s x %2$s = %3$s punti</string>
     <string name="regole_reveal">Mostra i pronostici degli altri dopo la deadline</string>
     <string name="regole_allow_edit">Consenti modifiche fino alla deadline</string>
+
+    <!-- Sincronizzazione F1 -->
+    <string name="sync_in_corso">Sincronizzazione in corso…</string>
+    <string name="sync_ultimo_aggiornamento">Ultimo aggiornamento: %1$s</string>
 </resources>

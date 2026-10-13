@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -27,6 +28,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -62,6 +64,7 @@ fun LeaguesScreen(
     container: AppContainer,
     onOpenLeague: (String) -> Unit,
     onOpenMembers: (String) -> Unit,
+    onOpenConfig: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: LeaguesViewModel = viewModel {
@@ -101,6 +104,12 @@ fun LeaguesScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.leghe_titolo)) },
                 actions = {
+                    IconButton(onClick = onOpenConfig) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = stringResource(R.string.config_titolo),
+                        )
+                    }
                     TextButton(onClick = viewModel::signOut) {
                         Text(stringResource(R.string.auth_esci))
                     }

@@ -19,7 +19,7 @@ class FantaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
+        container = AppContainer(this, applicationScope)
 
         // Applica la configurazione Supabase salvata e ripristina la sessione.
         // Se mancano URL/chiavi l'app resta utilizzabile: mostra la schermata

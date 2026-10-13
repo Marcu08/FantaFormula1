@@ -13,6 +13,13 @@ import com.fantaformula1.app.data.repository.SupabaseLeagueRepository
 import com.fantaformula1.app.data.repository.SupabasePredictionRepository
 import com.fantaformula1.app.data.repository.SupabaseRaceRepository
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import com.fantaformula1.app.data.sync.F1SyncPrefs
+import com.fantaformula1.app.data.sync.F1SyncRepository
+import com.fantaformula1.app.data.sync.F1SyncStateHolder
+import com.fantaformula1.app.data.f1api.F1ApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Contenitore delle dipendenze dell'app — DI manuale leggera, senza Hilt/KSP.
@@ -20,7 +27,10 @@ import com.fantaformula1.app.data.supabase.SupabaseHolder
  *
  * Costruito una sola volta in [com.fantaformula1.app.FantaApplication].
  */
-class AppContainer(context: Context) {
+class AppContainer(
+    context: Context,
+    private val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) {
 
     /** Contesto applicazione, unico usato per DataStore e client di rete. */
     val applicationContext: Context = context.applicationContext
@@ -43,6 +53,22 @@ class AppContainer(context: Context) {
     val leagueDataRepository: LeagueDataRepository =
         SupabaseLeagueDataRepository(supabaseHolder)
 
+    /** Sincronizzazione calendario e risultati dal mondiale F1 reale. */
+    val f1SyncRepository: F1SyncRepository = F1SyncRepository(
+        f1ApiClient = F1ApiClient(),
+        raceRepository = raceRepository,
+    )
+
+    /** Orario dell'ultima sincronizzazione riuscita (indicatore in UI). */
+    val f1SyncPrefs = F1SyncPrefs(applicationContext)
+
+    /**
+     * Stato di sincronizzazione condiviso da UI e WorkManager: impedisce
+     * sincronizzazioni concorrenti e aggiorna "Ultimo aggiornamento".
+     */
+    val f1SyncStateHolder: F1SyncStateHolder =
+        F1SyncStateHolder(f1SyncRepository, f1SyncPrefs)
+
     /**
      * Applica la configurazione Supabase e carica l'eventuale sessione salvata.
      *
@@ -64,5 +90,9 @@ class AppContainer(context: Context) {
         // una condizione di gara e l'utente veniva mostrato come disconnesso.
         supabaseHolder.awaitAuthInitialization()
         authRepository.refresh()
+        // B8: osserva login/logout/scadenza sessione per tutta la vita dell'app.
+        authRepository.startSessionObserver(applicationScope)
+        // Carica gli orari dell'ultima sincronizzazione F1 per l'indicatore in UI.
+        f1SyncStateHolder.refresh()
     }
 }

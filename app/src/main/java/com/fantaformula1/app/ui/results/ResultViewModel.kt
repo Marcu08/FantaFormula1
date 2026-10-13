@@ -132,8 +132,11 @@ class ResultViewModel(
                         loading = false,
                         race = race,
                         isAdmin = admin,
+                        // B13: anche con risultato esistente mostriamo tutto il
+                        // catalogo, così l'admin può aggiungere piloti dopo il
+                        // primo salvataggio.
                         drivers = if (result != null) {
-                            result.drivers.map(DriverFormState::fromDomain)
+                            mergeWithCatalog(result.drivers)
                         } else {
                             DriverFormState.catalog()
                         },
@@ -155,6 +158,19 @@ class ResultViewModel(
             }
         }
     }
+
+/**
+ * Unisce i dati salvati con il catalogo completo: ogni pilota del catalogo
+ * appare nel form, e quelli già inseriti conservano i valori (B13).
+ */
+private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormState> {
+    val savedById = saved.associateBy { it.driverId }
+    return DriversCatalog.all.map { catalog ->
+        savedById[catalog.id]
+            ?.let { DriverFormState.fromDomain(it.copy(driverName = catalog.name)) }
+            ?: DriverFormState(driverId = catalog.id, driverName = catalog.name, team = catalog.team)
+    }
+}
 
     fun updateDriver(driverId: String, transform: (DriverFormState) -> DriverFormState) {
         _uiState.update { state ->

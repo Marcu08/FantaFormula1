@@ -57,6 +57,9 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) ed eseguilo.
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
    `races`, `race_results`, `predictions`), le policy **RLS** e le funzioni di business.
+3. Esegui anche [`supabase/migrations/0002_fixes.sql`](supabase/migrations/0002_fixes.sql):
+   corregge i bug lato DB (deadline, stato gare, ultimo admin, scritture atomiche
+   dei risultati, integrità referenziale tra leghe).
 3. Da **Authentication → Providers → Email**, disattiva "Confirm email" se vuoi che i
    nuovi giocatori entrino subito senza dover cliccare il link di conferma.
 4. Copia **Project URL** e **anon public key** da **Settings → API**.
@@ -67,14 +70,26 @@ All'avvio l'app mostra la schermata **Configurazione**: incolla URL e chiave ano
 I valori vengono salvati sul dispositivo (DataStore) e da lì in poi non servono più.
 
 In alternativa, per distribuire un APK già configurato, aggiungi al file
-`local.properties` (non è versionato):
+`local.properties` (non è versionato) le credenziali del tuo progetto:
 
 ```properties
 SUPABASE_URL=https://tuoprogetto.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOi...
 ```
 
-e ricompila: partire come valori predefiniti, comunque modificabili in-app.
+Poi rigenera l'APK con una clean build (così `BuildConfig` viene aggiornato):
+
+```powershell
+.\gradlew.bat clean assembleDebug
+# -> app\build\outputs\apk\debug\app-debug.apk
+```
+
+All'avvio l'app salterà la schermata di configurazione e arriverà direttamente ad
+accesso/registrazione. I valori restano comunque modificabili in-app dalla
+schermata **Configurazione** (raggiungibile dal menu in alto nelle leghe).
+
+> Nota: in alternativa ai nomi maiuscoli sopra, la build accetta anche
+> `supabase.url` e `supabase.anonKey`.
 
 ---
 

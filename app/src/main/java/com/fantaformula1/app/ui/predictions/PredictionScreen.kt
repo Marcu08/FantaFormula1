@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -86,6 +87,16 @@ fun PredictionScreen(
                 PredictionEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
                 is PredictionEvent.Failure -> snackbarHostState.showSnackbar(event.message)
             }
+        }
+    }
+
+    // B10: ricalcola la deadline ogni minuto mentre la schermata è aperta,
+    // così il FAB si disabilita e i pronostici altrui appaiono esattamente
+    // allo scadere del tempo.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            viewModel.checkDeadline()
         }
     }
 
@@ -173,7 +184,7 @@ fun PredictionScreen(
                         )
                     }
 
-                    if (state.deadlinePassed) {
+                    if (state.canRevealOthers) {
                         item { SectionTitle(stringResource(R.string.pronostici_altri)) }
                         if (state.others.isEmpty()) {
                             item {

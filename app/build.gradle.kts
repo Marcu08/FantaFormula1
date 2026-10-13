@@ -8,6 +8,8 @@ plugins {
 }
 
 // Valori di default Supabase presi da local.properties (opzionali).
+// I nomi ufficiali sono SUPABASE_URL e SUPABASE_ANON_KEY; per retrocompatibilita'
+// vengono accettati anche supabase.url e supabase.anonKey.
 // L'app permette di sovrascriverli a runtime dalla schermata Configurazione:
 // in assenza di chiavi mostra stato "configurazione mancante" invece di crashare.
 val localProperties = Properties().apply {
@@ -17,7 +19,12 @@ val localProperties = Properties().apply {
     }
 }
 
-fun localProp(key: String): String = localProperties.getProperty(key, "")
+fun localProp(vararg keys: String): String {
+    for (key in keys) {
+        localProperties.getProperty(key)?.let { return it }
+    }
+    return ""
+}
 
 android {
     namespace = "com.fantaformula1.app"
@@ -37,8 +44,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "DEFAULT_SUPABASE_URL", "\"${localProp("supabase.url")}\"")
-        buildConfigField("String", "DEFAULT_SUPABASE_ANON_KEY", "\"${localProp("supabase.anonKey")}\"")
+        // Accetta sia i nomi maiuscoli del README che i vecchi nomi camelCase.
+        buildConfigField("String", "DEFAULT_SUPABASE_URL", "\"${localProp("SUPABASE_URL", "supabase.url")}\"")
+        buildConfigField("String", "DEFAULT_SUPABASE_ANON_KEY", "\"${localProp("SUPABASE_ANON_KEY", "supabase.anonKey")}\"")
     }
 
     buildTypes {
@@ -108,6 +116,11 @@ dependencies {
     implementation(libs.supabase.realtime.kt)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+
+    // WorkManager per la sincronizzazione periodica API F1
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Kotlin
     implementation(libs.kotlinx.coroutines.core)

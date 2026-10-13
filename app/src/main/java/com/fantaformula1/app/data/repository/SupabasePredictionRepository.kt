@@ -16,17 +16,10 @@ import java.time.Instant
 private val predictionJson = AppJson
 
 @Serializable
-private data class PredictionInsertDto(
-    val id: String,
+private data class PredictionUpsertDto(
     @SerialName("race_id") val raceId: String,
     @SerialName("league_id") val leagueId: String,
     @SerialName("user_id") val userId: String,
-    val content: JsonElement,
-    @SerialName("submitted_at") val submittedAt: String,
-)
-
-@Serializable
-private data class PredictionUpdateDto(
     val content: JsonElement,
     @SerialName("submitted_at") val submittedAt: String,
 )
@@ -80,26 +73,19 @@ class SupabasePredictionRepository(
         val now = nowIsoInstantString()
 
         try {
-            val updated = client.from("predictions").update(
-                PredictionUpdateDto(content = encoded, submittedAt = now),
+            // B21: upsert atomico su (race_id, user_id). Se la RLS blocca
+            // (deadline passata o non membro) l'intera operazione fallisce con
+            // un errore chiaro, invece di lasciare uno stato incoerente.
+            client.from("predictions").upsert(
+                PredictionUpsertDto(
+                    raceId = raceId,
+                    leagueId = leagueId,
+                    userId = userId,
+                    content = encoded,
+                    submittedAt = now,
+                ),
             ) {
-                filter {
-                    eq("race_id", raceId)
-                    eq("user_id", userId)
-                }
-            }.decodeList<PredictionRowDto>()
-
-            if (updated.isEmpty()) {
-                client.from("predictions").insert(
-                    PredictionInsertDto(
-                        id = java.util.UUID.randomUUID().toString(),
-                        raceId = raceId,
-                        leagueId = leagueId,
-                        userId = userId,
-                        content = encoded,
-                        submittedAt = now,
-                    ),
-                )
+                onConflict = "race_id,user_id"
             }
         } catch (cancellation: CancellationException) {
             throw cancellation

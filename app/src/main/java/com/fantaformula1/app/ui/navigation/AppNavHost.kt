@@ -5,20 +5,26 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.AuthState
+import com.fantaformula1.app.data.sync.F1SyncScheduler
+import com.fantaformula1.app.data.sync.SyncResult
 import com.fantaformula1.app.ui.auth.AuthScreen
 import com.fantaformula1.app.ui.calendar.CalendarScreen
 import com.fantaformula1.app.ui.config.ConfigScreen
@@ -48,6 +54,8 @@ fun AppNavHost(
     val authState by container.authRepository.state.collectAsStateWithLifecycle(
         initialValue = AuthState.Checking,
     )
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         runCatching { container.initialize() }
@@ -126,11 +134,16 @@ fun AppNavHost(
                 onOpenMembers = { leagueId ->
                     navController.navigate(Routes.leagueMembers(leagueId))
                 },
+                onOpenConfig = { navController.navigate(Routes.CONFIG) },
             )
         }
 
         composable(Routes.LEAGUE) { entry ->
             val leagueId = entry.arguments?.getString("leagueId").orEmpty()
+            // Avvia la sincronizzazione periodica quando l'utente entra in una lega.
+            LaunchedEffect(leagueId) {
+                F1SyncScheduler.schedule(context, leagueId)
+            }
             LeagueScreen(
                 container = container,
                 leagueId = leagueId,
@@ -139,6 +152,19 @@ fun AppNavHost(
                 onOpenCalendar = { id -> navController.navigate(Routes.calendar(id)) },
                 onOpenStandings = { id -> navController.navigate(Routes.leagueStandings(id)) },
                 onOpenRules = { id -> navController.navigate(Routes.leagueRules(id)) },
+                onSyncCalendar = {
+                    scope.launch {
+                        // Null = sincronizzazione gia' in corso: nessun Toast.
+                        val result = container.f1SyncStateHolder.syncCalendar(leagueId)
+                        if (result != null) {
+                            val message = when (result) {
+                                is SyncResult.Success -> "Calendario aggiornato (${result.created} gare)"
+                                is SyncResult.Failure -> result.message
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
             )
         }
 
@@ -171,6 +197,19 @@ fun AppNavHost(
                 },
                 onOpenPrediction = { raceId ->
                     navController.navigate(Routes.racePrediction(raceId))
+                },
+                onSyncResults = {
+                    scope.launch {
+                        // Null = sincronizzazione gia' in corso: nessun Toast.
+                        val result = container.f1SyncStateHolder.syncResults(leagueId)
+                        if (result != null) {
+                            val message = when (result) {
+                                is SyncResult.Success -> "Risultati aggiornati (${result.completed} gare)"
+                                is SyncResult.Failure -> result.message
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 },
             )
         }

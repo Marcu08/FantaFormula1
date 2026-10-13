@@ -1,5 +1,6 @@
 package com.fantaformula1.app.data.repository
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 
 /** Stato di autenticazione dell'utente, indipendente dal SDK Supabase. */
@@ -38,4 +39,10 @@ interface AuthRepository {
 
     /** true se la configurazione Supabase e' presente e valida. */
     fun isConfigured(): Boolean
+
+    /**
+     * Avvia l'osservazione della sessione (login/logout/scadenza).
+     * L'implementazione reale la collega al flusso di Supabase Auth.
+     */
+    fun startSessionObserver(scope: CoroutineScope)
 }

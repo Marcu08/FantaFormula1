@@ -71,25 +71,6 @@ private data class RaceUpdateDto(
     val deadline: String?,
 )
 
-@Serializable
-private data class RaceStatusDto(val status: String)
-
-@Serializable
-private data class RaceResultInsertDto(
-    val id: String,
-    @SerialName("race_id") val raceId: String,
-    @SerialName("league_id") val leagueId: String,
-    val result: JsonElement,
-    @SerialName("entered_by") val enteredBy: String? = null,
-)
-
-@Serializable
-private data class RaceResultUpdateDto(
-    val result: JsonElement,
-    @SerialName("entered_by") val enteredBy: String? = null,
-    @SerialName("entered_at") val enteredAt: String,
-)
-
 /**
  * Implementazione Supabase di [RaceRepository].
  *
@@ -190,19 +171,6 @@ class SupabaseRaceRepository(
         }
     }
 
-    override suspend fun updateStatus(raceId: String, status: RaceStatus) {
-        val client = requireClient()
-        try {
-            client.from("races").update(RaceStatusDto(status.stored)) {
-                filter { eq("id", raceId) }
-            }
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            throw UserException(mapWriteError(throwable, "aggiornare lo stato della gara"))
-        }
-    }
-
     override suspend fun deleteRace(raceId: String) {
         val client = requireClient()
         try {
@@ -242,56 +210,21 @@ class SupabaseRaceRepository(
         val enteredBy = authRepository.currentUserId()
 
         try {
-            // B21: il passaggio "update, e se non ha aggiornato righe allora
-            // insert" non e' atomico. Il cambio di stato va fatto SOLO dopo che
-            // il write del risultato ha davvero avuto successo: prima veniva
-            // eseguito anche quando l'insert falliva, lasciando la gara marcata
-            // COMPLETED senza un risultato leggibile.
-            val updated = client.from("race_results").update(
-                RaceResultUpdateDto(
-                    result = encoded,
-                    enteredBy = enteredBy,
-                    enteredAt = nowIsoInstantString(),
-                ),
-            ) { filter { eq("race_id", raceId) } }.decodeList<RaceResultRowDto>()
-
-            if (updated.isEmpty()) {
-                client.from("race_results").insert(
-                    RaceResultInsertDto(
-                        id = UUID.randomUUID().toString(),
-                        raceId = raceId,
-                        leagueId = leagueId,
-                        result = encoded,
-                        enteredBy = enteredBy,
-                    ),
-                )
-            }
-
-            // Stato della gara: un errore qui non deve mascherare il fatto che
-            // il risultato e' stato scritto, quindi il messaggio lo dice chiaro.
-            try {
-                updateStatus(raceId, RaceStatus.COMPLETED)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (throwable: Throwable) {
-                // Il risultato e' a posto: il messaggio lo dice esplicitamente
-                // invece di apparire come un fallimento del salvataggio.
-                throw UserException(STATO_GARA_FALLITO)
-            }
+            // B21: RPC atomica che fa upsert del risultato e marca la gara
+            // come completata in un'unica transazione sul server.
+            client.postgrest.rpc(
+                function = "save_race_result",
+                parameters = buildJsonObject {
+                    put("p_race", raceId)
+                    put("p_result", encoded)
+                },
+            )
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            // Già un messaggio destinato all'utente: non va riscritto.
-            if (throwable is UserException && throwable.message == STATO_GARA_FALLITO) {
-                throw throwable
-            }
             throw UserException(mapWriteError(throwable, "salvare il risultato"))
         }
     }
-
-    /** Esito parziale: il risultato e' scritto ma lo stato della gara no. */
-    private val STATO_GARA_FALLITO =
-        "Risultato salvato, ma non sono riuscito ad aggiornare lo stato della gara. Ricarica."
 
     /**
      * Ritorna la stagione attiva della lega, creandola se non esiste.

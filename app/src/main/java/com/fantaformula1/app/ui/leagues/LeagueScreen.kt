@@ -18,8 +18,10 @@ import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +47,7 @@ import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.SyncBar
 
 /**
  * Dettaglio di una lega: per ora anagrafica e accesso ai membri.
@@ -60,12 +63,15 @@ fun LeagueScreen(
     onOpenCalendar: (String) -> Unit,
     onOpenStandings: (String) -> Unit,
     onOpenRules: (String) -> Unit,
+    onSyncCalendar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: LeaguesViewModel = viewModel {
         LeaguesViewModel(container.leagueRepository, container.authRepository)
     }
     val membersState by viewModel.membersState.collectAsStateWithLifecycle()
+    // Stato di sincronizzazione F1 condiviso con il worker in background.
+    val syncState by container.f1SyncStateHolder.state.collectAsStateWithLifecycle()
     var league by remember { mutableStateOf<League?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -99,6 +105,26 @@ fun LeagueScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = onSyncCalendar,
+                        // Durante la sincronizzazione il pulsante e' disattivo:
+                        // e' anche il retry manuale dopo un fallimento.
+                        enabled = !syncState.isSyncing,
+                    ) {
+                        if (syncState.isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Sync,
+                                contentDescription = "Sincronizza calendario F1",
+                            )
+                        }
+                    }
+                },
             )
         },
     ) { innerPadding ->
@@ -118,6 +144,14 @@ fun LeagueScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    if (syncState.isSyncing || syncState.lastCalendarSync != null) {
+                        item {
+                            SyncBar(
+                                isSyncing = syncState.isSyncing,
+                                lastSync = syncState.lastCalendarSync,
+                            )
+                        }
+                    }
                     item {
                         LeagueSummaryCard(
                             league = league,

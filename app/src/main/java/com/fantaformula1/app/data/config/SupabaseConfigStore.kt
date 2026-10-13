@@ -30,7 +30,7 @@ data class SupabaseConfig(
     val isConfigured: Boolean
         get() = url.isNotBlank() &&
             anonKey.isNotBlank() &&
-            (url.startsWith("http://") || url.startsWith("https://"))
+            url.startsWith("https://")
 }
 
 class SupabaseConfigStore(private val context: Context) {
@@ -51,8 +51,19 @@ class SupabaseConfigStore(private val context: Context) {
 
     suspend fun save(url: String, anonKey: String) {
         context.configDataStore.edit { prefs ->
-            prefs[KEY_URL] = url.trim()
-            prefs[KEY_ANON] = anonKey.trim()
+            val trimmedUrl = url.trim()
+            val trimmedKey = anonKey.trim()
+            // Stringhe vuote = nessun override: tornano ai default di BuildConfig.
+            if (trimmedUrl.isBlank()) {
+                prefs.remove(KEY_URL)
+            } else {
+                prefs[KEY_URL] = trimmedUrl
+            }
+            if (trimmedKey.isBlank()) {
+                prefs.remove(KEY_ANON)
+            } else {
+                prefs[KEY_ANON] = trimmedKey
+            }
         }
     }
 

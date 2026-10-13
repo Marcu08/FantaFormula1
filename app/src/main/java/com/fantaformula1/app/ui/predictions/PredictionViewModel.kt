@@ -98,6 +98,7 @@ data class PredictionUiState(
     val others: List<OtherPrediction> = emptyList(),
     val canSubmit: Boolean = false,
     val deadlinePassed: Boolean = false,
+    val canRevealOthers: Boolean = false,
     val saving: Boolean = false,
     val saved: Boolean = false,
     val errors: List<String> = emptyList(),
@@ -116,6 +117,10 @@ class PredictionViewModel(
     private val predictionRepository: PredictionRepository,
     private val raceId: String,
 ) : ViewModel() {
+
+    companion object {
+        const val NIENTE_COMPILATO = "Compila almeno un pronostico prima di inviare"
+    }
 
     private val _uiState = MutableStateFlow(PredictionUiState())
     val uiState: StateFlow<PredictionUiState> = _uiState
@@ -153,17 +158,17 @@ class PredictionViewModel(
                         league = league,
                         rules = rules,
                         mine = mine,
-                        drafts = if (mine != null) {
-                            mine.entries.map(DraftEntry::from)
-                        } else {
-                            // B14: i drafts devono corrispondere ai tipi visibili
-                            // (senza sprint su gara non sprint), non a tutti i
-                            // tipi attivi della lega.
-                            visibleTypesFor(rules, race).map(DraftEntry::of)
-                        },
+                        // B14: le bozze seguono sempre i tipi attuali della
+                        // lega e compatibili con la gara; i valori salvati
+                        // riempiono solo i tipi ancora attivi.
+                        drafts = buildDrafts(rules, race, mine),
                         others = others,
                         canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
                         deadlinePassed = !open,
+                        // B10: se revealOthersAfterDeadline è false gli altri
+                        // pronostici sono visibili subito, altrimenti solo dopo
+                        // la deadline.
+                        canRevealOthers = !rules.revealOthersAfterDeadline || !open,
                         saved = mine != null,
                     )
                 }
@@ -208,6 +213,23 @@ class PredictionViewModel(
     fun setBooleanValue(type: PredictionType, value: Boolean) =
         updateDraft(type) { it.copy(booleanValue = value) }
 
+    /**
+     * Ricalcola lo stato legato alla deadline (B10): utile quando la schermata
+     * è aperta mentre scade il tempo, o quando l'app torna in foreground.
+     */
+    fun checkDeadline() {
+        val state = _uiState.value
+        val race = state.race ?: return
+        val open = race.isPredictionOpen()
+        _uiState.update {
+            it.copy(
+                canSubmit = open && (it.mine == null || it.rules.allowEditUntilDeadline),
+                deadlinePassed = !open,
+                canRevealOthers = !it.rules.revealOthersAfterDeadline || !open,
+            )
+        }
+    }
+
     private fun updateDraft(type: PredictionType, transform: (DraftEntry) -> DraftEntry) {
         _uiState.update { state ->
             state.copy(
@@ -225,9 +247,16 @@ class PredictionViewModel(
         val entries = state.drafts
             .filter { it.complete }
             .map { it.toDomain() }
+
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
         viewModelScope.launch {
+            if (entries.isEmpty()) {
+                _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO)) }
+                _events.emit(PredictionEvent.Failure(NIENTE_COMPILATO))
+                return@launch
+            }
+
             val errors = PredictionValidation.validate(
                 prediction = prediction,
                 rules = state.rules,
@@ -264,3 +293,20 @@ private fun visibleTypesFor(rules: Rules, race: Race): List<PredictionType> =
     rules.enabledTypes
         .filter { !it.isSprintRelated || race.isSprint }
         .sortedBy { it.ordinal }
+
+/**
+ * Costruisce le bozze a partire dai tipi attuali della lega, riempiendo con i
+ * valori salvati solo per i tipi ancora attivi. Così se l'admin disattiva un
+ * tipo, la bozza sparisce; se ne attiva uno nuovo, appare subito (B14).
+ */
+private fun buildDrafts(
+    rules: Rules,
+    race: Race,
+    mine: RacePrediction?,
+): List<DraftEntry> {
+    val visibleTypes = visibleTypesFor(rules, race)
+    val savedByType = mine?.entries?.associateBy { it.type } ?: emptyMap()
+    return visibleTypes.map { type ->
+        savedByType[type]?.let(DraftEntry::from) ?: DraftEntry.of(type)
+    }
+}

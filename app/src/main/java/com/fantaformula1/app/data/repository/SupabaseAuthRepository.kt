@@ -2,8 +2,11 @@ package com.fantaformula1.app.data.repository
 
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.status.SessionStatus
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+
 
 /**
  * Registrazione e accesso email + password su Supabase Auth.
@@ -37,6 +41,18 @@ class SupabaseAuthRepository(
             _state.value = AuthState.SignedOut
             return
         }
+        // B8: attende che il plugin Auth abbia ripristinato la sessione
+        // salvata, altrimenti currentUserOrNull() puo' dare null subito dopo
+        // l'avvio anche se l'utente era loggato.
+        try {
+            client.auth.awaitInitialization()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            // Se l'inizializzazione fallisce proviamo comunque a leggere lo
+            // stato attuale: meglio SignedOut/SignedIn basato sui dati che
+            // abbiamo piuttosto che lasciare Checking all'infinito.
+        }
         val user = client.auth.currentUserOrNull()
         _state.value = if (user != null) {
             AuthState.SignedIn(
@@ -51,6 +67,25 @@ class SupabaseAuthRepository(
             AuthState.SignedOut
         }
     }
+
+    /**
+     * Osserva i cambi di sessione (login, logout, scadenza del refresh token)
+     * e aggiorna lo stato in tempo reale (B8). Va avviato da [AppContainer]
+     * dopo aver configurato il client.
+     */
+    override fun startSessionObserver(scope: CoroutineScope) {
+        val client = holder.get() ?: return
+        scope.launch {
+            client.auth.sessionStatus.collect { status ->
+                when (status) {
+                    is SessionStatus.Authenticated -> refresh()
+                    is SessionStatus.NotAuthenticated -> _state.value = AuthState.SignedOut
+                    else -> Unit
+                }
+            }
+        }
+    }
+
 
     override suspend fun signIn(email: String, password: String) {
         val client = requireClient()
@@ -84,8 +119,16 @@ class SupabaseAuthRepository(
         } catch (throwable: Throwable) {
             throw UserException(mapAuthError(throwable))
         }
+
+        // B7: se dopo la registrazione non c'e' sessione, significa che su
+        // Supabase e' attiva la conferma email. L'utente deve cliccare il link
+        // prima di poter entrare.
+        if (client.auth.currentSessionOrNull() == null) {
+            throw UserException("Controlla la tua email per confermare l'account")
+        }
         refresh()
     }
+
 
     override suspend fun signOut() {
         val client = holder.get() ?: run {

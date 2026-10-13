@@ -69,7 +69,7 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
         val state = _uiState.value
         val urlError = when {
             state.url.isBlank() -> URL_VUOTO
-            !state.url.startsWith("http://") && !state.url.startsWith("https://") -> URL_FORMATO
+            !state.url.startsWith("https://") -> URL_FORMATO
             else -> null
         }
         val keyError = if (state.anonKey.isBlank()) CHIAVE_VUOTA else null
@@ -154,7 +154,7 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
     companion object {
         /** Messaggi di errore in italiano, usati anche dai test. */
         const val URL_VUOTO = "Inserisci l'URL del progetto"
-        const val URL_FORMATO = "L'URL deve iniziare con http:// o https://"
+        const val URL_FORMATO = "L'URL deve iniziare con https://"
         const val CHIAVE_VUOTA = "La chiave anon non può essere vuota"
         const val SALVATAGGIO_FALLITO = "Impossibile applicare la configurazione"
     }

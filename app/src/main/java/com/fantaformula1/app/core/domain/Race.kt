@@ -44,4 +44,20 @@ data class Race(
      */
     fun isPredictionOpen(now: Instant = Instant.now()): Boolean =
         status != RaceStatus.CLOSED && status != RaceStatus.COMPLETED && !isDeadlinePassed(now)
+
+    /**
+     * Stato effettivo della gara, derivato da `status`, deadline e presenza
+     * di un risultato (B20). Usato ovunque in UI per mostrare uno stato
+     * coerente tra calendario, pronostici e classifica.
+     */
+    fun effectiveStatus(
+        now: Instant = Instant.now(),
+        hasResult: Boolean = false,
+    ): RaceStatus = when {
+        status == RaceStatus.COMPLETED || hasResult -> RaceStatus.COMPLETED
+        status == RaceStatus.CLOSED -> RaceStatus.CLOSED
+        status == RaceStatus.OPEN -> RaceStatus.OPEN
+        isDeadlinePassed(now) -> RaceStatus.CLOSED
+        else -> RaceStatus.SCHEDULED
+    }
 }

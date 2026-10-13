@@ -37,8 +37,6 @@ interface RaceRepository {
         deadline: String?,
     )
 
-    suspend fun updateStatus(raceId: String, status: RaceStatus)
-
     suspend fun deleteRace(raceId: String)
 
     /** Esito salvato per la gara, oppure null se non ancora inserito. */

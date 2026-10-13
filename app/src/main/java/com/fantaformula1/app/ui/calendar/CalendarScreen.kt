@@ -22,9 +22,11 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -61,6 +63,7 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
 import com.fantaformula1.app.ui.components.SectionTitle
+import com.fantaformula1.app.ui.components.SyncBar
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +74,7 @@ fun CalendarScreen(
     onBack: () -> Unit,
     onOpenResult: (raceId: String, leagueId: String) -> Unit,
     onOpenPrediction: (raceId: String) -> Unit,
+    onSyncResults: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: CalendarViewModel = viewModel {
@@ -82,6 +86,8 @@ fun CalendarScreen(
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // Stato di sincronizzazione F1 condiviso con il worker in background.
+    val syncState by container.f1SyncStateHolder.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf<Race?>(null) }
@@ -114,6 +120,24 @@ fun CalendarScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onSyncResults,
+                        // Durante la sincronizzazione il pulsante e' disattivo:
+                        // e' anche il retry manuale dopo un fallimento.
+                        enabled = !syncState.isSyncing,
+                    ) {
+                        if (syncState.isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Sync,
+                                contentDescription = "Sincronizza risultati F1",
+                            )
+                        }
+                    }
                     IconButton(onClick = viewModel::load) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
@@ -165,6 +189,14 @@ fun CalendarScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    if (syncState.isSyncing || syncState.lastResultsSync != null) {
+                        item(key = "sync") {
+                            SyncBar(
+                                isSyncing = syncState.isSyncing,
+                                lastSync = syncState.lastResultsSync,
+                            )
+                        }
+                    }
                     items(state.races, key = { it.id }) { race ->
                         RaceCard(
                             race = race,
@@ -246,7 +278,7 @@ private fun RaceCard(
                     )
                     val subtitle = buildList {
                         race.country?.takeIf { it.isNotBlank() }?.let(::add)
-                        add(statusLabel(race.status))
+                        add(statusLabel(race.effectiveStatus()))
                     }.joinToString(" · ")
                     Text(
                         text = subtitle,
@@ -254,7 +286,7 @@ private fun RaceCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                StatusChip(status = race.status)
+                StatusChip(status = race.effectiveStatus())
             }
 
             val deadlineOrSprint = race.deadline?.let { deadline ->
