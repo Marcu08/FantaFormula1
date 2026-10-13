@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.config.SupabaseConfig
+import com.fantaformula1.app.data.config.isValidSupabaseUrl
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -69,7 +70,7 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
         val state = _uiState.value
         val urlError = when {
             state.url.isBlank() -> URL_VUOTO
-            !state.url.startsWith("https://") -> URL_FORMATO
+            !isValidSupabaseUrl(state.url) -> URL_FORMATO
             else -> null
         }
         val keyError = if (state.anonKey.isBlank()) CHIAVE_VUOTA else null
@@ -154,7 +155,8 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
     companion object {
         /** Messaggi di errore in italiano, usati anche dai test. */
         const val URL_VUOTO = "Inserisci l'URL del progetto"
-        const val URL_FORMATO = "L'URL deve iniziare con https://"
+        const val URL_FORMATO =
+            "Inserisci un URL valido, es. https://abcdefgh.supabase.co"
         const val CHIAVE_VUOTA = "La chiave anon non può essere vuota"
         const val SALVATAGGIO_FALLITO = "Impossibile applicare la configurazione"
     }

@@ -27,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,21 +42,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
+import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.data.repository.League
+import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SyncBar
+import com.fantaformula1.app.ui.components.raceHeaderBrush
 
 /**
- * Dettaglio di una lega: per ora anagrafica e accesso ai membri.
- * Le sezioni calendario, pronostici e classifica arrivano nelle fasi successive.
+ * Dettaglio di una lega: dashboard della prossima gara, anagrafica e accesso
+ * alle sezioni (membri, calendario, classifica, regole).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +74,7 @@ fun LeagueScreen(
     onOpenCalendar: (String) -> Unit,
     onOpenStandings: (String) -> Unit,
     onOpenRules: (String) -> Unit,
+    onOpenPrediction: (String) -> Unit,
     onSyncCalendar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -79,6 +87,12 @@ fun LeagueScreen(
     var league by remember { mutableStateOf<League?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    // Dashboard: prossima gara pronosticabile + stato del mio pronostico.
+    var nextRace by remember { mutableStateOf<Race?>(null) }
+    var predictionSavedForNext by remember { mutableStateOf(false) }
+    // Aggiornata ogni minuto per il countdown (stesso pattern B10 dei pronostici).
+    var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
 
     suspend fun loadLeague() {
         loading = true
@@ -94,6 +108,23 @@ fun LeagueScreen(
     LaunchedEffect(leagueId) {
         loadLeague()
         viewModel.loadMembers(leagueId)
+        runCatching {
+            val races = container.raceRepository.races(leagueId)
+            val mine = container.predictionRepository.myPredictions(leagueId)
+            val upcoming = races.filterNot { it.isPastRace() }
+            val next = upcoming.minByOrNull { it.deadline ?: java.time.Instant.MAX }
+            next to mine
+        }.onSuccess { (race, mine) ->
+            nextRace = race
+            predictionSavedForNext = race?.id != null && race.id in mine
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            nowTick = java.time.Instant.now()
+        }
     }
 
     Scaffold(
@@ -156,6 +187,16 @@ fun LeagueScreen(
                             )
                         }
                     }
+                    nextRace?.let { race ->
+                        item(key = "next_race") {
+                            NextRaceCard(
+                                race = race,
+                                predictionSaved = predictionSavedForNext,
+                                now = nowTick,
+                                onOpenPrediction = onOpenPrediction,
+                            )
+                        }
+                    }
                     item {
                         LeagueSummaryCard(
                             league = league,
@@ -193,6 +234,121 @@ fun LeagueScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * Dashboard della prossima gara pronosticabile: bandiera e gradiente come
+ * nel calendario, countdown alla chiusura, stato del mio pronostico e
+ * accesso diretto alla compilazione.
+ */
+@Composable
+private fun NextRaceCard(
+    race: Race,
+    predictionSaved: Boolean,
+    now: java.time.Instant,
+    onOpenPrediction: (String) -> Unit,
+) {
+    val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    val open = race.isPredictionOpen(now)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(raceHeaderBrush(visual))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = visual.flag,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.dashboard_prossima),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.85f),
+                    )
+                    Text(
+                        text = race.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = if (predictionSaved) {
+                        stringResource(R.string.dashboard_pronostico_salvato)
+                    } else {
+                        stringResource(R.string.dashboard_da_compilare)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (predictionSaved) MaterialTheme.colorScheme.primary else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                race.deadline?.let { deadline ->
+                    val remaining = java.time.Duration.between(now, deadline)
+                    Text(
+                        text = buildString {
+                            append(
+                                stringResource(
+                                    R.string.dashboard_chiusura,
+                                    formatLocalDateTimeInput(deadline),
+                                ),
+                            )
+                            if (open && !remaining.isNegative && !remaining.isZero) {
+                                append(" · ")
+                                append(stringResource(R.string.dashboard_tra, countdownText(remaining)))
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } ?: Text(
+                    text = stringResource(R.string.pronostico_sempre_aperta),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (open) {
+                    FilledTonalButton(
+                        onClick = { onOpenPrediction(race.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = if (predictionSaved) {
+                                stringResource(R.string.dashboard_modifica)
+                            } else {
+                                stringResource(R.string.dashboard_compila)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Countdown compatto: "3g 4h", "5h 20m" o "42m". */
+private fun countdownText(remaining: java.time.Duration): String {
+    val days = remaining.toDays()
+    val hours = remaining.toHours() % 24
+    val minutes = remaining.toMinutes() % 60
+    return when {
+        days > 0 -> "${days}g ${hours}h"
+        hours > 0 -> "${hours}h ${minutes}m"
+        else -> "${minutes}m"
     }
 }
 

@@ -15,6 +15,9 @@ object ScoringEngine {
     /**
      * Punteggio di una singola voce di pronostico.
      * Restituisce sempre un valore >= 0 (0 = non indovinato / tipo non attivo).
+     * Il clamp protegge anche da regole jsonb malformate (punti negativi non
+     * ammessi nemmeno come dato in ingresso: Rules.validate li vieta, ma il
+     * jsonb e' scritto dall'admin e resta fuori dal controllo del motore).
      */
     fun score(
         entry: PredictionEntry,
@@ -23,7 +26,7 @@ object ScoringEngine {
     ): Double {
         // Tipo disattivato dalle regole della lega: zero punti.
         if (entry.type !in rules.enabledTypes) return 0.0
-        return baseScore(entry, result, rules).roundTo2()
+        return baseScore(entry, result, rules).coerceAtLeast(0.0).roundTo2()
     }
 
     /** Somma dei punteggi di tutte le voci di un pronostico per una gara. */

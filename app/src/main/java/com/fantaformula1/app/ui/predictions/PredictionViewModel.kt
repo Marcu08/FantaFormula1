@@ -247,25 +247,28 @@ class PredictionViewModel(
 
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
+        if (entries.isEmpty()) {
+            _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO)) }
+            viewModelScope.launch { _events.emit(PredictionEvent.Failure(NIENTE_COMPILATO)) }
+            return
+        }
+
+        val errors = PredictionValidation.validate(
+            prediction = prediction,
+            rules = state.rules,
+            isSprintRace = race.isSprint,
+        )
+        if (errors.isNotEmpty()) {
+            _uiState.update { it.copy(errors = errors) }
+            viewModelScope.launch { _events.emit(PredictionEvent.Failure(errors.first())) }
+            return
+        }
+
+        // Guard sincrona prima del launch: un doppio tocco non avvia due
+        // salvataggi in parallelo (l'upsert e' idempotente, ma evitiamo
+        // comunque richieste duplicate in volo).
+        _uiState.update { it.copy(saving = true, errors = emptyList()) }
         viewModelScope.launch {
-            if (entries.isEmpty()) {
-                _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO)) }
-                _events.emit(PredictionEvent.Failure(NIENTE_COMPILATO))
-                return@launch
-            }
-
-            val errors = PredictionValidation.validate(
-                prediction = prediction,
-                rules = state.rules,
-                isSprintRace = race.isSprint,
-            )
-            if (errors.isNotEmpty()) {
-                _uiState.update { it.copy(errors = errors) }
-                _events.emit(PredictionEvent.Failure(errors.first()))
-                return@launch
-            }
-
-            _uiState.update { it.copy(saving = true, errors = emptyList()) }
             try {
                 predictionRepository.savePrediction(raceId, race.leagueId, prediction)
                 _uiState.update { it.copy(saving = false, saved = true, mine = prediction) }

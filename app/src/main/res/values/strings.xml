@@ -220,4 +220,17 @@
     <!-- Sincronizzazione F1 -->
     <string name="sync_in_corso">Sincronizzazione in corso…</string>
     <string name="sync_ultimo_aggiornamento">Ultimo aggiornamento: %1$s</string>
+
+    <!-- Dashboard prossima gara -->
+    <string name="dashboard_prossima">Prossima gara</string>
+    <string name="dashboard_chiusura">Chiusura pronostici: %1$s</string>
+    <string name="dashboard_tra">tra %1$s</string>
+    <string name="dashboard_da_compilare">Da compilare</string>
+    <string name="dashboard_pronostico_salvato">Pronostico salvato</string>
+    <string name="dashboard_compila">Compila pronostico</string>
+    <string name="dashboard_modifica">Modifica pronostico</string>
+
+    <!-- Classifica -->
+    <string name="classifica_distanza">-%1$s dal precedente</string>
+    <string name="classifica_ultima_gara">Ultima gara: +%1$s</string>
 </resources>

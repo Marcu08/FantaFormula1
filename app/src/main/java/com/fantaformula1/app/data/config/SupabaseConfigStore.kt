@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.fantaformula1.app.BuildConfig
+import java.net.URI
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -14,6 +15,23 @@ import kotlinx.coroutines.flow.map
 private val Context.configDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "fantaformula1_supabase_config",
 )
+
+/**
+ * Valida un endpoint Supabase: schema https, host con punto, nessuna
+ * credenziale nell'URL (userinfo), niente query o fragment. Molto piu'
+ * rigoroso di un semplice `startsWith("https://")` senza richiedere rete.
+ * Funzione pura, testata in [com.fantaformula1.app.data.config.SupabaseConfigTest].
+ */
+fun isValidSupabaseUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty() || trimmed.length > 200) return false
+    val uri = runCatching { URI(trimmed) }.getOrNull() ?: return false
+    if (uri.scheme?.lowercase() != "https") return false
+    val host = uri.host ?: return false
+    if (!host.contains('.')) return false
+    if (uri.userInfo != null || uri.rawQuery != null || uri.fragment != null) return false
+    return true
+}
 
 /**
  * Configurazione Supabase.
@@ -28,9 +46,7 @@ data class SupabaseConfig(
     val anonKey: String,
 ) {
     val isConfigured: Boolean
-        get() = url.isNotBlank() &&
-            anonKey.isNotBlank() &&
-            url.startsWith("https://")
+        get() = anonKey.isNotBlank() && isValidSupabaseUrl(url)
 }
 
 class SupabaseConfigStore(private val context: Context) {

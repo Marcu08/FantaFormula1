@@ -154,6 +154,12 @@ private fun OverallList(state: StandingsUiState) {
                 2 -> Color(0xFFC07037) // bronzo
                 else -> null
             }
+            // Ultima gara con risultato: per mostrare i punti guadagnati.
+            val lastRaceId = state.races
+                .filter { state.resultsByRace.containsKey(it.id) }
+                .maxByOrNull { it.round }?.id
+            val lastRacePoints = lastRaceId
+                ?.let { raceId -> state.scoresByRace[raceId]?.find { it.userId == row.userId }?.points }
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -185,13 +191,38 @@ private fun OverallList(state: StandingsUiState) {
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        lastRacePoints?.takeIf { it > 0.0 }?.let { points ->
+                            Text(
+                                text = stringResource(
+                                    R.string.classifica_ultima_gara,
+                                    formatPoints(points),
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    Text(
-                        text = formatPoints(row.totalPoints),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = formatPoints(row.totalPoints),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        if (index > 0) {
+                            val gap = state.rows[index - 1].totalPoints - row.totalPoints
+                            if (gap > 0.0) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.classifica_distanza,
+                                        formatPoints(gap),
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

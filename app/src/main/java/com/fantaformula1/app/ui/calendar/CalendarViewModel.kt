@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
+import com.fantaformula1.app.data.repository.PredictionRepository
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
 import com.fantaformula1.app.data.util.parseLocalDateTimeInput
@@ -26,6 +27,8 @@ data class CalendarUiState(
     val loading: Boolean = true,
     val races: List<Race> = emptyList(),
     val isAdmin: Boolean = false,
+    /** Gare per cui l'utente corrente ha gia' inviato un pronostico. */
+    val myPredictionRaceIds: Set<String> = emptySet(),
     val error: String? = null,
     val submitting: Boolean = false,
     /** Form gara aperto (null = chiuso). */
@@ -48,6 +51,7 @@ class CalendarViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
     private val authRepository: AuthRepository,
+    private val predictionRepository: PredictionRepository,
     private val leagueId: String,
 ) : ViewModel() {
 
@@ -69,10 +73,16 @@ class CalendarViewModel(
                 val members = leagueRepository.members(leagueId)
                 val me = authRepository.currentUserId()
                 val admin = members.any { it.userId == me && it.isAdmin }
-                races to admin
-            }.onSuccess { (races, admin) ->
+                val mine = predictionRepository.myPredictions(leagueId).keys
+                Triple(races, admin, mine)
+            }.onSuccess { (races, admin, mine) ->
                 _uiState.update {
-                    it.copy(loading = false, races = races, isAdmin = admin)
+                    it.copy(
+                        loading = false,
+                        races = races,
+                        isAdmin = admin,
+                        myPredictionRaceIds = mine,
+                    )
                 }
             }.onFailure { throwable ->
                 _uiState.update {

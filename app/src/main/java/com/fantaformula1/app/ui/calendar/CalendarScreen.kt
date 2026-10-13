@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
@@ -93,6 +94,7 @@ fun CalendarScreen(
             raceRepository = container.raceRepository,
             leagueRepository = container.leagueRepository,
             authRepository = container.authRepository,
+            predictionRepository = container.predictionRepository,
             leagueId = leagueId,
         )
     }
@@ -228,6 +230,7 @@ fun CalendarScreen(
                         RaceCard(
                             race = race,
                             isAdmin = state.isAdmin,
+                            predictionSaved = race.id in state.myPredictionRaceIds,
                             onOpenResult = { onOpenResult(race.id, race.leagueId) },
                             onOpenPrediction = { onOpenPrediction(race.id) },
                             onEdit = { viewModel.openEditForm(race) },
@@ -266,6 +269,7 @@ fun CalendarScreen(
                                 RaceCard(
                                     race = race,
                                     isAdmin = state.isAdmin,
+                                    predictionSaved = race.id in state.myPredictionRaceIds,
                                     onOpenResult = { onOpenResult(race.id, race.leagueId) },
                                     onOpenPrediction = { onOpenPrediction(race.id) },
                                     onEdit = { viewModel.openEditForm(race) },
@@ -313,6 +317,7 @@ confirmButton = {
 private fun RaceCard(
     race: Race,
     isAdmin: Boolean,
+    predictionSaved: Boolean,
     onOpenResult: () -> Unit,
     onOpenPrediction: () -> Unit,
     onEdit: () -> Unit,
@@ -369,6 +374,15 @@ private fun RaceCard(
                     StatusChip(status = race.effectiveStatus())
                     Spacer(Modifier.width(8.dp))
                     if (race.isSprint) SprintBadge()
+                    if (predictionSaved) {
+                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = "Pronostico salvato",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     race.deadline?.let { deadline ->
                         Text(

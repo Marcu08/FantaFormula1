@@ -195,6 +195,25 @@ class F1MapperTest {
     }
 
     @Test
+    fun `toRaceResultData tratta la squalifica come non classificato`() {
+        // Ergast: positionText "D" = disqualified. Il pilota non ha posizione:
+        // per il motore di punteggio si comporta come un DNF.
+        val results = listOf(
+            result("max_verstappen", position = "1", positionText = "1"),
+            result("pierre_gasly", position = "2", positionText = "D", status = "Disqualified"),
+        )
+
+        val data = F1Mapper.toRaceResultData(results, emptyList(), emptyList())
+
+        assertEquals(1, data.positionOf("VER"))
+        val gasly = data.drivers.first { it.driverId == "GAS" }
+        assertTrue(gasly.dnf)
+        assertNull(gasly.position)
+        assertEquals("Disqualified", gasly.dnfReason)
+        assertEquals(emptyList<String>(), RaceResultValidation.validate(data))
+    }
+
+    @Test
     fun `toRaceResultData non mescola griglia qualifica e gara`() {
         // Con la qualifica presente la griglia viene solo da li': chi non ha
         // girato in qualifica (es. partito dai box) non eredita la griglia di

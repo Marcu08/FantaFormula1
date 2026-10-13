@@ -743,4 +743,42 @@ class ScoringEngineTest {
         assertTrue(raceWith(deadline = null, status = RaceStatus.OPEN).isPredictionOpen(now))
         assertTrue(raceWith(deadline = null, status = RaceStatus.SCHEDULED).isPredictionOpen(now))
     }
+
+    // -- Regole malformate: il motore non produce mai punteggi negativi -------
+
+    @Test
+    fun `punti negativi nelle regole non generano punteggi negativi`() {
+        // Il jsonb delle regole e' scritto dall'admin: Rules.validate vieta i
+        // valori negativi, ma il motore si difende anche da dati non validi.
+        val negativeRules = rules.copy(
+            points = rules.points + (PredictionType.WINNER to -25.0),
+            penaltyMultiplier = -1.0,
+        )
+        val e = entryOf(PredictionType.WINNER, "VER")
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), negativeRules), 0.001)
+    }
+
+    @Test
+    fun `punti podio negativi non generano punteggi negativi`() {
+        val negativeRules = rules.copy(
+            podiumPoints = listOf(-25.0, -18.0, -15.0),
+        )
+        val e = PredictionEntry(
+            type = PredictionType.PODIUM,
+            driverIds = listOf("VER", "RUS", "LEC"),
+        )
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), negativeRules), 0.001)
+    }
+
+    @Test
+    fun `fattore near miss negativo non genera punteggi negativi`() {
+        val negativeRules = rules.copy(exactPositionNearMissFactor = -0.5)
+        // VER arriva 1º, pronostico sulla 2ª posizione: near miss con fattore negativo.
+        val e = PredictionEntry(
+            type = PredictionType.DRIVER_EXACT_POSITION,
+            driverIds = listOf("VER"),
+            position = 2,
+        )
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), negativeRules), 0.001)
+    }
 }

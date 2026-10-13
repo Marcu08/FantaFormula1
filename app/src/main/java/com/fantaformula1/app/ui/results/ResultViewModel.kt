@@ -249,15 +249,18 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
             notes = state.notes.trim().ifBlank { null },
         )
 
-        viewModelScope.launch {
-            val errors = RaceResultValidation.validate(result, isSprintRace = race.isSprint)
-            if (errors.isNotEmpty()) {
-                _uiState.update { it.copy(fieldErrors = errors) }
-                _events.emit(ResultEvent.Failure(errors.first()))
-                return@launch
-            }
+        val errors = RaceResultValidation.validate(result, isSprintRace = race.isSprint)
+        if (errors.isNotEmpty()) {
+            _uiState.update { it.copy(fieldErrors = errors) }
+            viewModelScope.launch { _events.emit(ResultEvent.Failure(errors.first())) }
+            return
+        }
 
-            _uiState.update { it.copy(saving = true, fieldErrors = emptyList()) }
+        // Guard sincrona prima del launch: un doppio tocco non puo' avviare
+        // due salvataggi in parallelo (la RPC e' idempotente, ma evitiamo
+        // comunque scritture duplicate in volo).
+        _uiState.update { it.copy(saving = true, fieldErrors = emptyList()) }
+        viewModelScope.launch {
             try {
                 raceRepository.saveResult(raceId, race.leagueId, result)
                 _uiState.update { it.copy(saving = false, saved = true) }

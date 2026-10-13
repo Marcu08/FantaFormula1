@@ -13,6 +13,13 @@ interface PredictionRepository {
     suspend fun myPrediction(raceId: String): RacePrediction?
 
     /**
+     * Pronostici dell'utente corrente per tutte le gare della lega
+     * (raceId -> pronostico). Una sola query: serve a dashboard e calendario
+     * per mostrare lo stato "pronostico salvato" senza N richieste.
+     */
+    suspend fun myPredictions(leagueId: String): Map<String, RacePrediction>
+
+    /**
      * Pronostici degli altri membri per la gara (userId -> pronostico).
      * Ritorna una mappa vuota se la deadline non e' ancora passata
      * (la RLS non restituisce comunque righe altrui).

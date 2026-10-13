@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit test e build APK
+        # Il repo ha org.gradle.java.home puntato a un percorso Windows locale:
+        # in CI viene overridato con il JAVA_HOME del runner (JDK 21).
+        run: ./gradlew testDebugUnitTest assembleDebug --no-daemon -Dorg.gradle.java.home="$JAVA_HOME"

@@ -152,6 +152,7 @@ fun AppNavHost(
                 onOpenCalendar = { id -> navController.navigate(Routes.calendar(id)) },
                 onOpenStandings = { id -> navController.navigate(Routes.leagueStandings(id)) },
                 onOpenRules = { id -> navController.navigate(Routes.leagueRules(id)) },
+                onOpenPrediction = { raceId -> navController.navigate(Routes.racePrediction(raceId)) },
                 onSyncCalendar = {
                     scope.launch {
                         // Null = sincronizzazione gia' in corso: nessun Toast.
