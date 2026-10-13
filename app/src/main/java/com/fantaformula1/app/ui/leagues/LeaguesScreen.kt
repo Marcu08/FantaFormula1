@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -272,7 +273,7 @@ private fun CreateLeagueDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     if (name.trim().length < 2) {
                         error = "Inserisci un nome di almeno 2 caratteri"
@@ -326,7 +327,7 @@ private fun JoinLeagueDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     if (code.trim().length != 6) {
                         error = "Il codice invito deve essere di 6 caratteri"

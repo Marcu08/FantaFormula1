@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -146,14 +147,18 @@ private fun OverallList(state: StandingsUiState) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         itemsIndexed(state.rows, key = { _, row -> row.userId }) { index, row ->
+            // Colori medaglia per il podio, neutri per il resto.
+            val medal = when (index) {
+                0 -> Color(0xFFE0A100) // oro
+                1 -> Color(0xFF8E99A8) // argento
+                2 -> Color(0xFFC07037) // bronzo
+                else -> null
+            }
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (index == 0) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
+                    containerColor = medal?.copy(alpha = 0.18f)
+                        ?: MaterialTheme.colorScheme.surfaceVariant,
                 ),
             ) {
                 Row(
@@ -166,7 +171,7 @@ private fun OverallList(state: StandingsUiState) {
                         text = "${index + 1}°",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = medal ?: MaterialTheme.colorScheme.primary,
                         modifier = Modifier.width(36.dp),
                     )
                     Column(modifier = Modifier.weight(1f)) {

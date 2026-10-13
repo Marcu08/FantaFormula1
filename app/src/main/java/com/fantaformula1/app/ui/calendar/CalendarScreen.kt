@@ -20,20 +20,26 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -282,14 +288,18 @@ fun CalendarScreen(
             onDismissRequest = { confirmDelete = null },
             title = { Text(stringResource(R.string.gara_elimina)) },
             text = { Text(stringResource(R.string.gara_elimina_conferma, race.name)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmDelete = null
-                        scope.launch { viewModel.deleteRace(race) }
+confirmButton = {
+                        Button(
+                            onClick = {
+                                confirmDelete = null
+                                scope.launch { viewModel.deleteRace(race) }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) { Text(stringResource(R.string.azione_elimina)) }
                     },
-                ) { Text(stringResource(R.string.azione_elimina)) }
-            },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = null }) {
                     Text(stringResource(R.string.azione_annulla))
@@ -379,10 +389,30 @@ private fun RaceCard(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = onOpenPrediction) {
+                    // Azione primaria tonale, secondaria in outline.
+                    FilledTonalButton(
+                        onClick = onOpenPrediction,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.EditNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.lega_pronostici))
                     }
-                    TextButton(onClick = onOpenResult) {
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenResult,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.EmojiEvents,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.gara_risultati))
                     }
                     if (isAdmin) {
@@ -425,6 +455,14 @@ private fun SprintBadge() {
 
 @Composable
 private fun StatusChip(status: RaceStatus) {
+    // Colore semantico per stato: leggibile su tema chiaro e scuro
+    // (testo saturo su fondo tinto al 16%).
+    val (textColor, bgColor) = when (status) {
+        RaceStatus.SCHEDULED -> Color(0xFF2F6FD3) to Color(0xFF2F6FD3).copy(alpha = 0.16f)
+        RaceStatus.OPEN -> Color(0xFF009150) to Color(0xFF009150).copy(alpha = 0.16f)
+        RaceStatus.CLOSED -> Color(0xFFB07C00) to Color(0xFFB07C00).copy(alpha = 0.16f)
+        RaceStatus.COMPLETED -> Color(0xFFD93A34) to Color(0xFFD93A34).copy(alpha = 0.16f)
+    }
     Text(
         text = when (status) {
             RaceStatus.SCHEDULED -> stringResource(R.string.stato_programmata)
@@ -433,10 +471,10 @@ private fun StatusChip(status: RaceStatus) {
             RaceStatus.COMPLETED -> stringResource(R.string.stato_completata)
         },
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = textColor,
         modifier = Modifier
             .background(
-                color = MaterialTheme.colorScheme.surface,
+                color = bgColor,
                 shape = RoundedCornerShape(6.dp),
             )
             .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -524,7 +562,7 @@ private fun RaceFormDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = viewModel::submitForm,
                 enabled = !state.submitting,
             ) { Text(stringResource(R.string.azione_salva)) }
