@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,12 +19,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,7 +39,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -274,7 +279,7 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PredictionCard(
     type: PredictionType,
@@ -309,22 +314,18 @@ private fun PredictionCard(
             Spacer(Modifier.height(8.dp))
 
             if (PredictionValidation.requiredDrivers(type) > 0) {
-                Text(
-                    text = stringResource(
-                        R.string.pronostico_scegli_pilota,
-                        PredictionValidation.requiredDrivers(type),
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DriversCatalog.all.forEach { driver ->
-                        val selected = driver.id in draft.driverIds
-                        FilterChip(
-                            selected = selected,
-                            onClick = { if (enabled) viewModel.toggleDriver(type, driver.id) },
-                            label = { Text(driver.name.substringAfterLast(' ')) },
+                val required = PredictionValidation.requiredDrivers(type)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(required) { slot ->
+                        DriverDropdown(
+                            label = if (required == 1) {
+                                stringResource(R.string.pronostico_pilota)
+                            } else {
+                                stringResource(R.string.pronostico_slot_pilota, slot + 1)
+                            },
+                            selectedDriverId = draft.driverIds.getOrNull(slot),
                             enabled = enabled,
+                            onSelect = { viewModel.setDriverAt(type, slot, it) },
                         )
                     }
                 }
@@ -391,6 +392,54 @@ private fun PredictionCard(
                 }
 
                 else -> Unit
+            }
+        }
+    }
+}
+
+/**
+ * Menu a tendina per la scelta di un pilota in uno slot del pronostico.
+ * Sostituisce la griglia di chip: piu' compatto e con la semantica di
+ * spostamento gestita da [PredictionViewModel.setDriverAt].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DriverDropdown(
+    label: String,
+    selectedDriverId: String?,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded && enabled,
+        onExpandedChange = { if (enabled) expanded = it },
+    ) {
+        OutlinedTextField(
+            value = selectedDriverId?.let { DriversCatalog.nameOf(it) }.orEmpty(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { Text(stringResource(R.string.pronostico_seleziona_pilota)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true,
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DriversCatalog.all.forEach { driver ->
+                DropdownMenuItem(
+                    text = { Text(driver.name) },
+                    onClick = {
+                        expanded = false
+                        onSelect(driver.id)
+                    },
+                )
             }
         }
     }

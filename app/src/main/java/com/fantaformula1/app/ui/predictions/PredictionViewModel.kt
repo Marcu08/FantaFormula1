@@ -180,16 +180,13 @@ class PredictionViewModel(
         }
     }
 
-    fun toggleDriver(type: PredictionType, driverId: String) {
-        val max = PredictionValidation.requiredDrivers(type)
+    /**
+     * Seleziona un pilota nello slot indicato del pronostico (menu a tendina).
+     * La logica e' in [setDriverInSelection], testata con unit test JVM.
+     */
+    fun setDriverAt(type: PredictionType, slot: Int, driverId: String) {
         updateDraft(type) { draft ->
-            val selected = draft.driverIds
-            val newSelection = when {
-                driverId in selected -> selected - driverId
-                selected.size >= max -> selected.drop(1) + driverId
-                else -> selected + driverId
-            }
-            draft.copy(driverIds = newSelection)
+            draft.copy(driverIds = setDriverInSelection(draft.driverIds, slot, driverId))
         }
     }
 
@@ -287,6 +284,34 @@ class PredictionViewModel(
 
 /** Tupla comoda a 4 elementi per il caricamento iniziale. */
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+/**
+ * Logica pura della selezione a slot per i pronostici a tendina.
+ *
+ * La lista resta compatta e ordinata per slot: scegliere un pilota gia'
+ * selezionato in un altro slot lo sposta qui con inserimento (gli altri
+ * scalano), mentre un pilota nuovo sostituisce l'occupante dello slot.
+ * I duplicati sono impossibili per costruzione (invariante richiesta da
+ * PredictionValidation).
+ */
+internal fun setDriverInSelection(
+    selection: List<String>,
+    slot: Int,
+    driverId: String,
+): List<String> {
+    val moving = driverId in selection
+    val selected = selection.toMutableList()
+    selected.remove(driverId)
+    val at = slot.coerceAtMost(selected.size)
+    if (moving || at == selected.size) {
+        // Spostamento o slot oltre la dimensione: inserimento con shift.
+        selected.add(at, driverId)
+    } else {
+        // Pilota nuovo che prende il posto dell'occupante dello slot.
+        selected[at] = driverId
+    }
+    return selected
+}
 
 /** Tipi di pronostico da mostrare: attivi nella lega e compatibili con la gara. */
 private fun visibleTypesFor(rules: Rules, race: Race): List<PredictionType> =

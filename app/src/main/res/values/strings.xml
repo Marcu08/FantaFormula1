@@ -169,7 +169,9 @@
     <string name="pronostico_scadenza">I pronostici chiudono il %1$s</string>
     <string name="pronostico_sempre_aperta">Gara sempre aperta ai pronostici</string>
     <string name="pronostico_punti">%1$s punti</string>
-    <string name="pronostico_scegli_pilota">Scegli %1$d pilota/i</string>
+    <string name="pronostico_pilota">Pilota</string>
+    <string name="pronostico_slot_pilota">Pilota %1$d</string>
+    <string name="pronostico_seleziona_pilota">Seleziona pilota</string>
     <string name="pronostico_ritira">Il pilota ritira</string>
     <string name="pronostico_soglia">Soglia</string>
     <string name="pronostico_sopra">Sopra</string>
