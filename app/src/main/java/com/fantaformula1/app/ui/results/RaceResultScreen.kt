@@ -1,6 +1,7 @@
 package com.fantaformula1.app.ui.results
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,7 +58,9 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SectionTitle
+import com.fantaformula1.app.ui.components.raceHeaderBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -212,28 +216,48 @@ fun RaceResultScreen(
 @Composable
 private fun RaceHeader(state: ResultUiState) {
     val race = state.race ?: return
+    // Stessa identita' visiva della card nel calendario: la gara e' riconoscibile.
+    val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                text = stringResource(R.string.gara_round_name, race.round, race.name),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            val details = buildList {
-                race.country?.takeIf { it.isNotBlank() }?.let(::add)
-                if (race.isSprint) add(stringResource(R.string.gara_sprint))
-                race.deadline?.let {
-                    add(stringResource(R.string.risultati_deadline, formatLocalDateTimeInput(it)))
-                }
-                if (state.saved) add(stringResource(R.string.risultato_salvato))
-            }.joinToString(" · ")
-            Text(
-                text = details,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(raceHeaderBrush(visual))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = visual.flag,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.gara_round_name, race.round, race.name),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(Modifier.padding(14.dp)) {
+                val details = buildList {
+                    race.country?.takeIf { it.isNotBlank() }?.let(::add)
+                    if (race.isSprint) add(stringResource(R.string.gara_sprint))
+                    race.deadline?.let {
+                        add(stringResource(R.string.risultati_deadline, formatLocalDateTimeInput(it)))
+                    }
+                    if (state.saved) add(stringResource(R.string.risultato_salvato))
+                }.joinToString(" · ")
+                Text(
+                    text = details,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

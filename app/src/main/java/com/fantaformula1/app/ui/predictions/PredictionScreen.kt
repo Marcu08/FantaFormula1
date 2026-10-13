@@ -1,5 +1,6 @@
 package com.fantaformula1.app.ui.predictions
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.runtime.remember
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,7 +60,9 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SectionTitle
+import com.fantaformula1.app.ui.components.raceHeaderBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -209,6 +213,8 @@ fun PredictionScreen(
 @Composable
 private fun DeadlineBanner(state: PredictionUiState) {
     val race = state.race ?: return
+    // Stessa identita' visiva della card nel calendario: la gara e' riconoscibile.
+    val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -219,33 +225,50 @@ private fun DeadlineBanner(state: PredictionUiState) {
             },
         ),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                text = stringResource(R.string.gara_round_name, race.round, race.name),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (state.deadlinePassed) {
-                    stringResource(R.string.pronostico_chiuso)
-                } else {
-                    race.deadline?.let {
-                        stringResource(
-                            R.string.pronostico_scadenza,
-                            formatLocalDateTimeInput(it),
-                        )
-                    } ?: stringResource(R.string.pronostico_sempre_aperta)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.saved) {
-                Spacer(Modifier.height(4.dp))
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(raceHeaderBrush(visual))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = stringResource(R.string.pronostico_invato),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = visual.flag,
+                    style = MaterialTheme.typography.headlineSmall,
                 )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.gara_round_name, race.round, race.name),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    text = if (state.deadlinePassed) {
+                        stringResource(R.string.pronostico_chiuso)
+                    } else {
+                        race.deadline?.let {
+                            stringResource(
+                                R.string.pronostico_scadenza,
+                                formatLocalDateTimeInput(it),
+                            )
+                        } ?: stringResource(R.string.pronostico_sempre_aperta)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (state.saved) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.pronostico_invato),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
     }

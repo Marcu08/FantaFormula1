@@ -48,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,8 +63,10 @@ import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.SyncBar
+import com.fantaformula1.app.ui.components.raceHeaderBrush
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -247,99 +250,99 @@ private fun RaceCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    // Ogni gara ha la sua identita' visiva: bandiera e gradiente tematico.
+    val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(10.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = race.round.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(raceHeaderBrush(visual))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = visual.flag,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = race.name,
                         style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val subtitle = buildList {
-                        race.country?.takeIf { it.isNotBlank() }?.let(::add)
-                        add(statusLabel(race.effectiveStatus()))
-                    }.joinToString(" · ")
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    race.country?.takeIf { it.isNotBlank() }?.let { country ->
+                        Text(
+                            text = country,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
                 }
-                StatusChip(status = race.effectiveStatus())
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = race.round.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
 
-            val deadlineOrSprint = race.deadline?.let { deadline ->
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusChip(status = race.effectiveStatus())
+                    Spacer(Modifier.width(8.dp))
+                    if (race.isSprint) SprintBadge()
+                    Spacer(Modifier.weight(1f))
+                    race.deadline?.let { deadline ->
+                        Text(
+                            text = stringResource(
+                                R.string.gara_deadline,
+                                formatLocalDateTimeInput(deadline),
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 6.dp),
                 ) {
-                    Text(
-                        text = stringResource(
-                            R.string.gara_deadline,
-                            formatLocalDateTimeInput(deadline),
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (race.isSprint) {
-                        Spacer(Modifier.width(8.dp))
-                        SprintBadge()
+                    TextButton(onClick = onOpenPrediction) {
+                        Text(stringResource(R.string.lega_pronostici))
                     }
-                }
-            }
-            if (deadlineOrSprint == null && race.isSprint) {
-                Row(Modifier.padding(top = 6.dp)) { SprintBadge() }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onOpenPrediction) {
-                    Text(stringResource(R.string.lega_pronostici))
-                }
-                TextButton(onClick = onOpenResult) {
-                    Text(stringResource(R.string.gara_risultati))
-                }
-                if (isAdmin) {
-                    IconButton(onClick = onEdit) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = stringResource(R.string.gara_modifica),
-                            modifier = Modifier.size(18.dp),
-                        )
+                    TextButton(onClick = onOpenResult) {
+                        Text(stringResource(R.string.gara_risultati))
                     }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            contentDescription = stringResource(R.string.gara_elimina),
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp),
-                        )
+                    if (isAdmin) {
+                        IconButton(onClick = onEdit) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = stringResource(R.string.gara_modifica),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = stringResource(R.string.gara_elimina),
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -380,14 +383,6 @@ private fun StatusChip(status: RaceStatus) {
             )
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
-}
-
-@Composable
-private fun statusLabel(status: RaceStatus): String = when (status) {
-    RaceStatus.SCHEDULED -> stringResource(R.string.stato_programmata)
-    RaceStatus.OPEN -> stringResource(R.string.stato_aperta)
-    RaceStatus.CLOSED -> stringResource(R.string.stato_chiusa)
-    RaceStatus.COMPLETED -> stringResource(R.string.stato_completata)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
