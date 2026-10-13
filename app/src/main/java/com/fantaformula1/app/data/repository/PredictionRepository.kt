@@ -20,6 +20,14 @@ interface PredictionRepository {
     suspend fun myPredictions(leagueId: String): Map<String, RacePrediction>
 
     /**
+     * Numero TOTALE di pronostici per la gara (senza identita'): serve alla
+     * dashboard per "3 su 4 hanno gia' pronosticato". Null se il server non
+     * espone ancora la funzione (migrazione non applicata): la UI nasconde
+     * il conteggio.
+     */
+    suspend fun predictionCount(raceId: String): Int?
+
+    /**
      * Pronostici degli altri membri per la gara (userId -> pronostico).
      * Ritorna una mappa vuota se la deadline non e' ancora passata
      * (la RLS non restituisce comunque righe altrui).

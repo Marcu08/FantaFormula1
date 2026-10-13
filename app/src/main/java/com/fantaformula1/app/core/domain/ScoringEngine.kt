@@ -59,7 +59,7 @@ object ScoringEngine {
             if (order.size < 3) {
                 0.0
             } else {
-                entry.driverIds.take(3).mapIndexedNotNull { index, driverId ->
+                val slotScore = entry.driverIds.take(3).mapIndexedNotNull { index, driverId ->
                     val slotPoints = rules.podiumPoints.getOrNull(index) ?: return@mapIndexedNotNull null
                     if (order[index].driverId == driverId) {
                         // Sconto applicato solo alla posizione occupata dal pilota
@@ -67,6 +67,17 @@ object ScoringEngine {
                         adjust(driverId, slotPoints, result, rules)
                     } else null
                 }.sum()
+                if (slotScore > 0.0) {
+                    slotScore
+                } else if (rules.podiumNoOrderPoints > 0.0 &&
+                    entry.driverIds.take(3).toSet() == order.take(3).map { it.driverId }.toSet()
+                ) {
+                    // Bonus opzionale: tutti e 3 i piloti nel podio ma ordine
+                    // sbagliato (zero slot corretti).
+                    rules.podiumNoOrderPoints
+                } else {
+                    0.0
+                }
             }
         }
 

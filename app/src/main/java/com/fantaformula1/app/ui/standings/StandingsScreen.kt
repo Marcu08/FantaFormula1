@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +43,7 @@ import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.PointsSparkline
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,6 +162,13 @@ private fun OverallList(state: StandingsUiState) {
                 .maxByOrNull { it.round }?.id
             val lastRacePoints = lastRaceId
                 ?.let { raceId -> state.scoresByRace[raceId]?.find { it.userId == row.userId }?.points }
+            // Trend per gara (punti effettivi, ordine di round): scala
+            // sul miglior punteggio globale per confronto visivo fra giocatori.
+            val racePoints = state.races
+                .filter { state.resultsByRace.containsKey(it.id) }
+                .mapNotNull { race -> state.scoresByRace[race.id]?.find { it.userId == row.userId }?.points }
+            val pointsScale = state.rows.maxOfOrNull { it.bestRacePoints }?.coerceAtLeast(1.0) ?: 1.0
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -199,6 +208,17 @@ private fun OverallList(state: StandingsUiState) {
                                 ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (racePoints.size >= 2) {
+                            // Trend solo con almeno due gare concluse.
+                            PointsSparkline(
+                                points = racePoints,
+                                maxScale = pointsScale,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
+                                    .height(12.dp),
                             )
                         }
                     }

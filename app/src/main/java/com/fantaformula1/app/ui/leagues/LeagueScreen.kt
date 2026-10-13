@@ -1,5 +1,9 @@
 package com.fantaformula1.app.ui.leagues
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +58,7 @@ import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.data.repository.League
+import com.fantaformula1.app.data.notification.DeadlineReminderScheduler
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
@@ -91,8 +97,23 @@ fun LeagueScreen(
     // Dashboard: prossima gara pronosticabile + stato del mio pronostico.
     var nextRace by remember { mutableStateOf<Race?>(null) }
     var predictionSavedForNext by remember { mutableStateOf(false) }
+    /** Contatore aggregato dei pronostici (dalla RPC prediction_count). */
+    var predictionCountForNext by remember { mutableStateOf<Int?>(null) }
     // Aggiornata ogni minuto per il countdown (stesso pattern B10 dei pronostici).
     var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
+    val context = LocalContext.current
+
+    // Promemoria notifiche: su Android 13+ il permesso va richiesto a runtime.
+    // La richiesta e' ignorata dal sistema se gia' concessa; se negata, il
+    // worker saltera' la notifica senza errori.
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     suspend fun loadLeague() {
         loading = true
@@ -113,10 +134,21 @@ fun LeagueScreen(
             val mine = container.predictionRepository.myPredictions(leagueId)
             val upcoming = races.filterNot { it.isPastRace() }
             val next = upcoming.minByOrNull { it.deadline ?: java.time.Instant.MAX }
-            next to mine
-        }.onSuccess { (race, mine) ->
+            // Contatore aggregato: null se la RPC non e' ancora sul server.
+            val count = next?.let { race ->
+                runCatching { container.predictionRepository.predictionCount(race.id) }.getOrNull()
+            }
+            Triple(next, mine, count)
+        }.onSuccess { (race, mine, count) ->
             nextRace = race
             predictionSavedForNext = race?.id != null && race.id in mine
+            predictionCountForNext = count
+            // Promemoria notifica un'ora prima della chiusura (REPLACE per gara).
+            if (race != null) {
+                race.deadline?.let { deadline ->
+                    DeadlineReminderScheduler.schedule(context, race.id, deadline)
+                }
+            }
         }
     }
 
@@ -192,6 +224,8 @@ fun LeagueScreen(
                             NextRaceCard(
                                 race = race,
                                 predictionSaved = predictionSavedForNext,
+                                predictionCount = predictionCountForNext,
+                                memberCount = membersState.members.size,
                                 now = nowTick,
                                 onOpenPrediction = onOpenPrediction,
                             )
@@ -246,6 +280,8 @@ fun LeagueScreen(
 private fun NextRaceCard(
     race: Race,
     predictionSaved: Boolean,
+    predictionCount: Int?,
+    memberCount: Int,
     now: java.time.Instant,
     onOpenPrediction: (String) -> Unit,
 ) {
@@ -298,10 +334,21 @@ private fun NextRaceCard(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                predictionCount?.let { count ->
+                    Text(
+                        text = stringResource(
+                            R.string.dashboard_pronostici_conta,
+                            count.toString(),
+                            memberCount.toString(),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 race.deadline?.let { deadline ->
-                    val remaining = java.time.Duration.between(now, deadline)
                     // Urgenza: meno di un'ora alla chiusura. Evidenziata con
                     // colore E etichetta testuale, non solo colore.
+                    val remaining = java.time.Duration.between(now, deadline)
                     val urgent = open &&
                         !remaining.isNegative && !remaining.isZero &&
                         remaining <= java.time.Duration.ofMinutes(60)

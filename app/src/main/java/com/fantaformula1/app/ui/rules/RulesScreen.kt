@@ -214,6 +214,16 @@ fun RulesScreen(
                                         )
                                     }
                                 }
+                                // Bonus opzionale (default 0 = disattivato): podio
+                                // completo ma in ordine sbagliato.
+                                FantaTextField(
+                                    value = format(state.rules.podiumNoOrderPoints),
+                                    onValueChange = viewModel::onPodiumNoOrderChange,
+                                    label = stringResource(R.string.regole_podio_no_ordine),
+                                    hint = stringResource(R.string.regole_podio_no_ordine_hint),
+                                    enabled = state.isAdmin,
+                                    keyboardType = KeyboardType.Decimal,
+                                )
                             }
                         }
                     }
@@ -343,6 +353,15 @@ private fun TypeRow(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (type == PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) {
+                    // I dati safety car non arrivano dall'API F1: la nota dice
+                    // all'admin che il dato va inserito a mano.
+                    Text(
+                        text = stringResource(R.string.regole_safety_car_manual),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
             FantaTextField(
                 value = format(points),

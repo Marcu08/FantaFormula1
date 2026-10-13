@@ -208,6 +208,9 @@
     <string name="regole_sezione_opzioni">Opzioni</string>
     <string name="regole_punti_podio">Punti per posizione di podio</string>
     <string name="regole_podio_pos">%1$d° posto</string>
+    <string name="regole_podio_no_ordine">Bonus podio in ordine diverso</string>
+    <string name="regole_podio_no_ordine_hint">0 = disattivato (es. 10)</string>
+    <string name="regole_safety_car_manual">Dato inserito a mano dall\'admin: non arriva dalla sincronizzazione F1</string>
     <string name="regole_punti_tipo">%1$s punti</string>
     <string name="regole_punti_campo">Punti</string>
     <string name="regole_fattore_quasi">Fattore posizione quasi indovinata</string>
@@ -230,6 +233,7 @@
     <string name="dashboard_compila">Compila pronostico</string>
     <string name="dashboard_modifica">Modifica pronostico</string>
     <string name="dashboard_scadenza_imminente">Scadenza imminente!</string>
+    <string name="dashboard_pronostici_conta">%1$s su %2$s hanno già pronosticato</string>
 
     <!-- Classifica -->
     <string name="classifica_distanza">-%1$s dal precedente</string>

@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.io.IOException
 import java.time.Instant
@@ -92,6 +93,17 @@ class SupabasePredictionRepository(
             }
         }.decodeList<PredictionRowDto>()
         return rows.mapNotNull { row -> decode(row)?.let { row.raceId to it } }.toMap()
+    }
+
+    override suspend fun predictionCount(raceId: String): Int? {
+        val client = requireClient()
+        return runCatching {
+            val data = client.postgrest.rpc(
+                function = "prediction_count",
+                parameters = buildJsonObject { put("p_race", raceId) },
+            ).data
+            Json.parseToJsonElement(data).jsonPrimitive.longOrNull?.toInt()
+        }.getOrNull()
     }
 
     override suspend fun othersPredictions(raceId: String): Map<String, RacePrediction> {

@@ -105,6 +105,11 @@ class RulesViewModel(
         rules.copy(podiumPoints = updated)
     }
 
+    fun onPodiumNoOrderChange(value: String) = update { rules ->
+        val parsed = value.filter { it.isDigit() || it == '.' }.take(6).toDoubleOrNull() ?: 0.0
+        rules.copy(podiumNoOrderPoints = parsed)
+    }
+
     fun onNearMissFactorChange(value: String) {
         val parsed = parseMultiplier(value) ?: return
         update { it.copy(exactPositionNearMissFactor = parsed) }

@@ -11,7 +11,12 @@ import org.junit.Test
  */
 class ScoringEngineTest {
 
-    private val rules = Rules.default()
+    // Tutti i tipi attivi: la suite copre la semantica di punteggio per ogni
+    // tipo, indipendente dal default delle nuove leghe (che da oggi esclude
+    // DRIVER_EXACT_POSITION).
+    private val rules = Rules.default().copy(
+        enabledTypes = PredictionType.entries.toSet(),
+    )
 
     // -- Fixtures ------------------------------------------------------------
 
@@ -113,10 +118,41 @@ class ScoringEngineTest {
         assertEquals(18.0 + 15.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
-    @Test
+@Test
     fun `podio sbagliato del tutto prende zero`() {
-        val e = entryOf(PredictionType.PODIUM, "ALO", "PER", "HAM")
+        val e = PredictionEntry(type = PredictionType.PODIUM, driverIds = listOf("HAM", "PER", "ALO"))
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `bonus podio senza ordine assegnato se il set e' giusto ma l'ordine no`() {
+        // RUS-LEC-VER: set identico al podio reale [VER, RUS, LEC] ma zero
+        // slot correcti -> bonus.
+        val expected = rules.copy(podiumNoOrderPoints = 10.0)
+        val e = PredictionEntry(type = PredictionType.PODIUM, driverIds = listOf("RUS", "LEC", "VER"))
+        assertEquals(10.0, ScoringEngine.score(e, sampleResult(), expected), 0.001)
+    }
+
+    @Test
+    fun `bonus podio senza ordine non applicato slot corretti`() {
+        // ORDINE esatto: prende i punti per slot (somma), NON il bonus.
+        val expected = rules.copy(podiumNoOrderPoints = 10.0)
+        val e = PredictionEntry(type = PredictionType.PODIUM, driverIds = listOf("VER", "RUS", "LEC"))
+        assertEquals(25.0 + 18.0 + 15.0, ScoringEngine.score(e, sampleResult(), expected), 0.001)
+    }
+
+    @Test
+    fun `bonus podio senza ordine disattivato (default) non assegna nulla`() {
+        // Default = 0: comportamento invariato rispetto alla storia.
+        val e = PredictionEntry(type = PredictionType.PODIUM, driverIds = listOf("RUS", "LEC", "VER"))
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `bonus podio non applicato se ai piloti manca uno del podio`() {
+        val expected = rules.copy(podiumNoOrderPoints = 10.0)
+        val e = PredictionEntry(type = PredictionType.PODIUM, driverIds = listOf("NOR", "VER", "HAM"))
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), expected), 0.001)
     }
 
     @Test

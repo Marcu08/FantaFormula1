@@ -6,7 +6,12 @@ import org.junit.Test
 
 class PredictionValidationTest {
 
-    private val rules = Rules.default()
+    // Tutti i tipi attivi: questi test coprono la semantica di validazione
+    // per ogni tipo, indipendentemente dal default delle nuove leghe
+    // (che da oggi esclude DRIVER_EXACT_POSITION, vedi test dedicato).
+    private val rules = Rules.default().copy(
+        enabledTypes = PredictionType.entries.toSet(),
+    )
 
     private fun entry(
         type: PredictionType,

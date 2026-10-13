@@ -14,7 +14,7 @@ data class Rules(
     val version: Int = CURRENT_VERSION,
     val name: String = PRESET_F1_OFFICIAL,
     /** Tipi di pronostico attivi per la lega. */
-    val enabledTypes: Set<PredictionType> = PredictionType.entries.toSet(),
+    val enabledTypes: Set<PredictionType> = defaultEnabledTypes(),
     /** Punti base assegnati per ogni tipo di pronostico indovinato. */
     val points: Map<PredictionType, Double> = defaultPoints(),
     /**
@@ -37,6 +37,14 @@ data class Rules(
     val penaltyMultiplier: Double = 0.75,
     /** Moltiplicatore sui pronostici legati allo sprint. */
     val sprintPointsMultiplier: Double = 0.5,
+    /**
+     * Bonus (default 0 = disattivato): se tutti e 3 i piloti previsti sono nel
+     * podio ma nell'ordine sbagliato (zero slot corretti), vengono assegnati
+     * questi punti, al posto di 0. Il default disattivato non altera i
+     * punteggi storici; attivandolo, il bonus vale SOLO per le letture
+     * successive (i punteggi sono ricalcolati a ogni apertura).
+     */
+    val podiumNoOrderPoints: Double = 0.0,
     /** Come si sblocca la classifica in caso di parita'. */
     val tieBreaker: TieBreaker = TieBreaker.RACE_WINS,
     /** Se true, i pronostici degli altri diventano visibili solo dopo la deadline. */
@@ -87,6 +95,7 @@ data class Rules(
         // dnfMultiplier e' deprecato (B11): non viene piu' validato ne' applicato.
         checkRange(penaltyMultiplier, 0.0, 1.0, "Il moltiplicatore penalita'")
         checkRange(sprintPointsMultiplier, 0.0, MAX_MULTIPLIER, "Il moltiplicatore sprint")
+        checkRange(podiumNoOrderPoints, 0.0, MAX_POINTS, "Il bonus podio senza ordine")
 
         if (enabledTypes.contains(PredictionType.PODIUM) && podiumPoints.take(3).all { it == 0.0 }) {
             errors += "Il tipo Podio e' attivo ma tutti i punti del podio sono a 0"
@@ -126,7 +135,18 @@ data class Rules(
         )
 
         /**
-         * Regole iniziali di una nuova lega: tutti i tipi attivi, punteggi F1.
+         * Tipi attivi di default per le NUOVE leghe. DRIVER_EXACT_POSITION e'
+         * escluso (scelta dell'utente: probabilita' di indovinare ~1/22 lo
+         * rende poco giocabile); resta attivabile dall'editor regole.
+         * ATTENZIONE: e' anche il default di decodifica per un jsonb regole
+         * SENZA "enabledTypes" — le leghe esistenti lo scrivono sempre
+         * (encodeDefaults = true) e non sono interessate.
+         */
+        fun defaultEnabledTypes(): Set<PredictionType> =
+            PredictionType.entries.toSet() - PredictionType.DRIVER_EXACT_POSITION
+
+        /**
+         * Regole iniziali di una nuova lega: tipi default, punteggi F1.
          */
         fun default(): Rules = Rules()
 

@@ -88,8 +88,20 @@ class RulesAndSerializationTest {
         val fromEmpty = json.decodeFromString(Rules.serializer(), "{}")
         assertEquals(Rules.default().copy(name = fromEmpty.name), fromEmpty)
         assertEquals(Rules.default().points, fromEmpty.points)
-        assertEquals(PredictionType.entries.toSet(), fromEmpty.enabledTypes)
+        assertEquals(Rules.defaultEnabledTypes(), fromEmpty.enabledTypes)
         assertEquals(emptyList<String>(), fromEmpty.validate())
+    }
+
+    @Test
+    fun `nuove leghe hanno DRIVER_EXACT_POSITION disattivato di default`() {
+        // Scelta dell'utente: probabilita' di indovinare ~1/22 lo rende poco
+        // giocabile. Reste attivabile dall'editor: qui si verifica il default.
+        assertFalse(Rules.defaultEnabledTypes().contains(PredictionType.DRIVER_EXACT_POSITION))
+        // Re-attivabile e validabile:
+        val reactivated = Rules.default().copy(
+            enabledTypes = Rules.defaultEnabledTypes() + PredictionType.DRIVER_EXACT_POSITION,
+        )
+        assertEquals(emptyList<String>(), reactivated.validate())
     }
 
     @Test
