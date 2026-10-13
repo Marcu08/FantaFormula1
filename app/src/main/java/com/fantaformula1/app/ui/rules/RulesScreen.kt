@@ -237,12 +237,8 @@ fun RulesScreen(
                                     editable = state.isAdmin,
                                     onChange = viewModel::onNearMissFactorChange,
                                 )
-                                MultiplierRow(
-                                    label = stringResource(R.string.regole_molt_dnf),
-                                    value = state.rules.dnfMultiplier,
-                                    editable = state.isAdmin,
-                                    onChange = viewModel::onDnfMultiplierChange,
-                                )
+                                // B11: il moltiplicatore DNF e' deprecato e non ha
+                                // piu' effetto: non viene mostrato nell'editor.
                                 MultiplierRow(
                                     label = stringResource(R.string.regole_molt_penalita),
                                     value = state.rules.penaltyMultiplier,
@@ -254,6 +250,14 @@ fun RulesScreen(
                                     value = state.rules.sprintPointsMultiplier,
                                     editable = state.isAdmin,
                                     onChange = viewModel::onSprintMultiplierChange,
+                                    // B30: mostra i punti sprint effettivi (base x
+                                    // moltiplicatore) per evitare calcoli a occhio.
+                                    secondaryText = stringResource(
+                                        R.string.regole_punti_sprint_effettivi,
+                                        sprintWinnerBase(state),
+                                        format(state.rules.sprintPointsMultiplier),
+                                        sprintWinnerEffective(state),
+                                    ),
                                 )
                             }
                         }
@@ -359,14 +363,35 @@ private fun MultiplierRow(
     value: Double,
     editable: Boolean,
     onChange: (String) -> Unit,
+    secondaryText: String = "",
 ) {
-    FantaTextField(
-        value = format(value),
-        onValueChange = onChange,
-        label = label,
-        enabled = editable,
-        keyboardType = KeyboardType.Decimal,
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FantaTextField(
+            value = format(value),
+            onValueChange = onChange,
+            label = label,
+            enabled = editable,
+            keyboardType = KeyboardType.Decimal,
+        )
+        if (secondaryText.isNotEmpty()) {
+            Text(
+                text = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Punti base del pronostico vincitore sprint (prima del moltiplicatore). */
+private fun sprintWinnerBase(state: RulesUiState): String =
+    format(state.rules.points[PredictionType.SPRINT_WINNER])
+
+/** Punti sprint effettivi = base x moltiplicatore sprint (B30). */
+private fun sprintWinnerEffective(state: RulesUiState): String {
+    val base = state.rules.points[PredictionType.SPRINT_WINNER] ?: 0.0
+    val effective = base * state.rules.sprintPointsMultiplier
+    return format(effective)
 }
 
 @Composable

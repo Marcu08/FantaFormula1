@@ -107,6 +107,19 @@ fun StandingsScreen(
                         )
                     }
 
+                    if (state.unreadablePredictions > 0 || state.unreadableResults > 0) {
+                        Text(
+                            text = stringResource(
+                                R.string.classifica_dati_parziali,
+                                state.unreadablePredictions,
+                                state.unreadableResults,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+
                     when (state.tab) {
                         StandingsTab.OVERALL -> OverallList(state)
                         StandingsTab.PER_RACE -> PerRaceList(state, viewModel)

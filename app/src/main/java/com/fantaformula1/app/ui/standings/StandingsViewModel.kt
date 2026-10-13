@@ -36,6 +36,9 @@ data class StandingsUiState(
     val scoresByRace: Map<String, List<RacePlayerScore>> = emptyMap(),
     val tab: StandingsTab = StandingsTab.OVERALL,
     val selectedRaceId: String? = null,
+    /** Pronostici/esiti non decodificabili, mostrati come avviso (B22). */
+    val unreadablePredictions: Int = 0,
+    val unreadableResults: Int = 0,
 )
 
 class StandingsViewModel(
@@ -68,11 +71,11 @@ class StandingsViewModel(
                 )
             }.onSuccess { inputs ->
                 val rules = inputs.league?.rules ?: Rules()
-                val results = inputs.data
+                val results = inputs.data.races
                     .mapNotNull { datum -> datum.result?.let { datum.raceId to it } }
                     .toMap()
 
-                val predictionsByUser = inputs.data
+                val predictionsByUser = inputs.data.races
                     .flatMap { datum ->
                         datum.predictions.map { (userId, prediction) -> userId to prediction }
                     }
@@ -103,6 +106,8 @@ class StandingsViewModel(
                         races = inputs.races,
                         resultsByRace = results,
                         scoresByRace = scoresByRace,
+                        unreadablePredictions = inputs.data.unreadablePredictions,
+                        unreadableResults = inputs.data.unreadableResults,
                     )
                 }
             }.onFailure { throwable ->
@@ -130,5 +135,5 @@ private data class StandingInputs(
     val league: League?,
     val memberNames: Map<String, String>,
     val races: List<Race>,
-    val data: List<com.fantaformula1.app.data.repository.LeagueRaceData>,
+    val data: com.fantaformula1.app.data.repository.LeagueDataSnapshot,
 )

@@ -24,7 +24,14 @@ data class Rules(
     val podiumPoints: List<Double> = DEFAULT_PODIUM_POINTS,
     /** Fattore applicato quando la posizione esatta e' mancata di 1 posto. */
     val exactPositionNearMissFactor: Double = 0.5,
-    /** Moltiplicatore applicato ai punti parziali quando il pilota scelto ha ritirato. */
+    /**
+     * Ignorato (B11): il campo resta nel JSON per compatibilita' con le leghe
+     * gia' create ma non ha piu' effetto sul calcolo dei punti.
+     */
+    @Deprecated(
+        message = "Ignorato: un pilota DNF non ha posizione e non viene piu' penalizzato via moltiplicatore",
+        level = DeprecationLevel.WARNING,
+    )
     val dnfMultiplier: Double = 0.5,
     /** Moltiplicatore applicato ai punti parziali quando il pilota scelto ha penalita'. */
     val penaltyMultiplier: Double = 0.75,
@@ -58,7 +65,7 @@ data class Rules(
                 errors += "Punti non validi per \"$type\" (atteso tra 0 e $MAX_POINTS)"
             }
         }
-        if (podiumPoints.isEmpty() || podiumPoints.size < 3) {
+        if (podiumPoints.size < 3) {
             errors += "Il podio richiede almeno 3 valori di punti"
         }
         podiumPoints.forEachIndexed { index, value ->
@@ -77,7 +84,7 @@ data class Rules(
         }
 
         checkRange(exactPositionNearMissFactor, 0.0, 1.0, "Il fattore di posizione quasi indovinata")
-        checkRange(dnfMultiplier, 0.0, 1.0, "Il moltiplicatore DNF")
+        // dnfMultiplier e' deprecato (B11): non viene piu' validato ne' applicato.
         checkRange(penaltyMultiplier, 0.0, 1.0, "Il moltiplicatore penalita'")
         checkRange(sprintPointsMultiplier, 0.0, MAX_MULTIPLIER, "Il moltiplicatore sprint")
 
@@ -148,17 +155,10 @@ data class Rules(
             ),
             podiumPoints = listOf(10.0, 8.0, 6.0),
             exactPositionNearMissFactor = 0.0,
-            dnfMultiplier = 1.0,
             penaltyMultiplier = 1.0,
             sprintPointsMultiplier = 1.0,
             tieBreaker = TieBreaker.BEST_SINGLE_RACE,
         )
-
-        /**
-         * Ricava le regole da un jsonb potenzialmente vuoto o parziale (es. leghe
-         * create con `'{}'::jsonb`): i campi mancanti cadono sui default.
-         */
-        fun fromOrDefault(raw: Rules?): Rules = raw ?: Rules()
     }
 }
 

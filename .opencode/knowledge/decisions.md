@@ -9,3 +9,17 @@
 7. **Credenziali Supabase**: default da `local.properties`/BuildConfig, override a runtime via schermata Configurazione (DataStore) — niente rebuild per cambiare chiavi.
 8. **Ordine tie-break classifica**: totalPoints → raceWins (configurabile con `TieBreaker`).
 9. **Deadline pronostici**: enforcement doppio, client-side + RLS.
+
+## Scelte della revisione bug (fix Fase 1)
+
+10. **I punti totali dominano sempre** (B1): lo spareggio configurato (`TieBreaker`) sblocca solo una parità reale di totali, mai supera chi ha totalizzato di più. Ordine: totalPoints → spareggio scelto → raceWins → bestRacePoints → nome (deterministico).
+11. **raceId dei pronostici = colonna `race_id`** (B4): il `raceId` nel JSON è scritto dal client, non è affidabile. I repository forzano `copy(raceId = row.raceId)` e il motore deduplica a un pronostico per coppia (utente, gara).
+12. **`dnfMultiplier` deprecato e ignorato** (B11): resta nel JSON per compatibilità, tolto dall'editor, da `adjust()` e dalla validazione. Un pilota DNF non ha posizione e non classifica: non serve più scontare i punti.
+13. **Pronostici parziali ammessi** (B15, scelta utente): i tipi attivi non pronosticati non generano errore e valgono 0. Resta il divieto di pronosticare un tipo non attivo.
+14. **Catalogo 2026** (B16): 22 piloti (incl. HAD/BOT/PER; Audi e Cadillac), `MAX_DRIVERS = 22` usato anche come range di validazione. TSU resta in lista legacy (`byId`) per i dati salvati, non è titolare.
+15. **Punti over/under = `effectivePoints`** (B3): usa `pointsScored` se inserito dall'admin, altrimenti la tabella F1 ufficiale (25/18/15/12/10/8/6/4/2/1), 0 se non classificato.
+16. **Posizioni contigue da 1** (B12): la classifica dev'essere 1..n senza buchi e col primo posto; stessa regola per lo sprint. Evita errori di digitazione silenziosi.
+17. **`Json` condiviso `AppJson` con `coerceInputValues`** (B22): enum/valori sconosciuti cadono sui default invece di scartare l'intera lega o i dati. Le regole malformate degradano a `Rules()`.
+18. **Classifica dai membri** (B6): righe = membri ∪ chiavi pronostici; chi non gioca resta visibile a 0; ex-membro senza nome mostra "Ex giocatore".
+19. **`Routes.RACE` rimossa** (richiesta utente): ogni gara apre direttamente risultati o pronostico.
+

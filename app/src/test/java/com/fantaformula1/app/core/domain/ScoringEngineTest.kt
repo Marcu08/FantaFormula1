@@ -326,10 +326,10 @@ class ScoringEngineTest {
     }
 
     @Test
-    fun `punti parziali su pilota ritirato sono ridotti del moltiplicatore dnf`() {
-        // RUS e' classificato 2º ma ha dato ritiro (caso reale: completa il 90%
-        // dei giri e viene classificato): i punti parziali del podio subiscono
-        // il moltiplicatore DNF.
+    fun `pilota ritirato ma classificato non subisce piu' lo sconto dnf`() {
+        // B11: dnfMultiplier e' deprecato e non viene piu' applicato. Un pilota
+        // che ha dato ritiro ma e' classificato (90% dei giri) prende i punti
+        // del podio per intero.
         val dnfRace = RaceResultData(
             raceId = "r3",
             drivers = listOf(
@@ -338,9 +338,8 @@ class ScoringEngineTest {
                 driver("LEC", position = 3, grid = 3),
             ),
         )
-        // RUS e' 2º in classifica ma con DNF: il podio gli assegna 18 * dnfMultiplier
         val e = entryOf(PredictionType.PODIUM, "VER", "RUS", "LEC")
-        val expected = 25.0 + (18.0 * rules.dnfMultiplier) + 15.0
+        val expected = 25.0 + 18.0 + 15.0
         assertEquals(expected, ScoringEngine.score(e, dnfRace, rules), 0.001)
     }
 
@@ -444,8 +443,10 @@ class ScoringEngineTest {
     }
 
     @Test
-    fun `parita' di punti risolta dal numero di gare vinte`() {
-        // Gara identica a sampleResult per tutte e tre le round.
+    fun `i punti totali vincono sempre, lo spareggio solo a parita' reale`() {
+        // B1: lo spareggio configurato NON puo' far passare davanti chi ha
+        // totalizzato meno punti. carlo ha 165 punti, alice 116 (anche con piu'
+        // vittorie): deve vincere carlo con OGNI spareggio.
         val results = mapOf(
             "r1" to sampleResult(),
             "r2" to sampleResult().copy(raceId = "r2"),
@@ -483,13 +484,69 @@ class ScoringEngineTest {
         )
         assertEquals("carlo", byPoints.first().userId)
 
-        // ...con RACE_WINS vince alice (2 vittorie contro 1).
+        // ...con RACE_WINS vince ugualmente carlo: 165 > 116 nonostante le 2
+        // vittorie di alice (il bug B1 faceva vincere alice).
         val byWins = ScoringEngine.computeStandings(
             predictions, results, rules.copy(tieBreaker = TieBreaker.RACE_WINS),
         )
+        assertEquals("carlo", byWins.first().userId)
+        assertEquals(165.0, byWins.first().totalPoints, 0.001)
+        assertEquals(2, byWins[1].raceWins)
+        assertEquals(116.0, byWins[1].totalPoints, 0.001)
+    }
+
+    @Test
+    fun `a parita' di punti lo spareggio sceglie il vincitore`() {
+        // Stessi 58 punti per entrambi, ma alice ha vinto 2 gare e carlo 1:
+        // con RACE_WINS va prima alice. Con BEST_SINGLE_RACE va prima alice
+        // (25 contro 20). Con TOTAL_POINTS la catena deterministica decide.
+        val results = mapOf(
+            "r1" to sampleResult(),
+            "r2" to sampleResult().copy(raceId = "r2"),
+            "r3" to sampleResult().copy(raceId = "r3"),
+        )
+        // alice: 25 (vincitore r1) + 25 (vincitore r2) + 8 (gv r3) = 58, 2 vittorie
+        // carlo: (gv+esatta 20) + (gv+esatta 20) + (pole+gv 18)    = 58, 1 vittoria
+        val twenty = listOf(
+            entryOf(PredictionType.FASTEST_LAP, "VER"),
+            PredictionEntry(
+                type = PredictionType.DRIVER_EXACT_POSITION,
+                driverIds = listOf("LEC"),
+                position = 3,
+            ),
+        )
+        val predictions = mapOf(
+            "alice" to listOf(
+                RacePrediction("r1", listOf(entryOf(PredictionType.WINNER, "VER"))),
+                RacePrediction("r2", listOf(entryOf(PredictionType.WINNER, "VER"))),
+                RacePrediction("r3", listOf(entryOf(PredictionType.FASTEST_LAP, "VER"))),
+            ),
+            "carlo" to listOf(
+                RacePrediction("r1", twenty),
+                RacePrediction("r2", twenty),
+                RacePrediction(
+                    "r3",
+                    listOf(
+                        entryOf(PredictionType.POLE, "RUS"),
+                        entryOf(PredictionType.FASTEST_LAP, "VER"),
+                    ),
+                ),
+            ),
+        )
+
+        val byWins = ScoringEngine.computeStandings(
+            predictions, results, rules.copy(tieBreaker = TieBreaker.RACE_WINS),
+        )
+        assertEquals(58.0, byWins[0].totalPoints, 0.001)
+        assertEquals(58.0, byWins[1].totalPoints, 0.001)
         assertEquals("alice", byWins.first().userId)
         assertEquals(2, byWins.first().raceWins)
-        assertEquals(116.0, byWins.first().totalPoints, 0.001)
+
+        val byBest = ScoringEngine.computeStandings(
+            predictions, results, rules.copy(tieBreaker = TieBreaker.BEST_SINGLE_RACE),
+        )
+        assertEquals("alice", byBest.first().userId)
+        assertEquals(25.0, byBest.first().bestRacePoints, 0.001)
     }
 
     @Test
@@ -567,43 +624,123 @@ class ScoringEngineTest {
         assertEquals(0.0, byUser["bob"]!!, 0.001)
     }
 
-    // -- 15. Deadline -------------------------------------------------------------
+    // -- 14b. Sicurezza raceId e membri (B4/B6) -------------------------------
+
+    @Test
+    fun `raceId vuoto non viene conteggiato (B4)`() {
+        // Un pronostico senza raceId (corrotto o manomesso) non deve entrare
+        // nel calcolo: i repository forzano il raceId dalla colonna.
+        val forged = RacePrediction(
+            raceId = "",
+            entries = listOf(entryOf(PredictionType.WINNER, "VER")),
+        )
+        val predictions = mapOf("alice" to listOf(forged))
+        val scores = ScoringEngine.computeRaceScores(predictions, mapOf("r1" to sampleResult()), rules)
+        assertTrue(scores.isEmpty())
+    }
+
+    @Test
+    fun `un solo pronostico per coppia utente-gara anche con duplicati (B4)`() {
+        // Se per errore arrivano due pronostici per la stessa gara, il motore
+        // ne conta uno solo (il primo incontrato) e non somma due volte.
+        val predictions = mapOf(
+            "alice" to listOf(
+                predictionFor("alice", "r1", "VER"),
+                predictionFor("alice", "r1", "LEC"),
+            ),
+        )
+        val scores = ScoringEngine.computeRaceScores(predictions, mapOf("r1" to sampleResult()), rules)
+        assertEquals(1, scores.size)
+        assertEquals(25.0, scores[0].points, 0.001)
+    }
+
+    @Test
+    fun `membro senza pronostici compare a 0 punti in classifica (B6)`() {
+        val predictions = mapOf(
+            "alice" to listOf(predictionFor("alice", "r1", "VER")),
+        )
+        val standings = ScoringEngine.computeStandings(
+            predictions = predictions,
+            results = mapOf("r1" to sampleResult()),
+            rules = rules,
+            displayNames = mapOf("alice" to "Alice", "bob" to "Bob"),
+        )
+        assertEquals(listOf("alice", "bob"), standings.map { it.userId })
+        assertEquals(25.0, standings[0].totalPoints, 0.001)
+        assertEquals(0.0, standings[1].totalPoints, 0.001)
+        assertEquals("Bob", standings[1].displayName)
+        assertEquals(0, standings[1].racesPredicted)
+    }
+
+    @Test
+    fun `ex membro con pronostici non mostra l'UUID (B6)`() {
+        val predictions = mapOf(
+            "alice" to listOf(predictionFor("alice", "r1", "VER")),
+            "ex-uuid-1234" to listOf(predictionFor("ex-uuid-1234", "r1", "LEC")),
+        )
+        val standings = ScoringEngine.computeStandings(
+            predictions = predictions,
+            results = mapOf("r1" to sampleResult()),
+            rules = rules,
+            displayNames = mapOf("alice" to "Alice"),
+        )
+        assertEquals(2, standings.size)
+        val ex = standings.first { it.userId == "ex-uuid-1234" }
+        assertEquals(ScoringEngine.EX_MEMBER_NAME, ex.displayName)
+    }
+
+    // -- 15. Deadline (Race.isPredictionOpen, B9/B10) ---------------------------
+    //
+    // Le vecchie canSubmit/isClosed/canRevealOthers di ScoringEngine sono state
+    // rimosse: la logica vive in Race.isPredictionOpen, che considera sia la
+    // deadline sia lo status della gara.
+
+    private fun raceWith(
+        deadline: java.time.Instant? = null,
+        status: RaceStatus = RaceStatus.SCHEDULED,
+    ) = Race(
+        id = "r1",
+        seasonId = "s1",
+        leagueId = "l1",
+        round = 1,
+        name = "Gara",
+        deadline = deadline,
+        status = status,
+    )
 
     @Test
     fun `pronostico inviabile prima della deadline`() {
-        assertTrue(ScoringEngine.canSubmit(deadlineEpochMs = 1_000L, nowEpochMs = 999L, rules = rules))
+        val now = java.time.Instant.parse("2026-06-01T00:00:00Z")
+        val deadline = java.time.Instant.parse("2026-06-01T01:00:00Z")
+        assertTrue(raceWith(deadline = deadline).isPredictionOpen(now))
     }
 
     @Test
     fun `pronostico bloccato esattamente alla deadline`() {
-        assertFalse(ScoringEngine.canSubmit(deadlineEpochMs = 1_000L, nowEpochMs = 1_000L, rules = rules))
+        val now = java.time.Instant.parse("2026-06-01T00:00:00Z")
+        assertFalse(raceWith(deadline = now).isPredictionOpen(now))
     }
 
     @Test
     fun `pronostico bloccato dopo la deadline`() {
-        assertFalse(ScoringEngine.canSubmit(deadlineEpochMs = 1_000L, nowEpochMs = 1_001L, rules = rules))
+        val now = java.time.Instant.parse("2026-06-01T02:00:00Z")
+        val deadline = java.time.Instant.parse("2026-06-01T01:00:00Z")
+        assertFalse(raceWith(deadline = deadline).isPredictionOpen(now))
     }
 
     @Test
     fun `senza deadline si puo' sempre inviare`() {
-        assertTrue(ScoringEngine.canSubmit(deadlineEpochMs = null, nowEpochMs = Long.MAX_VALUE, rules = rules))
+        val now = java.time.Instant.parse("2099-01-01T00:00:00Z")
+        assertTrue(raceWith(deadline = null).isPredictionOpen(now))
     }
 
     @Test
-    fun `modifiche bloccate quando allowEditUntilDeadline e' falso`() {
-        val strict = rules.copy(allowEditUntilDeadline = false)
-        assertFalse(ScoringEngine.canSubmit(deadlineEpochMs = 1_000L, nowEpochMs = 10L, rules = strict))
-    }
-
-    @Test
-    fun `altri pronostici visibili solo dopo la deadline`() {
-        assertFalse(ScoringEngine.canRevealOthers(deadlineEpochMs = 1_000L, nowEpochMs = 999L, rules = rules))
-        assertTrue(ScoringEngine.canRevealOthers(deadlineEpochMs = 1_000L, nowEpochMs = 1_000L, rules = rules))
-    }
-
-    @Test
-    fun `nessuna rivelazione se revealOthersAfterDeadline e' falso`() {
-        val hidden = rules.copy(revealOthersAfterDeadline = false)
-        assertFalse(ScoringEngine.canRevealOthers(deadlineEpochMs = 1_000L, nowEpochMs = 5_000L, rules = hidden))
+    fun `gara chiusa non accetta pronostici anche senza deadline`() {
+        // B10: lo status CLOSED blocca l'invio anche se la deadline non e' passata.
+        val now = java.time.Instant.parse("2026-06-01T00:00:00Z")
+        assertFalse(raceWith(deadline = null, status = RaceStatus.CLOSED).isPredictionOpen(now))
+        assertFalse(raceWith(deadline = null, status = RaceStatus.COMPLETED).isPredictionOpen(now))
+        assertTrue(raceWith(deadline = null, status = RaceStatus.OPEN).isPredictionOpen(now))
+        assertTrue(raceWith(deadline = null, status = RaceStatus.SCHEDULED).isPredictionOpen(now))
     }
 }

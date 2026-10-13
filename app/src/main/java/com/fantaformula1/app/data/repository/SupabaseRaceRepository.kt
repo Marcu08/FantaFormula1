@@ -8,6 +8,7 @@ import com.fantaformula1.app.data.model.RaceDto
 import com.fantaformula1.app.data.model.RaceResultRowDto
 import com.fantaformula1.app.data.model.SeasonDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import com.fantaformula1.app.data.util.AppJson
 import com.fantaformula1.app.data.util.nowIsoInstantString
 import com.fantaformula1.app.data.util.parseInstantMillis
 import io.github.jan.supabase.SupabaseClient
@@ -24,10 +25,9 @@ import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.UUID
 
-private val resultJson = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
-}
+// Json condiviso con coerceInputValues (B22): il nome locale evita di
+// riscrivere tutti i punti d'uso.
+private val resultJson = AppJson
 
 internal fun RaceDto.toDomain(): Race = Race(
     id = id,

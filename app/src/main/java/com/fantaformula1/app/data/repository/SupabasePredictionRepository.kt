@@ -3,18 +3,16 @@ package com.fantaformula1.app.data.repository
 import com.fantaformula1.app.core.domain.RacePrediction
 import com.fantaformula1.app.data.model.PredictionRowDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import com.fantaformula1.app.data.util.AppJson
 import com.fantaformula1.app.data.util.nowIsoInstantString
 import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 
-private val predictionJson = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
-}
+// Json condiviso con coerceInputValues (B22).
+private val predictionJson = AppJson
 
 @Serializable
 private data class PredictionInsertDto(
@@ -126,6 +124,9 @@ class SupabasePredictionRepository(
 
     private fun decode(row: PredictionRowDto): RacePrediction? = runCatching {
         predictionJson.decodeFromJsonElement(RacePrediction.serializer(), row.content)
+            // Sempre la colonna `race_id`: il valore nel JSON e' scritto dal
+            // client e non e' affidabile (B4).
+            .copy(raceId = row.raceId)
     }.getOrNull()
 
     private fun requireClient() = holder.get()

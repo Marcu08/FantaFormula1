@@ -37,12 +37,14 @@ data class DriverFormState(
     val dnfReason: String = "",
     val penaltyPoints: String = "",
     val pitStops: String = "",
+    /** Punti campionato effettivi del pilota (opzionale, per gli over/under). */
+    val pointsScored: String = "",
 ) {
     /** True se il pilota ha almeno un dato compilato. */
     val hasData: Boolean
         get() = grid.isNotBlank() || position.isNotBlank() || sprintPosition.isNotBlank() ||
             fastestLap || dnf || dnfReason.isNotBlank() ||
-            penaltyPoints.isNotBlank() || pitStops.isNotBlank()
+            penaltyPoints.isNotBlank() || pitStops.isNotBlank() || pointsScored.isNotBlank()
 
     fun toDomain(): DriverRaceResult = DriverRaceResult(
         driverId = driverId,
@@ -55,6 +57,7 @@ data class DriverFormState(
         dnfReason = dnfReason.trim().ifBlank { null },
         penaltyPoints = penaltyPoints.toIntOrNull() ?: 0,
         pitStops = pitStops.toIntOrNull() ?: 0,
+        pointsScored = pointsScored.toDoubleOrNull(),
     )
 
     companion object {
@@ -70,6 +73,7 @@ data class DriverFormState(
             dnfReason = driver.dnfReason.orEmpty(),
             penaltyPoints = driver.penaltyPoints.takeIf { it > 0 }?.toString().orEmpty(),
             pitStops = driver.pitStops.takeIf { it > 0 }?.toString().orEmpty(),
+            pointsScored = driver.pointsScored?.toString().orEmpty(),
         )
 
         fun catalog(): List<DriverFormState> = DriversCatalog.all.map {
@@ -194,6 +198,9 @@ class ResultViewModel(
 
     fun onPitStopsChange(driverId: String, value: String) =
         updateDriver(driverId) { it.copy(pitStops = value.filter(Char::isDigit).take(2)) }
+
+    fun onPointsChange(driverId: String, value: String) =
+        updateDriver(driverId) { it.copy(pointsScored = value.filter { c -> c.isDigit() || c == ',' || c == '.' }.take(6)) }
 
     fun onSafetyCarsChange(value: String) =
         _uiState.update { it.copy(safetyCars = value.filter(Char::isDigit).take(2)) }

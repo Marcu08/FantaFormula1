@@ -69,13 +69,21 @@ class PredictionValidationTest {
     }
 
     @Test
-    fun `tipi mancanti segnalati`() {
+    fun `pronostico parziale ammesso (B15)`() {
+        // B15: i tipi attivi non pronosticati non generano errore: basta un
+        // solo tipo compilato. Resta il controllo sui singoli entry.
         val prediction = RacePrediction(entries = listOf(entry(PredictionType.WINNER, listOf("VER"))))
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("Manca il pronostico") })
-        // il vincitore c'e': non deve essere segnalato come mancante
-        assertTrue(errors.none { it == "Manca il pronostico \"Vincitore\"" })
-        assertTrue(errors.any { it == "Manca il pronostico \"Podio\"" })
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    @Test
+    fun `pronostico vuoto ammesso ma inutile (B15)`() {
+        // Anche nessun entry e' formalmente valido: il giocatore puo' decidere
+        // di non giocare la gara. Verra' contato a 0 punti.
+        val prediction = RacePrediction(entries = emptyList())
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertEquals(emptyList<String>(), errors)
     }
 
     @Test
@@ -119,7 +127,21 @@ class PredictionValidationTest {
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("posizione tra 1 e 20") })
+        assertTrue(errors.any { it.contains("posizione tra 1 e ${PredictionValidation.MAX_POSITION}") })
+    }
+
+    @Test
+    fun `posizione 21 e 22 valida con la griglia 2026 (B16)`() {
+        // La griglia 2026 ha 22 piloti: le posizioni 21 e 22 sono valide.
+        val prediction = RacePrediction(
+            entries = listOf(
+                entry(PredictionType.DRIVER_EXACT_POSITION, listOf("BOT"), position = 22),
+            ),
+        )
+        assertEquals(
+            emptyList<String>(),
+            PredictionValidation.validate(prediction, rules, isSprintRace = false),
+        )
     }
 
     @Test
@@ -134,7 +156,11 @@ class PredictionValidationTest {
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("fascia tra 1 e 20") })
+        assertTrue(
+            errors.any {
+                it.contains("fascia tra 1 e ${PredictionValidation.MAX_POSITION}")
+            },
+        )
     }
 
     @Test

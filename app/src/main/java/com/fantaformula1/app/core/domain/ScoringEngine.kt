@@ -151,7 +151,11 @@ object ScoringEngine {
             val driverId = entry.driverIds.firstOrNull()
             val threshold = entry.threshold
             val over = entry.over
-            val actual = driverId?.let { result.driver(it)?.pointsScored }
+            // Punti effettivi: da pointsScored se inserito, altrimenti dalla
+            // tabella F1 per i classificati (B3).
+            val actual = driverId?.let { id ->
+                result.driver(id)?.let { driver -> result.effectivePoints(driver) }
+            }
             if (driverId == null || threshold == null || over == null || actual == null) {
                 0.0
             } else if (isOver(actual, threshold) == over) {
@@ -195,13 +199,16 @@ object ScoringEngine {
     private fun isOver(actual: Double, threshold: Double): Boolean = actual > threshold
 
     /**
-     * Applica i moltiplicatori di DNF e penalita' a un **singolo** importo di
+     * Applica il moltiplicatore di penalita' a un **singolo** importo di
      * punti, e solo quando l'importo rappresenta un merito parziale (podio,
      * fascia di posizione, sfida a testa, posizione esatta mancata di un posto).
      *
      * Le coincidenze esatte — vincitore, pole, giro veloce, sprint, DNF sì/no,
      * posizione esatta, over/under — non vengono mai scontate: chi indovina in
      * pieno prende sempre i punti pieni.
+     *
+     * Nota: il vecchio `dnfMultiplier` e' deprecato (B11) e non viene piu'
+     * applicato — un pilota ritirato non ha posizione e non classifica.
      */
     private fun adjust(
         driverId: String?,
@@ -213,7 +220,6 @@ object ScoringEngine {
         val driver = driverId?.let { result.driver(it) } ?: return points
 
         var value = points
-        if (driver.dnf) value *= rules.dnfMultiplier
         if (driver.penaltyPoints > 0) value *= rules.penaltyMultiplier
         return value
     }
@@ -242,6 +248,9 @@ object ScoringEngine {
     /**
      * Calcola i punteggi gara per ogni utente, considerando solo le gare per cui
      * esiste un risultato. Una gara senza risultato non viene conteggiata.
+     *
+     * Al massimo un pronostico per coppia (utente, gara): eventuali duplicati
+     * (raceId falsificati nel contenuto JSON) vengono conteggiati una sola volta.
      */
     fun computeRaceScores(
         predictions: Map<String, List<RacePrediction>>,
@@ -250,10 +259,15 @@ object ScoringEngine {
     ): List<RaceScore> {
         val scores = mutableListOf<RaceScore>()
         predictions.forEach { (userId, userPredictions) ->
+            val seen = mutableSetOf<String>()
             userPredictions.forEach { prediction ->
-                val result = results[prediction.raceId] ?: return@forEach
+                // Il raceId usato per il calcolo e' quello della riga (forzato a
+                // monte dai repository): se manca o e' gia' stato contato, skip.
+                val raceId = prediction.raceId
+                if (raceId.isEmpty() || !seen.add(raceId)) return@forEach
+                val result = results[raceId] ?: return@forEach
                 scores += RaceScore(
-                    raceId = prediction.raceId,
+                    raceId = raceId,
                     userId = userId,
                     points = score(prediction, result, rules),
                 )
@@ -275,7 +289,11 @@ object ScoringEngine {
         val scores = computeRaceScores(predictions, results, rules)
 
         val byUser = scores.groupBy { it.userId }
-        val rows = (predictions.keys + byUser.keys).distinct().map { userId ->
+        // La classifica parte dall'elenco dei membri: chi non ha pronostici
+        // resta visibile a 0 punti. Gli ex-membri che hanno ancora pronostici
+        // non hanno un nome nota: al posto dell'UUID mostriamo "Ex giocatore".
+        val knownNames = displayNames.isNotEmpty()
+        val rows = (displayNames.keys + predictions.keys + byUser.keys).distinct().map { userId ->
             val userScores = byUser[userId].orEmpty()
             val best = userScores.maxOfOrNull { it.points } ?: 0.0
             // Vittoria di gara = miglior punteggio tra quelli ottenuti in una gara.
@@ -284,7 +302,8 @@ object ScoringEngine {
             val wins = if (userScores.isEmpty()) 0 else countRaceWins(userId, scores)
             StandingsRow(
                 userId = userId,
-                displayName = displayNames[userId] ?: userId,
+                displayName = displayNames[userId]
+                    ?: if (knownNames) EX_MEMBER_NAME else userId,
                 totalPoints = userScores.sumOf { it.points }.roundTo2(),
                 raceWins = wins,
                 bestRacePoints = best.roundTo2(),
@@ -294,6 +313,9 @@ object ScoringEngine {
 
         return rows.sortedWith(standingsComparator(rules, displayNames))
     }
+
+    /** Nome mostrato al posto dell'UUID per chi ha pronostici ma non e' piu' membro. */
+    const val EX_MEMBER_NAME = "Ex giocatore"
 
     /**
      * Numero di gare in cui l'utente ha ottenuto il punteggio piu' alto.
@@ -315,55 +337,30 @@ object ScoringEngine {
         rules: Rules,
         displayNames: Map<String, String>,
     ): Comparator<StandingsRow> {
-        val byName = compareBy<StandingsRow> { displayNames[it.userId] ?: it.userId }
-        val base: Comparator<StandingsRow> = when (rules.tieBreaker) {
-            TieBreaker.TOTAL_POINTS -> compareByDescending<StandingsRow> { it.totalPoints }
-            TieBreaker.RACE_WINS -> compareByDescending<StandingsRow> { it.raceWins }
-                .thenByDescending { it.totalPoints }
-            TieBreaker.BEST_SINGLE_RACE -> compareByDescending<StandingsRow> { it.bestRacePoints }
-                .thenByDescending { it.totalPoints }
+        // Regola non negoziabile: i punti totali vengono SEMPE per primi.
+        // Lo spareggio configurato serve solo a sbloccare una parita' reale
+        // di punti, mai a superare un giocatore che ha totalizzato di piu'.
+        val tieBreak: Comparator<StandingsRow> = when (rules.tieBreaker) {
+            TieBreaker.TOTAL_POINTS -> compareByDescending { _: StandingsRow -> 0 } // nessuno
+            TieBreaker.RACE_WINS -> compareByDescending { it.raceWins }
+            TieBreaker.BEST_SINGLE_RACE -> compareByDescending { it.bestRacePoints }
         }
+        val base: Comparator<StandingsRow> = compareByDescending<StandingsRow> { it.totalPoints }
+            .then(tieBreak)
         // Spareggi successivi sempre gli stessi, per un ordine deterministico.
         return base
             .thenByDescending { it.raceWins }
             .thenByDescending { it.bestRacePoints }
-            .thenByDescending { it.totalPoints }
-            .then(byName)
+            .thenBy { it.displayName }
     }
 
     // ---------------------------------------------------------------------
     // Deadline
     // ---------------------------------------------------------------------
-
-    /**
-     * Regola lato client per l'invio dei pronostici.
-     * La stessa regola e' replicata in RLS lato database (`is_prediction_open`).
-     *
-     * @param deadlineEpochMs deadline della gara in epoch millis, oppure null per "nessuna scadenza".
-     */
-    fun canSubmit(
-        deadlineEpochMs: Long?,
-        nowEpochMs: Long,
-        rules: Rules = Rules(),
-    ): Boolean {
-        if (deadlineEpochMs == null) return true
-        if (nowEpochMs >= deadlineEpochMs) return false
-        return rules.allowEditUntilDeadline || nowEpochMs == 0L
-    }
-
-    /** true se la deadline e' passata (=> i pronostici degli altri si possono vedere). */
-    fun isClosed(deadlineEpochMs: Long?, nowEpochMs: Long): Boolean =
-        deadlineEpochMs != null && nowEpochMs >= deadlineEpochMs
-
-    /**
-     * Visibilita' dei pronostici degli altri giocatori secondo le regole della lega.
-     */
-    fun canRevealOthers(
-        deadlineEpochMs: Long?,
-        nowEpochMs: Long,
-        rules: Rules = Rules(),
-    ): Boolean =
-        if (rules.revealOthersAfterDeadline) isClosed(deadlineEpochMs, nowEpochMs) else false
+    // canSubmit/isClosed/canRevealOthers rimossi (B9): la logica di deadline
+    // vive in Race.isDeadlinePassed/isPredictionOpen ed e' applicata dalle
+    // view model. Le vecchie funzioni non erano chiamate da nessuna parte e
+    // contenevano un hack (nowEpochMs == 0L) che disattivava il controllo.
 
     private fun Double.roundTo2(): Double = (this * 100).roundToInt() / 100.0
 }

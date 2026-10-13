@@ -71,7 +71,7 @@ val PredictionType.italianDescription: String
         PredictionType.FASTEST_LAP -> "Indovina chi fa il giro veloce"
         PredictionType.DRIVER_EXACT_POSITION -> "Indovina la posizione esatta di un pilota"
         PredictionType.DRIVER_POSITION_RANGE -> "Indovina in quale fascia finisce un pilota"
-        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due pilota finisce meglio"
+        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due piloti finisce meglio"
         PredictionType.DRIVER_DNF -> "Indovina se un pilota ritira"
         PredictionType.DRIVER_POINTS_OVER_UNDER -> "Scommetti sui punti di un pilota"
         PredictionType.SPRINT_WINNER -> "Indovina il vincitore dello sprint"

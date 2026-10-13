@@ -2,12 +2,14 @@ package com.fantaformula1.app.core.domain
 
 /**
  * Validazione del form risultati compilato dall'admin.
- * Regole: posizioni e griglie nel range 1..MAX_FIELD, posizioni gara uniche,
- * almeno un pilota classificato, sprint solo se la gara ha lo sprint.
+ * Regole: posizioni e griglie nel range 1..MAX_DRIVERS, posizioni gara uniche
+ * e contigue da 1 (serve il podio e non ci possono essere buchi), sprint solo
+ * se la gara ha lo sprint, almeno un pilota classificato.
  */
 object RaceResultValidation {
 
-    const val MAX_FIELD = 20
+    /** Range massimo dei campi numerici = numero piloti in griglia. */
+    const val MAX_FIELD = DriversCatalog.MAX_DRIVERS
 
     /** Errori (in italiano) da mostrare nel form; lista vuota = form valido. */
     fun validate(
@@ -79,6 +81,21 @@ object RaceResultValidation {
 
         if (result.classifiedOrder().isEmpty()) {
             errors += "Classifica almeno un pilota (serve almeno una posizione)"
+        }
+
+        // Le posizioni classificate devono essere contigue da 1: se c'e' la
+        // posizione 3 deve esserci anche la 2, e non si puo' vincere senza il
+        // primo posto. Copre anche il caso "manca il P1".
+        val classified = result.drivers.mapNotNull { it.position }.sorted()
+        if (classified.isNotEmpty() && classified != (1..classified.size).toList()) {
+            errors += "Le posizioni devono essere contigue da 1, senza buchi e con il primo posto"
+        }
+        // Stessa regola per lo sprint: 1..n contiguo.
+        if (isSprintRace) {
+            val sprint = result.drivers.mapNotNull { it.sprintPosition }.sorted()
+            if (sprint.isNotEmpty() && sprint != (1..sprint.size).toList()) {
+                errors += "Le posizioni sprint devono essere contigue da 1, senza buchi"
+            }
         }
 
         val fastestLaps = result.drivers.count { it.fastestLap }

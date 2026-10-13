@@ -187,4 +187,97 @@ class RaceResultValidationTest {
         val errors = RaceResultValidation.validate(RaceResultData())
         assertEquals(listOf("Aggiungi almeno un pilota"), errors)
     }
+
+    // -- B12: posizioni contigue da 1 ----------------------------------------
+
+    @Test
+    fun `posizione 1 mancante e' un errore (B12)`() {
+        val result = RaceResultData(
+            drivers = listOf(
+                driver("A", position = 2),
+                driver("B", position = 3),
+            ),
+        )
+        assertTrue(
+            RaceResultValidation.validate(result).any { it.contains("contigue da 1") },
+        )
+    }
+
+    @Test
+    fun `buco nelle posizioni e' un errore (B12)`() {
+        // 1 e 3 senza 2: manca la posizione 2.
+        val result = RaceResultData(
+            drivers = listOf(
+                driver("A", position = 1),
+                driver("B", position = 3),
+            ),
+        )
+        assertTrue(
+            RaceResultValidation.validate(result).any { it.contains("contigue da 1") },
+        )
+    }
+
+    @Test
+    fun `posizioni contigue da 1 sono valide (B12)`() {
+        val result = RaceResultData(
+            drivers = listOf(
+                driver("A", position = 1),
+                driver("B", position = 2),
+                driver("C", position = 3),
+                driver("D", dnf = true, dnfReason = "Motore"),
+            ),
+        )
+        assertEquals(emptyList<String>(), RaceResultValidation.validate(result))
+    }
+
+    @Test
+    fun `posizioni sprint devono essere contigue da 1 (B12)`() {
+        val result = RaceResultData(
+            drivers = listOf(
+                driver("A", position = 1, sprintPosition = 1),
+                driver("B", position = 2, sprintPosition = 3),
+            ),
+        )
+        assertTrue(
+            RaceResultValidation.validate(result, isSprintRace = true)
+                .any { it.contains("sprint devono essere contigue") },
+        )
+    }
+
+    // -- B16: griglia 2026 con 22 piloti --------------------------------------
+
+    @Test
+    fun `posizione 22 valida con la griglia 2026 (B16)`() {
+        val drivers = (1..DriversCatalog.MAX_DRIVERS).map { pos ->
+            driver("D$pos", position = pos)
+        }
+        val result = RaceResultData(raceId = "r1", drivers = drivers)
+        assertEquals(emptyList<String>(), RaceResultValidation.validate(result))
+        assertEquals(22, DriversCatalog.MAX_DRIVERS)
+    }
+
+    @Test
+    fun `posizione 23 resta fuori range (B16)`() {
+        val result = RaceResultData(
+            drivers = listOf(driver("A", position = DriversCatalog.MAX_DRIVERS + 1)),
+        )
+        assertTrue(
+            RaceResultValidation.validate(result).any { it.contains("non valida") },
+        )
+    }
+
+    @Test
+    fun `catalogo 2026 completo con piloti cadillac e audi (B16)`() {
+        val ids = DriversCatalog.all.map { it.id }
+        assertEquals(DriversCatalog.MAX_DRIVERS, ids.size)
+        // Nuovi ingressi 2026.
+        assertTrue("HAD" in ids)
+        assertTrue("BOT" in ids)
+        assertTrue("PER" in ids)
+        // Audi (ex Sauber) e Cadillac hanno 2 piloti ciascuna.
+        assertEquals(2, DriversCatalog.all.count { it.team == "Audi" })
+        assertEquals(2, DriversCatalog.all.count { it.team == "Cadillac" })
+        // TSU resta riconosciuto dalla lista legacy per i dati salvati.
+        assertEquals("Yuki Tsunoda", DriversCatalog.byId("TSU")?.name)
+    }
 }

@@ -1,5 +1,6 @@
 package com.fantaformula1.app.core.domain
 
+import com.fantaformula1.app.data.util.AppJson
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,6 +97,59 @@ class RulesAndSerializationTest {
         val raw = """{"version":1,"name":"Legacy","campoSconosciuto":true}"""
         val decoded = json.decodeFromString(Rules.serializer(), raw)
         assertEquals("Legacy", decoded.name)
+    }
+
+    @Test
+    fun `json con enum sconosciuti degrada sui default (B22)`() {
+        // AppJson usa coerceInputValues: un enum sconosciuto (es. aggiunto in
+        // una versione nuova del server) cade sul default invece di far
+        // fallire l'intera decodifica della lega.
+        val raw = """
+            {"version":1,"name":"Legacy","tieBreaker":"SPRINT_OFF",
+             "points":{"WINNER":12.0}}
+        """.trimIndent()
+        val decoded = AppJson.decodeFromString(Rules.serializer(), raw)
+        assertEquals("Legacy", decoded.name)
+        assertEquals(TieBreaker.RACE_WINS, decoded.tieBreaker)
+        assertEquals(12.0, decoded.points[PredictionType.WINNER]!!, 0.001)
+    }
+
+    @Test
+    fun `dnfMultiplier deprecato resta nel json per compatibilita' (B11)`() {
+        val encoded = AppJson.encodeToString(Rules.serializer(), Rules.default())
+        assertTrue(encoded.contains("dnfMultiplier"))
+        val decoded = AppJson.decodeFromString(Rules.serializer(), encoded)
+        assertEquals(Rules.default(), decoded)
+    }
+
+    // -- B3: punti effettivi --------------------------------------------------
+
+    @Test
+    fun `effectivePoints usa pointsScored se presente (B3)`() {
+        val result = RaceResultData(
+            drivers = listOf(
+                DriverRaceResult(driverId = "VER", position = 1, pointsScored = 30.0),
+            ),
+        )
+        assertEquals(30.0, result.effectivePoints(result.drivers.first()), 0.001)
+    }
+
+    @Test
+    fun `effectivePoints senza pointsScored usa la tabella F1 (B3)`() {
+        val result = RaceResultData(
+            drivers = listOf(
+                DriverRaceResult(driverId = "VER", position = 1),
+                DriverRaceResult(driverId = "LEC", position = 2),
+                DriverRaceResult(driverId = "NOR", position = 10),
+                DriverRaceResult(driverId = "ALO", position = 11),
+                DriverRaceResult(driverId = "PER", position = null, dnf = true),
+            ),
+        )
+        assertEquals(25.0, result.effectivePoints(result.drivers[0]), 0.001)
+        assertEquals(18.0, result.effectivePoints(result.drivers[1]), 0.001)
+        assertEquals(1.0, result.effectivePoints(result.drivers[2]), 0.001)
+        assertEquals(0.0, result.effectivePoints(result.drivers[3]), 0.001)
+        assertEquals(0.0, result.effectivePoints(result.drivers[4]), 0.001)
     }
 
     @Test

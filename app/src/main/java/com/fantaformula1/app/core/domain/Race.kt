@@ -35,6 +35,13 @@ data class Race(
     fun isDeadlinePassed(now: Instant = Instant.now()): Boolean =
         deadline != null && !now.isBefore(deadline)
 
-    /** True se i pronostici possono ancora essere inviati/modificati. */
-    fun isPredictionOpen(now: Instant = Instant.now()): Boolean = !isDeadlinePassed(now)
+    /**
+     * True se i pronostici possono ancora essere inviati/modificati.
+     *
+     * B10: oltre alla deadline considera lo status della gara: una gara
+     * chiusa o completata non accetta pronostici, anche se la deadline non
+     * e' stata ancora superata.
+     */
+    fun isPredictionOpen(now: Instant = Instant.now()): Boolean =
+        status != RaceStatus.CLOSED && status != RaceStatus.COMPLETED && !isDeadlinePassed(now)
 }

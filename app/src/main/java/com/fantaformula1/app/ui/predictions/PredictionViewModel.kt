@@ -143,7 +143,9 @@ class PredictionViewModel(
                 })
             }.onSuccess { (race, league, mine, others) ->
                 val rules = league?.rules ?: Rules()
-                val deadlinePassed = race.isDeadlinePassed()
+                // B9/B10: la decisione "gara aperta" viene da
+                // Race.isPredictionOpen, che considera deadline E status.
+                val open = race.isPredictionOpen()
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -154,15 +156,14 @@ class PredictionViewModel(
                         drafts = if (mine != null) {
                             mine.entries.map(DraftEntry::from)
                         } else {
-                            rules.enabledTypes
-                                .filter { !it.isSprintRelated || race.isSprint }
-                                .sortedBy { type -> type.ordinal }
-                                .map(DraftEntry::of)
+                            // B14: i drafts devono corrispondere ai tipi visibili
+                            // (senza sprint su gara non sprint), non a tutti i
+                            // tipi attivi della lega.
+                            visibleTypesFor(rules, race).map(DraftEntry::of)
                         },
                         others = others,
-                        canSubmit = !deadlinePassed &&
-                            (mine == null || rules.allowEditUntilDeadline),
-                        deadlinePassed = deadlinePassed,
+                        canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
+                        deadlinePassed = !open,
                         saved = mine != null,
                     )
                 }
@@ -257,3 +258,9 @@ class PredictionViewModel(
 
 /** Tupla comoda a 4 elementi per il caricamento iniziale. */
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+/** Tipi di pronostico da mostrare: attivi nella lega e compatibili con la gara. */
+private fun visibleTypesFor(rules: Rules, race: Race): List<PredictionType> =
+    rules.enabledTypes
+        .filter { !it.isSprintRelated || race.isSprint }
+        .sortedBy { it.ordinal }

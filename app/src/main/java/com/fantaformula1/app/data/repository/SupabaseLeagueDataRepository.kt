@@ -5,13 +5,8 @@ import com.fantaformula1.app.core.domain.RaceResultData
 import com.fantaformula1.app.data.model.PredictionRowDto
 import com.fantaformula1.app.data.model.RaceResultRowDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import com.fantaformula1.app.data.util.AppJson
 import io.github.jan.supabase.postgrest.from
-import kotlinx.serialization.json.Json
-
-private val json = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
-}
 
 /**
  * Implementazione Supabase di [LeagueDataRepository].
@@ -23,7 +18,7 @@ class SupabaseLeagueDataRepository(
     private val holder: SupabaseHolder,
 ) : LeagueDataRepository {
 
-    override suspend fun raceData(leagueId: String): List<LeagueRaceData> {
+    override suspend fun raceData(leagueId: String): LeagueDataSnapshot {
         val client = requireClient()
 
         val resultRows = client.from("race_results").select {
@@ -34,28 +29,42 @@ class SupabaseLeagueDataRepository(
             filter { eq("league_id", leagueId) }
         }.decodeList<PredictionRowDto>()
 
+        var unreadableResults = 0
         val results = resultRows.mapNotNull { row ->
             runCatching {
-                row.raceId to json.decodeFromJsonElement(RaceResultData.serializer(), row.result)
-            }.getOrNull()
+                row.raceId to AppJson.decodeFromJsonElement(RaceResultData.serializer(), row.result)
+            }.onFailure { unreadableResults++ }
+                .getOrNull()
         }.toMap()
 
+        var unreadablePredictions = 0
         val predictionsByRace = predictionRows.mapNotNull { row ->
             runCatching {
-                row.raceId to (row.userId to
-                    json.decodeFromJsonElement(RacePrediction.serializer(), row.content))
-            }.getOrNull()
+                // Il raceId usato per la classifica e' SEMPRE la colonna `race_id`:
+                // il `raceId` dentro il contenuto JSON e' scritto dal client e non
+                // e' affidabile (potrebbe puntare a una gara gia' conclusa).
+                val prediction =
+                    AppJson.decodeFromJsonElement(RacePrediction.serializer(), row.content)
+                        .copy(raceId = row.raceId)
+                row.raceId to (row.userId to prediction)
+            }.onFailure { unreadablePredictions++ }
+                .getOrNull()
         }.groupBy({ it.first }, { it.second })
             .mapValues { (_, pairs) -> pairs.toMap() }
 
         val raceIds = results.keys + predictionsByRace.keys
-        return raceIds.map { raceId ->
+        val races = raceIds.map { raceId ->
             LeagueRaceData(
                 raceId = raceId,
                 result = results[raceId],
                 predictions = predictionsByRace[raceId].orEmpty(),
             )
         }
+        return LeagueDataSnapshot(
+            races = races,
+            unreadablePredictions = unreadablePredictions,
+            unreadableResults = unreadableResults,
+        )
     }
 
     private fun requireClient() = holder.get()

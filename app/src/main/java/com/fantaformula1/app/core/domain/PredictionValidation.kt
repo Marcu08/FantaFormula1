@@ -8,7 +8,8 @@ package com.fantaformula1.app.core.domain
  */
 object PredictionValidation {
 
-    const val MAX_POSITION = 20
+    /** Posizione massima prevedibile = piloti in griglia. */
+    const val MAX_POSITION = DriversCatalog.MAX_DRIVERS
 
     /** Quanti piloti richiede ogni tipo. */
     fun requiredDrivers(type: PredictionType): Int = when (type) {
@@ -46,12 +47,10 @@ object PredictionValidation {
             errors += validateEntry(entry, isSprintRace)
         }
 
-        rules.enabledTypes.forEach { type ->
-            if (type == PredictionType.SPRINT_WINNER && !isSprintRace) return@forEach
-            if (byType[type] == null) {
-                errors += "Manca il pronostico \"${type.italianLabel}\""
-            }
-        }
+        // B15: i pronostici PARZIALI sono ammessi. Un giocatore puo' inviare
+        // solo i tipi che gli interessano: i tipi attivi ma non pronosticati
+        // non generano errore e valgono 0 punti. Resta il divieto di pronostico
+        // per un tipo non attivo.
 
         prediction.entries.forEach { entry ->
             if (!rules.enabledTypes.contains(entry.type)) {

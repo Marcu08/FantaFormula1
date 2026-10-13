@@ -83,4 +83,27 @@ data class RaceResultData(
 
     /** Totale pit stop di tutti i piloti. */
     val totalPitStops: Int get() = drivers.sumOf { it.pitStops }
+
+    /**
+     * Punti campionato effettivi di un pilota, usati dagli over/under.
+     *
+     * Se l'admin ha inserito esplicitamente i punti (`pointsScored`) si usa
+     * quello; altrimenti, per un pilota classificato, si usa la tabella F1
+     * standard (cosi' anche i risultati salvati prima del campo continuano a
+     * funzionare). Un pilota non classificato vale 0.
+     */
+    fun effectivePoints(driver: DriverRaceResult): Double {
+        driver.pointsScored?.let { return it }
+        val position = driver.position ?: return 0.0
+        return officialPointsFor(position)
+    }
+
+    private fun officialPointsFor(position: Int): Double =
+        OFFICIAL_POINTS.getOrNull(position - 1) ?: 0.0
+
+    companion object {
+        /** Punti F1 ufficiali per posizione 1..10 (poi 0). */
+        val OFFICIAL_POINTS: List<Double> =
+            listOf(25.0, 18.0, 15.0, 12.0, 10.0, 8.0, 6.0, 4.0, 2.0, 1.0)
+    }
 }

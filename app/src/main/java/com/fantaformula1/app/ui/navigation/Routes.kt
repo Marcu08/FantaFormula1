@@ -21,8 +21,8 @@ object Routes {
     const val CALENDAR = "league/{leagueId}/calendar"
     fun calendar(leagueId: String) = "league/$leagueId/calendar"
 
-    const val RACE = "race/{raceId}"
-    fun race(raceId: String) = "race/$raceId"
+    // La rotta generica "race/{raceId}" e' stata rimossa: ogni gara apre
+    // direttamente i risultati o il pronostico.
 
     const val RACE_RESULTS = "race/{raceId}/results"
     fun raceResults(raceId: String) = "race/$raceId/results"

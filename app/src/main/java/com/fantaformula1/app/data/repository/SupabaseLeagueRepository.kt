@@ -5,6 +5,7 @@ import com.fantaformula1.app.data.model.LeagueDto
 import com.fantaformula1.app.data.model.LeagueMemberDto
 import com.fantaformula1.app.data.model.ProfileDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
+import com.fantaformula1.app.data.util.AppJson
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -15,11 +16,16 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * Converte la riga del database in dominio. Le regole non presenti o non
- * decodificabili degradano sui default invece di far fallire la schermata.
+ * Converte la riga del database in dominio (B22).
+ *
+ * Le regole malformate degradano sui default invece di far sparire l'intera
+ * lega: la lega con regole di riserva resta visibile e l'admin puo' correggerle.
  */
 internal fun LeagueDto.toDomainOrNull(): League? = runCatching {
-    val rules = rules?.let { json.decodeFromJsonElement(Rules.serializer(), it) } ?: Rules()
+    val rules = rules?.let { element ->
+        runCatching { AppJson.decodeFromJsonElement(Rules.serializer(), element) }
+            .getOrNull() ?: Rules()
+    } ?: Rules()
     League(
         id = id,
         name = name,
@@ -28,11 +34,6 @@ internal fun LeagueDto.toDomainOrNull(): League? = runCatching {
         createdBy = createdBy,
     )
 }.getOrNull()
-
-private val json = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
-}
 
 /**
  * Implementazione Supabase di [LeagueRepository].
@@ -149,7 +150,7 @@ class SupabaseLeagueRepository(
         ?: throw UserException("Configurazione Supabase mancante: apri le impostazioni e inserisci URL e chiave.")
 
     private fun encodeRules(rules: Rules): JsonElement =
-        json.encodeToJsonElement(Rules.serializer(), rules)
+        AppJson.encodeToJsonElement(Rules.serializer(), rules)
 
     /**
      * Chiama una funzione Postgres che restituisce un uuid e ne restituisce il

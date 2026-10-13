@@ -421,6 +421,14 @@ private fun DriverCard(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                    FantaTextField(
+                        value = driver.pointsScored,
+                        onValueChange = { viewModel.onPointsChange(driver.driverId, it) },
+                        label = stringResource(R.string.campo_punti),
+                        hint = stringResource(R.string.campo_punti_hint),
+                        keyboardType = KeyboardType.Decimal,
+                        maxLength = 6,
+                    )
                 }
             }
         }
