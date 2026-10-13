@@ -28,7 +28,9 @@ android {
 
     defaultConfig {
         applicationId = "com.fantaformula1.app"
-        minSdk = 26
+        // 21 = Android 5.0: massima compatibilita' con dispositivi vecchi.
+        // java.time richiede desugaring (attivato sotto) per girare prima di API 26.
+        minSdk = 21
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -55,6 +57,8 @@ android {
     }
 
     compileOptions {
+        // Desugaring: java.time (deadline, parse ISO) compatibile anche su Android < 8
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -79,6 +83,9 @@ kotlin {
 }
 
 dependencies {
+    // Desugaring java.time per minSdk < 26
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
     // Android / Compose
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
