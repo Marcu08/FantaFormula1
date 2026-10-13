@@ -9,6 +9,7 @@ import com.fantaformula1.app.data.f1api.model.F1Result
 import com.fantaformula1.app.data.f1api.model.F1Session
 import com.fantaformula1.app.data.f1api.model.F1SprintResult
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -32,6 +33,20 @@ object F1Mapper {
     /** True se il round ha una sessione sprint nel calendario. */
     fun hasSprint(race: F1Race): Boolean =
         race.sprint != null || race.sprintQualifying != null
+
+    /**
+     * True se la gara e' gia' stata disputata (data di gara precedente a
+     * [today]). Le gare del giorno corrente non sono "fatte": si possono
+     * ancora pronosticare fino alla deadline. Data non riconosciuta = non
+     * passata (si crea comunque la gara, comportamento conservativo).
+     */
+    fun isPast(
+        race: F1Race,
+        today: LocalDate = LocalDate.now(ZoneOffset.UTC),
+    ): Boolean {
+        val date = runCatching { LocalDate.parse(race.date) }.getOrNull() ?: return false
+        return date.isBefore(today)
+    }
 
     /** Estrae i dati per creare una gara nel DB. */
     fun toRaceCreate(race: F1Race): F1RaceCreate {

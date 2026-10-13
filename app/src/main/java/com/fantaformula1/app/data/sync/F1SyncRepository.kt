@@ -34,6 +34,13 @@ class F1SyncRepository(
                     skipped++
                     return@forEach
                 }
+                // Le gare gia' disputate non creano alcunche': sarebbero
+                // immediatamente chiuse ai pronostici e intaserebbero il
+                // calendario (richiesta "leva le gare gia' fatte").
+                if (F1Mapper.isPast(race)) {
+                    skipped++
+                    return@forEach
+                }
                 val create = F1Mapper.toRaceCreate(race)
                 raceRepository.createRace(
                     leagueId = leagueId,

@@ -21,6 +21,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
@@ -165,6 +167,16 @@ fun CalendarScreen(
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
+            // Le gare gia' completate escono dalla lista principale: restano
+            // raggiungibili nella sezione richiudibile in fondo (risultati).
+            val upcoming = state.races.filter {
+                it.effectiveStatus() != RaceStatus.COMPLETED
+            }
+            val completed = state.races.filter {
+                it.effectiveStatus() == RaceStatus.COMPLETED
+            }
+            var showCompleted by remember { mutableStateOf(false) }
+
             when {
                 state.loading -> LoadingState()
                 state.error != null -> ErrorState(
@@ -200,7 +212,16 @@ fun CalendarScreen(
                             )
                         }
                     }
-                    items(state.races, key = { it.id }) { race ->
+                    if (upcoming.isEmpty() && completed.isNotEmpty()) {
+                        item(key = "all_done") {
+                            Text(
+                                text = stringResource(R.string.calendario_tutte_completate),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(upcoming, key = { it.id }) { race ->
                         RaceCard(
                             race = race,
                             isAdmin = state.isAdmin,
@@ -209,6 +230,46 @@ fun CalendarScreen(
                             onEdit = { viewModel.openEditForm(race) },
                             onDelete = { confirmDelete = race },
                         )
+                    }
+                    if (completed.isNotEmpty()) {
+                        item(key = "completed_toggle") {
+                            TextButton(
+                                onClick = { showCompleted = !showCompleted },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(
+                                    imageVector = if (showCompleted) {
+                                        Icons.Outlined.KeyboardArrowUp
+                                    } else {
+                                        Icons.Outlined.KeyboardArrowDown
+                                    },
+                                    contentDescription = null,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (showCompleted) {
+                                        stringResource(R.string.calendario_completate_nascondi)
+                                    } else {
+                                        stringResource(
+                                            R.string.calendario_completate_mostra,
+                                            completed.size,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                        if (showCompleted) {
+                            items(completed, key = { it.id }) { race ->
+                                RaceCard(
+                                    race = race,
+                                    isAdmin = state.isAdmin,
+                                    onOpenResult = { onOpenResult(race.id, race.leagueId) },
+                                    onOpenPrediction = { onOpenPrediction(race.id) },
+                                    onEdit = { viewModel.openEditForm(race) },
+                                    onDelete = { confirmDelete = race },
+                                )
+                            }
+                        }
                     }
                 }
             }

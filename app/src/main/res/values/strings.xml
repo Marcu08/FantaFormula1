@@ -112,6 +112,9 @@
     <string name="calendario_vuoto">Nessuna gara nel calendario</string>
     <string name="calendario_vuoto_admin">Aggiungi la prima gara per iniziare a raccogliere pronostici.</string>
     <string name="calendario_vuoto_sub">L\'amministratore della lega deve ancora aggiungere le gare.</string>
+    <string name="calendario_tutte_completate">Tutte le gare sono già state completate.</string>
+    <string name="calendario_completate_mostra">Gare completate (%1$d)</string>
+    <string name="calendario_completate_nascondi">Nascondi gare completate</string>
     <string name="gara_nuova">Nuova gara</string>
     <string name="gara_modifica">Modifica gara</string>
     <string name="gara_elimina">Elimina gara</string>

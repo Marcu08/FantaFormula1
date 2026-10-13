@@ -16,6 +16,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class F1MapperTest {
 
@@ -269,6 +270,54 @@ class F1MapperTest {
     fun `griglia massimo corrisponde a MAX_DRIVERS`() {
         // La validazione accetta griglie fino a MAX_DRIVERS (22 nel 2026).
         assertEquals(22, DriversCatalog.MAX_DRIVERS)
+    }
+
+    @Test
+    fun `isPast riconosce le gare gia' disputate`() {
+        val today = LocalDate.of(2026, 10, 13)
+        val yesterday = F1Race(
+            season = "2026",
+            round = "18",
+            raceName = "Past Grand Prix",
+            date = "2026-10-12",
+        )
+        val todayRace = F1Race(
+            season = "2026",
+            round = "19",
+            raceName = "Today Grand Prix",
+            date = "2026-10-13",
+        )
+        val future = F1Race(
+            season = "2026",
+            round = "20",
+            raceName = "Future Grand Prix",
+            date = "2026-10-20",
+        )
+
+        // La gara di oggi non e' "fatta": e' ancora pronosticabile.
+        assertTrue(F1Mapper.isPast(yesterday, today))
+        assertFalse(F1Mapper.isPast(todayRace, today))
+        assertFalse(F1Mapper.isPast(future, today))
+    }
+
+    @Test
+    fun `isPast con data assente o non valida non blocca la gara`() {
+        val today = LocalDate.of(2026, 10, 13)
+        val noDate = F1Race(
+            season = "2026",
+            round = "5",
+            raceName = "No Date Grand Prix",
+            date = null,
+        )
+        val badDate = F1Race(
+            season = "2026",
+            round = "6",
+            raceName = "Bad Date Grand Prix",
+            date = "13/10/2026",
+        )
+
+        assertFalse(F1Mapper.isPast(noDate, today))
+        assertFalse(F1Mapper.isPast(badDate, today))
     }
 
     private fun result(
