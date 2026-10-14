@@ -284,12 +284,12 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
-/** Fasce preimpostate per DRIVER_POSITION_RANGE: banda realistica di posizioni. */
+/** Fasce preimpostate per DRIVER_POSITION_RANGE: bande numeriche contigue 1..22. */
 private fun rangePresets(): List<Triple<Int, Int, String>> = listOf(
-    Triple(1, 3, "Podio (1-3)"),
-    Triple(4, 8, "Punti (4-8)"),
-    Triple(9, 14, "Metà (9-14)"),
-    Triple(15, 22, "Coda (15-22)"),
+    Triple(1, 5, "1-5"),
+    Triple(6, 10, "6-10"),
+    Triple(11, 15, "11-15"),
+    Triple(16, 22, "16-22"),
 )
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
