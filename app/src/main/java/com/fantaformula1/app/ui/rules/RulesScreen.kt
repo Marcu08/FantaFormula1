@@ -247,6 +247,12 @@ fun RulesScreen(
                                     editable = state.isAdmin,
                                     onChange = viewModel::onNearMissFactorChange,
                                 )
+                                MultiplierRow(
+                                    label = stringResource(R.string.regole_fattore_fascia2),
+                                    value = state.rules.exactPositionMissFactor2,
+                                    editable = state.isAdmin,
+                                    onChange = viewModel::onMissFactor2Change,
+                                )
                                 // B11: il moltiplicatore DNF e' deprecato e non ha
                                 // piu' effetto: non viene mostrato nell'editor.
                                 MultiplierRow(

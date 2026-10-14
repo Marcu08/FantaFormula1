@@ -199,6 +199,10 @@ class PredictionViewModel(
     fun setRangeMax(type: PredictionType, value: String) =
         updateDraft(type) { it.copy(rangeMax = value.filter(Char::isDigit).take(2)) }
 
+    /** Imposta una fascia preimpostata (chip) in un colpo solo. */
+    fun setRangePreset(type: PredictionType, min: Int, max: Int) =
+        updateDraft(type) { it.copy(rangeMin = min.toString(), rangeMax = max.toString()) }
+
     fun setThreshold(type: PredictionType, value: String) =
         updateDraft(type) {
             it.copy(threshold = value.filter { c -> c.isDigit() || c == '.' }.take(6))

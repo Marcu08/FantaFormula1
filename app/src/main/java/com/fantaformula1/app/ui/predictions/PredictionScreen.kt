@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -19,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -61,6 +65,7 @@ import com.fantaformula1.app.core.domain.PredictionValidation
 import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
+import com.fantaformula1.app.ui.components.DriverAvatar
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
@@ -279,7 +284,15 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Fasce preimpostate per DRIVER_POSITION_RANGE: banda realistica di posizioni. */
+private fun rangePresets(): List<Triple<Int, Int, String>> = listOf(
+    Triple(1, 3, "Podio (1-3)"),
+    Triple(4, 8, "Punti (4-8)"),
+    Triple(9, 14, "Metà (9-14)"),
+    Triple(15, 22, "Coda (15-22)"),
+)
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PredictionCard(
     type: PredictionType,
@@ -340,23 +353,46 @@ private fun PredictionCard(
                     enabled = enabled,
                 )
 
-                PredictionType.DRIVER_POSITION_RANGE -> Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                PredictionType.DRIVER_POSITION_RANGE -> Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FantaNumberField(
-                        value = draft.rangeMin.toIntOrNull(),
-                        onValueChange = { viewModel.setRangeMin(type, it?.toString().orEmpty()) },
-                        label = stringResource(R.string.campo_da),
-                        enabled = enabled,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FantaNumberField(
-                        value = draft.rangeMax.toIntOrNull(),
-                        onValueChange = { viewModel.setRangeMax(type, it?.toString().orEmpty()) },
-                        label = stringResource(R.string.campo_a),
-                        enabled = enabled,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // Fasce preimpostate: selezione rapida di bande realistiche
+                    // invece di digitare min/max a mano.
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rangePresets().forEach { preset ->
+                            AssistChip(
+                                onClick = {
+                                    if (enabled) {
+                                        viewModel.setRangePreset(
+                                            type,
+                                            preset.first,
+                                            preset.second,
+                                        )
+                                    }
+                                },
+                                label = { Text(preset.third) },
+                                enabled = enabled,
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FantaNumberField(
+                            value = draft.rangeMin.toIntOrNull(),
+                            onValueChange = { viewModel.setRangeMin(type, it?.toString().orEmpty()) },
+                            label = stringResource(R.string.campo_da),
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                        )
+                        FantaNumberField(
+                            value = draft.rangeMax.toIntOrNull(),
+                            onValueChange = { viewModel.setRangeMax(type, it?.toString().orEmpty()) },
+                            label = stringResource(R.string.campo_a),
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
 
                 PredictionType.DRIVER_DNF -> Row(
@@ -424,6 +460,10 @@ private fun DriverDropdown(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             singleLine = true,
             enabled = enabled,
+            // Avatar del pilota selezionato nel campo chiuso.
+            leadingIcon = {
+                selectedDriverId?.let { DriverAvatar(it, modifier = Modifier.size(24.dp)) }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable),
@@ -438,6 +478,10 @@ private fun DriverDropdown(
                     onClick = {
                         expanded = false
                         onSelect(driver.id)
+                    },
+                    // Avatar caricatura del pilota in ogni voce del menu.
+                    leadingIcon = {
+                        DriverAvatar(driver.id, modifier = Modifier.size(30.dp))
                     },
                 )
             }

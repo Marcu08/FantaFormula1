@@ -219,6 +219,39 @@ class ScoringEngineTest {
     }
 
     @Test
+    fun `fascia +-2 assegna il fattore ridotto quando attivo`() {
+        // VER arriva 1º, pronostico sulla 3ª: distanza 2, fascia attiva a 0.25.
+        val banded = rules.copy(exactPositionMissFactor2 = 0.25)
+        val e = PredictionEntry(type = PredictionType.DRIVER_EXACT_POSITION, driverIds = listOf("VER"), position = 3)
+        assertEquals(12.0 * 0.25, ScoringEngine.score(e, sampleResult(), banded), 0.001)
+    }
+
+    @Test
+    fun `fascia +-2 disattivata di default resta zero`() {
+        // Default 0.0: nessuna modifica retroattiva dei punteggi storici.
+        val e = PredictionEntry(type = PredictionType.DRIVER_EXACT_POSITION, driverIds = listOf("VER"), position = 3)
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `fascia +-2 non puo' pagare piu' della fascia +-1`() {
+        val invalid = rules.copy(
+            exactPositionNearMissFactor = 0.3,
+            exactPositionMissFactor2 = 0.5,
+        )
+        assertTrue(invalid.validate().isNotEmpty())
+    }
+
+    @Test
+    fun `fascia +-2 uguale alla +-1 e' ammessa dalla validazione`() {
+        val ok = rules.copy(
+            exactPositionNearMissFactor = 0.5,
+            exactPositionMissFactor2 = 0.5,
+        )
+        assertEquals(emptyList<String>(), ok.validate())
+    }
+
+    @Test
     fun `posizione esatta su pilota ritirato restituisce zero`() {
         val e = PredictionEntry(type = PredictionType.DRIVER_EXACT_POSITION, driverIds = listOf("PER"), position = 5)
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)

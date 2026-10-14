@@ -54,6 +54,7 @@ import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.RaceResultValidation
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
+import com.fantaformula1.app.ui.components.DriverAvatar
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
@@ -343,6 +344,9 @@ private fun DriverCard(
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Avatar caricatura del pilota: casco colore squadra + iniziali.
+                DriverAvatar(driver.driverId, modifier = Modifier.size(40.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(driver.driverName, style = MaterialTheme.typography.titleSmall)
                     Text(

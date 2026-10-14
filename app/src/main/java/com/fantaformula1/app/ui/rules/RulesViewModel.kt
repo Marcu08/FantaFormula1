@@ -115,6 +115,11 @@ class RulesViewModel(
         update { it.copy(exactPositionNearMissFactor = parsed) }
     }
 
+    fun onMissFactor2Change(value: String) {
+        val parsed = parseMultiplier(value) ?: return
+        update { it.copy(exactPositionMissFactor2 = parsed) }
+    }
+
     // onDnfMultiplierChange rimosso: il moltiplicatore DNF e' deprecato (B11).
 
     fun onPenaltyMultiplierChange(value: String) {

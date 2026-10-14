@@ -103,10 +103,19 @@ object ScoringEngine {
                 0.0
                 } else when {
                     actual == target -> rules.pointsFor(PredictionType.DRIVER_EXACT_POSITION)
+                    // Fasce graduate: +-1 (fattore principale), +-2 (fascia
+                    // piu' larga, opzionale e default disattivata).
                     abs(actual - target) == 1 ->
                         adjust(
                             driverId,
                             rules.pointsFor(PredictionType.DRIVER_EXACT_POSITION) * rules.exactPositionNearMissFactor,
+                            result,
+                            rules,
+                        )
+                    abs(actual - target) == 2 && rules.exactPositionMissFactor2 > 0.0 ->
+                        adjust(
+                            driverId,
+                            rules.pointsFor(PredictionType.DRIVER_EXACT_POSITION) * rules.exactPositionMissFactor2,
                             result,
                             rules,
                         )

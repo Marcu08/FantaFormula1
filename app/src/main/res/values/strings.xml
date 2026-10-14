@@ -214,6 +214,7 @@
     <string name="regole_punti_tipo">%1$s punti</string>
     <string name="regole_punti_campo">Punti</string>
     <string name="regole_fattore_quasi">Fattore posizione quasi indovinata</string>
+    <string name="regole_fattore_fascia2">Fattore fascia ±2 (0 = disattivato)</string>
     <string name="regole_molt_penalita">Moltiplicatore penalità</string>
     <string name="regole_molt_sprint">Moltiplicatore sprint</string>
     <string name="regole_punti_sprint_effettivi">Sprint: %1$s x %2$s = %3$s punti</string>

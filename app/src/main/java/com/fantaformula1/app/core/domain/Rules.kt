@@ -25,6 +25,13 @@ data class Rules(
     /** Fattore applicato quando la posizione esatta e' mancata di 1 posto. */
     val exactPositionNearMissFactor: Double = 0.5,
     /**
+     * Fattore per la fascia +-2 sulla posizione esatta (tipo DRIVER_EXACT_
+     * POSITION). Default 0 = disattivato: nessun punteggio storico cambia
+     * senza scelta esplicita dell'admin. Con valore > 0, mancare di 2 posti
+     * vale pari a fattore punti (scelta "fasce" piu' sfumate).
+     */
+    val exactPositionMissFactor2: Double = 0.0,
+    /**
      * Ignorato (B11): il campo resta nel JSON per compatibilita' con le leghe
      * gia' create ma non ha piu' effetto sul calcolo dei punti.
      */
@@ -92,6 +99,12 @@ data class Rules(
         }
 
         checkRange(exactPositionNearMissFactor, 0.0, 1.0, "Il fattore di posizione quasi indovinata")
+        checkRange(exactPositionMissFactor2, 0.0, 1.0, "Il fattore fascia ±2 della posizione esatta")
+
+        // Coerenza fasce: la banda +-2 non puo pagare piu' della +-1.
+        if (exactPositionMissFactor2 > exactPositionNearMissFactor) {
+            errors += "Il fattore fascia ±2 non puo' superare il fattore di posizione quasi indovinata"
+        }
         // dnfMultiplier e' deprecato (B11): non viene piu' validato ne' applicato.
         checkRange(penaltyMultiplier, 0.0, 1.0, "Il moltiplicatore penalita'")
         checkRange(sprintPointsMultiplier, 0.0, MAX_MULTIPLIER, "Il moltiplicatore sprint")
