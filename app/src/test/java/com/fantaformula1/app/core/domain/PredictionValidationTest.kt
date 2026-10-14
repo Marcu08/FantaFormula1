@@ -39,7 +39,7 @@ class PredictionValidationTest {
         entry(PredictionType.POLE, listOf("VER")),
         entry(PredictionType.FASTEST_LAP, listOf("NOR")),
         entry(PredictionType.DRIVER_EXACT_POSITION, listOf("LEC"), position = 3),
-        entry(PredictionType.DRIVER_POSITION_RANGE, listOf("HAM"), rangeMin = 4, rangeMax = 6),
+        entry(PredictionType.DRIVER_POSITION_RANGE, listOf("HAM"), rangeMin = 6, rangeMax = 10),
         entry(PredictionType.HEAD_TO_HEAD, listOf("VER", "LEC")),
         entry(PredictionType.DRIVER_DNF, listOf("STR"), booleanValue = true),
         entry(
@@ -166,6 +166,70 @@ class PredictionValidationTest {
                 it.contains("fascia tra 1 e ${PredictionValidation.MAX_POSITION}")
             },
         )
+    }
+
+    @Test
+    fun `fascia libera troppo larga rifiutata (fasce obbligatorie)`() {
+        // Test della scimmia: una banda 1-22 vincerebbe sempre. Le fasce sono
+        // obbligatorie: solo le 4 bande predefinite sono ammesse.
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_POSITION_RANGE) {
+                    it.copy(rangeMin = 1, rangeMax = 22)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("fasce predefinite") })
+    }
+
+    @Test
+    fun `fascia personalizzata stretta rifiutata se non predefinita`() {
+        // Anche una banda stretta ma non tra le quattro fasce fisse e' rifiutata.
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_POSITION_RANGE) {
+                    it.copy(rangeMin = 3, rangeMax = 8)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("fasce predefinite") })
+    }
+
+    @Test
+    fun `tutte le fasce predefinite sono accettate`() {
+        PredictionValidation.RANGE_BANDS.forEach { (min, max) ->
+            val prediction = RacePrediction(
+                entries = completeSprintEntries().map {
+                    if (it.type == PredictionType.DRIVER_POSITION_RANGE) {
+                        it.copy(rangeMin = min, rangeMax = max)
+                    } else {
+                        it
+                    }
+                },
+            )
+            assertEquals(
+                emptyList<String>(),
+                PredictionValidation.validate(prediction, rules, isSprintRace = true),
+            )
+        }
+    }
+
+    @Test
+    fun `le fasce predefinite coprono la griglia senza sovrapposizioni`() {
+        // 1..22 coperto, contiguo, senza buchi: nessuna posizione sfuggita e
+        // nessuna fascia che ne ingloba un'altra.
+        var covered = 0
+        PredictionValidation.RANGE_BANDS.forEach { (min, max) ->
+            assertTrue(min >= covered + 1) // senza sovrapposizioni
+            covered = max
+        }
+        assertEquals(PredictionValidation.MAX_POSITION, covered)
     }
 
     @Test

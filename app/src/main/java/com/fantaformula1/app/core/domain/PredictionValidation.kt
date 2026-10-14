@@ -11,6 +11,22 @@ object PredictionValidation {
     /** Posizione massima prevedibile = piloti in griglia. */
     const val MAX_POSITION = DriversCatalog.MAX_DRIVERS
 
+    /**
+     * Fasce predefinite OBBLIGATORIE per DRIVER_POSITION_RANGE: niente bande
+     * libere (una fascia 1-22 vincerebbe sempre). Ogni fascia copra 5
+     * posizioni, l'ultima 7 (16-22) per coprire l'intera griglia.
+     */
+    val RANGE_BANDS: List<Pair<Int, Int>> = listOf(
+        1 to 5,
+        6 to 10,
+        11 to 15,
+        16 to 22,
+    )
+
+    /** Descrizione delle fasce per i messaggi di errore e la UI. */
+    val RANGE_BANDS_LABEL: String =
+        RANGE_BANDS.joinToString(", ") { "${it.first}-${it.second}" }
+
     /** Quanti piloti richiede ogni tipo. */
     fun requiredDrivers(type: PredictionType): Int = when (type) {
         PredictionType.WINNER,
@@ -102,6 +118,10 @@ object PredictionValidation {
                 val max = entry.rangeMax
                 if (min == null || min < 1 || max == null || max > MAX_POSITION || min > max) {
                     errors += "\"$label\": fascia tra 1 e $MAX_POSITION e minore o uguale al massimo"
+                } else if (RANGE_BANDS.none { it.first == min && it.second == max }) {
+                    // Fasce obbligatorie: una banda libera (es. 1-22) vincerebbe
+                    // sempre, quindi e' accettata solo una delle fasce fisse.
+                    errors += "\"$label\": usa una delle fasce predefinite ($RANGE_BANDS_LABEL)"
                 }
             }
 

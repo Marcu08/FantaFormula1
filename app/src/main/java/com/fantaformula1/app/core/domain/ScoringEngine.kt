@@ -148,13 +148,16 @@ object ScoringEngine {
             } else {
                 val posA = result.positionOf(first)
                 val posB = result.positionOf(second)
-                // Chi non classifica perde sempre; se nessuno dei due classifica e' pari.
-                when {
-                    posA == null && posB == null -> 0.0
-                    posA == null -> 0.0
-                    posB == null -> adjust(first, rules.pointsFor(PredictionType.HEAD_TO_HEAD), result, rules)
-                    posA < posB -> adjust(first, rules.pointsFor(PredictionType.HEAD_TO_HEAD), result, rules)
-                    else -> 0.0
+                // Regola "realistica": il testa a testa vale SOLO se entrambi i
+                // piloti classificati. Se uno dei due ritira/squalifica il
+                // pronostico vale 0: senza questa clausola si vincerebbe
+                // quasi sempre scegliendo un favorito contro il coda.
+                if (posA == null || posB == null) {
+                    0.0
+                } else if (posA < posB) {
+                    adjust(first, rules.pointsFor(PredictionType.HEAD_TO_HEAD), result, rules)
+                } else {
+                    0.0
                 }
             }
         }

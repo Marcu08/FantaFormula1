@@ -89,6 +89,12 @@ class PredictionContentContractTest {
                     val min = obj["rangeMin"]?.jsonPrimitive?.longOrNull
                     val max = obj["rangeMax"]?.jsonPrimitive?.longOrNull
                     assertTrue("fascia min<=max", min != null && max != null && min <= max)
+                    // Fasce obbligatorie (0006): (min,max) deve coincidere con
+                    // una delle bande predefinite.
+                    assertTrue(
+                        "fascia predefinita: $min-$max",
+                        PredictionValidation.RANGE_BANDS.any { it.first.toLong() == min && it.second.toLong() == max },
+                    )
                 }
                 "DRIVER_DNF" ->
                     assertTrue("booleanValue booleano", obj["booleanValue"]?.jsonPrimitive?.booleanOrNull != null)
@@ -126,7 +132,7 @@ class PredictionContentContractTest {
                 PredictionType.DRIVER_EXACT_POSITION ->
                     PredictionEntry(type = type, driverIds = listOf("VER"), position = 5)
                 PredictionType.DRIVER_POSITION_RANGE ->
-                    PredictionEntry(type = type, driverIds = listOf("VER"), rangeMin = 4, rangeMax = 6)
+                    PredictionEntry(type = type, driverIds = listOf("VER"), rangeMin = 6, rangeMax = 10)
                 PredictionType.DRIVER_DNF ->
                     PredictionEntry(type = type, driverIds = listOf("PER"), booleanValue = true)
                 PredictionType.DRIVER_POINTS_OVER_UNDER ->
@@ -168,7 +174,7 @@ class PredictionContentContractTest {
                 entries = listOf(
                     PredictionEntry(type = PredictionType.WINNER, driverIds = listOf("VER")),
                     PredictionEntry(type = PredictionType.DRIVER_EXACT_POSITION, driverIds = listOf("RUS"), position = 3),
-                    PredictionEntry(type = PredictionType.DRIVER_POSITION_RANGE, driverIds = listOf("LEC"), rangeMin = 4, rangeMax = 6),
+                    PredictionEntry(type = PredictionType.DRIVER_POSITION_RANGE, driverIds = listOf("LEC"), rangeMin = 6, rangeMax = 10),
                 ),
             ),
         )

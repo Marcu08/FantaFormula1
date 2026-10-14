@@ -284,10 +284,19 @@ class ScoringEngineTest {
     }
 
     @Test
-    fun `testa a testa vinto per ritiro dell'avversario assegna punti pieni`() {
-        // PER ha ritirato, quindi HAM vince la sfida
+    fun `testa a testa con avversario ritirato non assegna punti (regola realistica)`() {
+        // Regola "entrambi classificati": PER e' ritirato, quindi la sfida
+        // HAM-PER vale 0 anche se HAM e' classificato. Nasce dal test della
+        // scimmia: con il vecchio comportamento si vinceva quasi sempre
+        // scegliendo un favorito contro il coda.
         val e = entryOf(PredictionType.HEAD_TO_HEAD, "HAM", "PER")
-        assertEquals(8.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `testa a testa con pilota scelto ritirato non assegna punti`() {
+        val e = entryOf(PredictionType.HEAD_TO_HEAD, "PER", "HAM")
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.fantaformula1.app.ui.predictions
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,23 +19,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -66,6 +67,8 @@ import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.DriverAvatar
+import com.fantaformula1.app.ui.components.DriverPickerBottomSheet
+import com.fantaformula1.app.ui.components.DriverTeamColors
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
@@ -284,14 +287,6 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
-/** Fasce preimpostate per DRIVER_POSITION_RANGE: bande numeriche contigue 1..22. */
-private fun rangePresets(): List<Triple<Int, Int, String>> = listOf(
-    Triple(1, 5, "1-5"),
-    Triple(6, 10, "6-10"),
-    Triple(11, 15, "11-15"),
-    Triple(16, 22, "16-22"),
-)
-
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PredictionCard(
@@ -328,9 +323,11 @@ private fun PredictionCard(
 
             if (PredictionValidation.requiredDrivers(type) > 0) {
                 val required = PredictionValidation.requiredDrivers(type)
+                val pickerSlot = remember { mutableStateOf(0) }
+                val pickerOpen = remember { mutableStateOf(false) }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     repeat(required) { slot ->
-                        DriverDropdown(
+                        DriverSlotTile(
                             label = if (required == 1) {
                                 stringResource(R.string.pronostico_pilota)
                             } else {
@@ -338,9 +335,22 @@ private fun PredictionCard(
                             },
                             selectedDriverId = draft.driverIds.getOrNull(slot),
                             enabled = enabled,
-                            onSelect = { viewModel.setDriverAt(type, slot, it) },
+                            onClick = {
+                                pickerSlot.value = slot
+                                pickerOpen.value = true
+                            },
                         )
                     }
+                }
+                if (pickerOpen.value) {
+                    DriverPickerBottomSheet(
+                        selectedDriverId = draft.driverIds.getOrNull(pickerSlot.value),
+                        onDismiss = { pickerOpen.value = false },
+                        onDriverSelected = { driverId ->
+                            viewModel.setDriverAt(type, pickerSlot.value, driverId)
+                            pickerOpen.value = false
+                        },
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -356,42 +366,60 @@ private fun PredictionCard(
                 PredictionType.DRIVER_POSITION_RANGE -> Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // Fasce preimpostate: selezione rapida di bande realistiche
-                    // invece di digitare min/max a mano.
+                    // Fasce OBBLIGATORIE: le quattro bande fisse sono l'unico
+                    // modo di selezionare (una banda libera 1-22 vincerebbe
+                    // sempre, in test della scimmia). I campi manuali non
+                    // esistono piu':`PredictionValidation` filtra lato server
+                    // e client.
+                    val selectedBand = PredictionValidation.RANGE_BANDS.firstOrNull {
+                        it.first == draft.rangeMin.toIntOrNull() &&
+                            it.second == draft.rangeMax.toIntOrNull()
+                    }
+                    if (selectedBand == null) {
+                        if (draft.rangeMin.toIntOrNull() != null && draft.rangeMax.toIntOrNull() != null) {
+                            // Fascia salvata prima del cambio regole: leggibile
+                            // ma non selezionabile (non valida al risalvataggio).
+                            Text(
+                                text = stringResource(
+                                    R.string.pronostico_fascia_legacy,
+                                    draft.rangeMin,
+                                    draft.rangeMax,
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        rangePresets().forEach { preset ->
+                        PredictionValidation.RANGE_BANDS.forEach { band ->
                             AssistChip(
                                 onClick = {
                                     if (enabled) {
                                         viewModel.setRangePreset(
                                             type,
-                                            preset.first,
-                                            preset.second,
+                                            band.first,
+                                            band.second,
                                         )
                                     }
                                 },
-                                label = { Text(preset.third) },
+                                label = { Text("${band.first}-${band.second}") },
                                 enabled = enabled,
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = if (selectedBand == band) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                                border = if (selectedBand == band) {
+                                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                } else {
+                                    AssistChipDefaults.assistChipBorder(
+                                        enabled = enabled,
+                                    )
+                                },
                             )
                         }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FantaNumberField(
-                            value = draft.rangeMin.toIntOrNull(),
-                            onValueChange = { viewModel.setRangeMin(type, it?.toString().orEmpty()) },
-                            label = stringResource(R.string.campo_da),
-                            enabled = enabled,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FantaNumberField(
-                            value = draft.rangeMax.toIntOrNull(),
-                            onValueChange = { viewModel.setRangeMax(type, it?.toString().orEmpty()) },
-                            label = stringResource(R.string.campo_a),
-                            enabled = enabled,
-                            modifier = Modifier.weight(1f),
-                        )
                     }
                 }
 
@@ -434,56 +462,95 @@ private fun PredictionCard(
 }
 
 /**
- * Menu a tendina per la scelta di un pilota in uno slot del pronostico.
- * Sostituisce la griglia di chip: piu' compatto e con la semantica di
- * spostamento gestita da [PredictionViewModel.setDriverAt].
+ * Slot grafico di selezione pilota: carta compatta dell'avatar pilota se
+ * compilato, segnaposto con azione se vuoto. Il tap apre il bottom sheet
+ * [DriverPickerBottomSheet]; la semantica di spostamento resta in
+ * [PredictionViewModel.setDriverAt].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DriverDropdown(
+private fun DriverSlotTile(
     label: String,
     selectedDriverId: String?,
     enabled: Boolean,
-    onSelect: (String) -> Unit,
+    onClick: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded && enabled,
-        onExpandedChange = { if (enabled) expanded = it },
-    ) {
-        OutlinedTextField(
-            value = selectedDriverId?.let { DriversCatalog.nameOf(it) }.orEmpty(),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            placeholder = { Text(stringResource(R.string.pronostico_seleziona_pilota)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            singleLine = true,
-            enabled = enabled,
-            // Avatar del pilota selezionato nel campo chiuso.
-            leadingIcon = {
-                selectedDriverId?.let { DriverAvatar(it, modifier = Modifier.size(24.dp)) }
-            },
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        val driver = selectedDriverId?.let { DriversCatalog.byId(it) }
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+                .then(
+                    if (enabled) {
+                        Modifier.clickable(onClick = onClick)
+                    } else {
+                        Modifier
+                    },
+                ),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (driver != null) {
+                    DriverTeamColors.colorFor(driver.team).copy(alpha = 0.14f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+            ),
+            border = if (driver != null) {
+                BorderStroke(1.dp, DriverTeamColors.colorFor(driver.team))
+            } else {
+                null
+            },
         ) {
-            DriversCatalog.all.forEach { driver ->
-                DropdownMenuItem(
-                    text = { Text(driver.name) },
-                    onClick = {
-                        expanded = false
-                        onSelect(driver.id)
-                    },
-                    // Avatar caricatura del pilota in ogni voce del menu.
-                    leadingIcon = {
-                        DriverAvatar(driver.id, modifier = Modifier.size(30.dp))
-                    },
-                )
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (driver != null) {
+                    DriverAvatar(
+                        driverId = driver.id,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = driver.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = driver.team,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = stringResource(R.string.slot_cambia),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.pronostico_seleziona_pilota),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
