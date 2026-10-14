@@ -33,6 +33,26 @@ android {
     // targetSdk resta 35: cambia solo cosa il build puo' usare, non il runtime.
     compileSdk = 36
 
+    /**
+     * Firma FISSA condivisa (app tra amici, non commerciale): il keystore e'
+     * nel repo cosi' OGNI APK da qualsiasi macchina o da CI ha la STESSA firma
+     * e puo' aggiornare le installazioni precedenti (il debug keystore per-
+     * macchina cambia da PC a PC e blocca gli update con "app non installata"
+     * senza motivo visibile).
+     * E' il keystore debug di questo progetto (alias androiddebugkey): gli APK
+     * gia' installati dal primo build del proprietario restano aggiornabili
+     * senza disinstallare. La chiave e' privata di valore: e' un keystore debug
+     * condiviso volutamente per un progetto non commerciale.
+     */
+    signingConfigs {
+        create("shared") {
+            storeFile = file("fantaformula1.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.fantaformula1.app"
         // 21 = Android 5.0: massima compatibilita' con dispositivi vecchi.
@@ -50,8 +70,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Anche i build debug usano la firma condivisa: cosi' gli APK
+            // distribuiti fra amici si aggiornano l'un l'altro.
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
