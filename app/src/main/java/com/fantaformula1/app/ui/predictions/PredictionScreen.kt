@@ -380,14 +380,16 @@ private fun PredictionCard(
                             it.second == draft.rangeMax.toIntOrNull()
                     }
                     if (selectedBand == null) {
-                        if (draft.rangeMin.toIntOrNull() != null && draft.rangeMax.toIntOrNull() != null) {
+                        val legacyMin = draft.rangeMin.toIntOrNull()
+                        val legacyMax = draft.rangeMax.toIntOrNull()
+                        if (legacyMin != null && legacyMax != null) {
                             // Fascia salvata prima del cambio regole: leggibile
                             // ma non selezionabile (non valida al risalvataggio).
                             Text(
                                 text = stringResource(
                                     R.string.pronostico_fascia_legacy,
-                                    draft.rangeMin,
-                                    draft.rangeMax,
+                                    legacyMin,
+                                    legacyMax,
                                 ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.error,
