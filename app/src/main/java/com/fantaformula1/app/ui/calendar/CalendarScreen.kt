@@ -73,6 +73,8 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
 import com.fantaformula1.app.ui.components.RaceIdentity
+import com.fantaformula1.app.ui.components.CircuitOutline
+import com.fantaformula1.app.ui.components.CircuitTracks
 import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.SyncBar
 import com.fantaformula1.app.ui.components.raceHeaderBrush
@@ -358,6 +360,11 @@ private fun RaceCard(
                         )
                     }
                 }
+                // Sagoma del tracciato (dati aperti), bianca sul gradiente.
+                CircuitOutline(
+                    trackKey = CircuitTracks.keyFor(race.name, race.country),
+                    modifier = Modifier.size(42.dp),
+                )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = race.round.toString(),

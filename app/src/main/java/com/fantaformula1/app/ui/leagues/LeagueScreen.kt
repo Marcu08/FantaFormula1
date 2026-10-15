@@ -60,6 +60,8 @@ import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.notification.DeadlineReminderScheduler
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
+import com.fantaformula1.app.ui.components.CircuitOutline
+import com.fantaformula1.app.ui.components.CircuitTracks
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
 import com.fantaformula1.app.ui.components.RaceIdentity
@@ -318,6 +320,11 @@ private fun NextRaceCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // Sagoma del tracciato: identifica la gara a colpo d'occhio.
+                CircuitOutline(
+                    trackKey = CircuitTracks.keyFor(race.name, race.country),
+                    modifier = Modifier.size(44.dp),
+                )
             }
             Column(
                 modifier = Modifier.padding(14.dp),

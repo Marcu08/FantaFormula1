@@ -1,6 +1,7 @@
 package com.fantaformula1.app.ui.predictions
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,8 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -67,6 +70,7 @@ import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.DriverAvatar
+import com.fantaformula1.app.ui.components.DriverImages
 import com.fantaformula1.app.ui.components.DriverPickerBottomSheet
 import com.fantaformula1.app.ui.components.DriverTeamColors
 import com.fantaformula1.app.ui.components.ErrorState
@@ -511,10 +515,34 @@ private fun DriverSlotTile(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (driver != null) {
-                    DriverAvatar(
-                        driverId = driver.id,
-                        modifier = Modifier.size(28.dp),
-                    )
+                    // Caricatura in un quadretto tinto scuderia, uniforme per
+                    // tutti gli slot; fallback = avatar casco (legacy TSU).
+                    val imageRes = DriverImages.resIdOf(driver.id)
+                    if (imageRes != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    color = DriverTeamColors.colorFor(driver.team).copy(alpha = 0.22f),
+                                    shape = RoundedCornerShape(8.dp),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(imageRes),
+                                contentDescription = null, // nome e scuderia testuali vicino
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(2.dp),
+                            )
+                        }
+                    } else {
+                        DriverAvatar(
+                            driverId = driver.id,
+                            size = 28.dp,
+                        )
+                    }
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -524,7 +552,10 @@ private fun DriverSlotTile(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = driver.team,
+                            text = buildString {
+                                append(driver.team)
+                                driver.raceNumber?.let { append(" · N.$it") }
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
