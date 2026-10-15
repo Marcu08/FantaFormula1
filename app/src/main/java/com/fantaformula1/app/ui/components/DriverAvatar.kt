@@ -40,7 +40,7 @@ object DriverTeamColors {
         "alpine" to 0xFF0093CC,
         "williams" to 0xFF146FD6,
         "haas" to 0xFF8A8A93,
-        "audi" to 0xFF27A68F,
+        "audi" to 0xFF3E3E46,
         "cadillac" to 0xFFB08C3D,
     )
 

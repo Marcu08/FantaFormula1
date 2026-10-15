@@ -363,7 +363,7 @@ private fun RaceCard(
                 // Sagoma del tracciato (dati aperti), bianca sul gradiente.
                 CircuitOutline(
                     trackKey = CircuitTracks.keyFor(race.name, race.country),
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(56.dp),
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(

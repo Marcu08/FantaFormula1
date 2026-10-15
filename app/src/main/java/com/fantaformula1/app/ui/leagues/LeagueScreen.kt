@@ -323,7 +323,7 @@ private fun NextRaceCard(
                 // Sagoma del tracciato: identifica la gara a colpo d'occhio.
                 CircuitOutline(
                     trackKey = CircuitTracks.keyFor(race.name, race.country),
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(56.dp),
                 )
             }
             Column(
