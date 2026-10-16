@@ -353,6 +353,100 @@ class ScoringEngineTest {
         )
     }
 
+    // -- 9c. Quota congelata (0009): DNF / punti / H2H -------------------------
+
+    @Test
+    fun `entry con quota paga base per quota quando indovina`() {
+        // DNF: base DNF = 5.0 -> con quota 2.5 paga 12.5.
+        val dnf = PredictionEntry(
+            type = PredictionType.DRIVER_DNF,
+            driverIds = listOf("PER"),
+            booleanValue = true,
+            quota = 2.5,
+        )
+        assertEquals(5.0 * 2.5, ScoringEngine.score(dnf, sampleResult(), rules), 0.001)
+        // Punti over/under: base 7 -> quota 1.5 paga 10.5 (VER 25 punti > 12.5).
+        val punti = PredictionEntry(
+            type = PredictionType.DRIVER_POINTS_OVER_UNDER,
+            driverIds = listOf("VER"),
+            threshold = 12.5,
+            over = true,
+            quota = 1.5,
+        )
+        assertEquals(7.0 * 1.5, ScoringEngine.score(punti, sampleResult(), rules), 0.001)
+        // H2H: base 8 -> quota congelata 2.5 (sorpresa) paga 20.0.
+        val h2h = PredictionEntry(
+            type = PredictionType.HEAD_TO_HEAD,
+            driverIds = listOf("BOR", "VER"),
+            quota = 2.5,
+        )
+        assertEquals(8.0 * 2.5, ScoringEngine.score(h2h, tierUpsetResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `entry senza quota resta come prima`() {
+        // DNF vintage (quota null): piatto.
+        val dnf = PredictionEntry(
+            type = PredictionType.DRIVER_DNF,
+            driverIds = listOf("PER"),
+            booleanValue = true,
+        )
+        assertEquals(5.0, ScoringEngine.score(dnf, sampleResult(), rules), 0.001)
+        // Punti vintage: piatto.
+        val punti = PredictionEntry(
+            type = PredictionType.DRIVER_POINTS_OVER_UNDER,
+            driverIds = listOf("VER"),
+            threshold = 14.0,
+            over = true,
+        )
+        assertEquals(7.0, ScoringEngine.score(punti, sampleResult(), rules), 0.001)
+        // H2H vintage: fattore dal PRIOR pre-stagione (fasce stime).
+        val h2h = PredictionEntry(
+            type = PredictionType.HEAD_TO_HEAD,
+            driverIds = listOf("BOR", "VER"),
+        )
+        assertEquals(
+            8.0 * OverUnderQuotes.headToHeadFactor("BOR", "VER"),
+            ScoringEngine.score(h2h, tierUpsetResult(), rules),
+            0.001,
+        )
+    }
+
+    @Test
+    fun `cambiare le statistiche dopo il salvataggio non cambia il punteggio`() {
+        // Quota congelata al save: stats successivamente diverse (nuove gare,
+        // tasso di ritiro che cambia, fasce che si rimescolano) NON devono
+        // cambiare il punteggio del pronostico gia' salvato.
+        val statsAtSave = DriverSeasonStats.fromResults(listOf(raceForStats("r1")))
+        val quotaAtSave = OverUnderQuotes.dnfQuotas(statsAtSave.dnfRate("PER")).first
+        val entrySaved = PredictionEntry(
+            type = PredictionType.DRIVER_DNF,
+            driverIds = listOf("PER"),
+            booleanValue = true,
+            quota = quotaAtSave,
+        )
+        // Stats nuove: r3 cambia il tasso di ritiro, ma il punteggio usa la
+        // quota congelata nel jsonb (l'engine non riceve le statistiche).
+        DriverSeasonStats.fromResults(
+            listOf(raceForStats("r1"), raceForStats("r2"), raceForStats("r3")),
+        )
+        // L'engine arrotonda a 2 decimali; lo stesso arrotondamento qui sotto.
+        val expected = kotlin.math.round(5.0 * quotaAtSave * 100) / 100.0
+        assertEquals(
+            expected,
+            ScoringEngine.score(entrySaved, sampleResult(), rules),
+            0.001,
+        )
+    }
+
+    private fun raceForStats(raceId: String): RaceResultData = RaceResultData(
+        raceId = raceId,
+        drivers = listOf(
+            DriverRaceResult(driverId = "PER", position = null, dnf = true, pointsScored = 0.0),
+            DriverRaceResult(driverId = "VER", position = 1, pointsScored = 25.0),
+        ),
+    )
+
     // -- 9b. Safety car a opzioni e fasce pit stop -----------------------------
 
     @Test

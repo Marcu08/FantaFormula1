@@ -71,10 +71,11 @@ data class Rules(
         listOf(24.5, 29.5, 34.5, 39.5, 44.5, 49.5, 54.5, 59.5)
 
     /**
-     * Payout per gli over/under (oracle tab 2026): la soglia consentita marca
-     * la probabilita' a-priori dell'esito: piu' la quota e' lontana dal
-     * consenso, piu' punti paga (over 2.5 SC paghe 1.5x, over 0.5 solo 0.7x).
-     * Soglie fuori tabella (dati storici) -> 1.0.
+     * Quota per gli over/under SOLO STORICA (tabella 2026): la soglia ammessa
+     * marca la probabilita' a-priori dell'esito — piu' la quota e' lontana dal
+     * consenso, piu' punti paga. Le scritture NUOVE non la usano piu': per
+     * gli over/under vivi si usa [OverUnderQuotes] (quota a valore atteso,
+     * congelata nel pronostico alla scrittura). Soglie fuori tabella -> 1.0.
      */
     fun overUnderFactor(
         type: PredictionType,
@@ -96,6 +97,10 @@ data class Rules(
      * vedi [OverUnderQuotes] (tabelle fixed, fuori dalla config serializzata).
      */
 
+    // Sotto: tabelle quote SOLO STORICHE (punteggio dei pronostici vintage con
+    // soglia/sopra-sotto, pre-0008). Le scritture nuove usano fasce e quote
+    // OverUnderQuotes; queste mappe restano solo per NON stravolgere i
+    // punteggi gia' assegnati e ricalcolati a ogni lettura.
     private val SAFETY_CAR_OVER = mapOf(0.5 to 0.7, 1.5 to 1.1, 2.5 to 1.6)
     private val SAFETY_CAR_UNDER = mapOf(0.5 to 1.6, 1.5 to 0.8, 2.5 to 0.6)
     private val PIT_STOPS_OVER = mapOf(
