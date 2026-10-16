@@ -8,6 +8,68 @@ package com.fantaformula1.app.core.domain
  */
 object OverUnderQuotes {
 
+    // ----------------------------------------------------------------------
+    // Quote a VALORE ATTESO costante (2026-10): la quota di ogni scelta e'
+    // 0.5 / probabilita' stimata dell'esito, limitata in [0.5; 3.0].
+    // Il valore atteso (p * quota) vale cosi' ~0.5 per QUALSIASI scelta: non
+    // esiste piu' un lato "gratis" ("non ritira" / "under" su un pilota che
+    // non segna mai) — i punti guadagnati compensano esattamente la probabilita'.
+    // ----------------------------------------------------------------------
+
+    /** Valore atteso target di ogni lato del pronostico. */
+    const val EV_TARGET = 0.5
+
+    /** Limiti di quota (coerenti con validazione e trigger SQL 0009). */
+    const val QUOTA_MIN = 0.5
+    const val QUOTA_MAX = 3.0
+
+    /**
+     * Quota per un esito di probabilita' [p]: 0.5 / p, limitata in [0.5; 3.0].
+     * p viene limitata in [0; 1] PRIMA della divisione: una probabilita'
+     * niente/vuota non deve produrre una quota ridotta (il min) ma il tetto.
+     */
+    fun quotaFor(p: Double): Double {
+        val pSafe = p.coerceIn(0.0, 1.0).coerceAtLeast(0.01)
+        return (EV_TARGET / pSafe).coerceIn(QUOTA_MIN, QUOTA_MAX)
+    }
+
+    /**
+     * Quote del pronostico DNF per un pilota con tasso di ritiro [dnfRate]:
+     * prima = "ritira", seconda = "non ritira". Con dnfRate clampato <= 0.5
+     * (vedi [DriverSeasonStats.dnfRate]) "non ritira" non paga mai piu'
+     * di "ritira".
+     */
+    fun dnfQuotas(dnfRate: Double): Pair<Double, Double> {
+        val pSi = dnfRate.coerceAtLeast(0.01)
+        val pNo = (1.0 - dnfRate).coerceAtLeast(0.01)
+        return quotaFor(pSi) to quotaFor(pNo)
+    }
+
+    /**
+     * Quote dei "punti sopra/sotto" per un pilota con [overCount] gare oltre la
+     * soglia su [n] gare: p_over = (overCount + 1.5) / (n + 3) (smoothing Beta
+     * simmetrico). Prima = "sopra", seconda = "sotto".
+     */
+    fun pointsOverUnderQuotas(overCount: Int, n: Int): Pair<Double, Double> {
+        val pOver = (overCount + 1.5) / (n + 3.0)
+        return quotaFor(pOver) to quotaFor(1.0 - pOver)
+    }
+
+    /**
+     * Quota del testa a testa per differenza di FASCIA (0=ALTA, 1=MEDIA,
+     * 2=BASSA): stesso livello 1.2x, favorito 0.8x/0.6x (uno/due livelli),
+     * sorpresa 1.8x/2.5x. Versione a indici usata con i tier REALI da
+     * [DriverSeasonStats.tierOf] (la versione con piloti sotto usa il prior).
+     */
+    fun headToHeadFactor(pickedTier: Int, opponentTier: Int): Double =
+        when (pickedTier - opponentTier) {
+            0 -> 1.2                       // stesso livello: sfida vera
+            -1 -> 0.8                      // picked nel livello sopra
+            -2 -> 0.6                      // due livelli sopra: quasi scontato
+            1 -> 1.8                       // sorpresa di un livello
+            else -> 2.5                    // sorpresa di due livelli
+        }
+
     /** Opzioni safety car: numero esatto, "6+" codificato come 6..99. */
     val safetyCountBands: List<Pair<Int, Int>> = listOf(
         0 to 0, 1 to 1, 2 to 2, 3 to 3, 4 to 4, 5 to 5, 6 to 99,
@@ -47,19 +109,12 @@ object OverUnderQuotes {
     }
 
     /**
-     * Quota del testa a testa per LIVELLI di griglia (Top/Mid/Bottom da
-     * [DriverPointsEstimates.tierOf]). Vincere contro il livello pari paga
-     * 1.2x, il livello sotto 0.6x (facile), la sorpresa 1.8x / 2.5x.
+     * Quota del testa a testa per LIVELLI derivati dal PRIOR pre-stagione:
+     * [DriverPointsEstimates.tierOf]. Usata dal motore per i pronostici vecchi
+     * (quota congelata assente). Il salvataggio nuovo congela i tier reali:
      */
     fun headToHeadFactor(picked: String?, opponent: String?): Double {
         if (picked == null || opponent == null) return 1.0
-        val tierDiff = DriverPointsEstimates.tierOf(picked) - DriverPointsEstimates.tierOf(opponent)
-        return when {
-            tierDiff == 0 -> 1.2                       // stesso livello: sfida vera
-            tierDiff == -1 -> 0.8                      // picked nel livello sopra
-            tierDiff == -2 -> 0.6                      // due livelli sopra: quasi scontato
-            tierDiff == 1 -> 1.8                       // sorpresa di un livello
-            else -> 2.5                                // sorpresa di due livelli
-        }
+        return headToHeadFactor(DriverPointsEstimates.tierOf(picked), DriverPointsEstimates.tierOf(opponent))
     }
 }
