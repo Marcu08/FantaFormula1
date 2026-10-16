@@ -13,12 +13,22 @@ import kotlin.math.roundToInt
 object PredictionValidation {
 
     /**
-     * True se la quota e' assente, non finita o fuori [0.5; 3.0]. Verso i
-     * limiti di [OverUnderQuotes] (coerenti con il trigger SQL 0009).
+     * True se la quota e' assente, non finita o fuori range dipende dal TIPO
+     * (0010):
+     *  - DRIVER_DNF: [0.5; 8.0] ([OverUnderQuotes.QUOTA_MIN_DNF/MAX_DNF]) —
+     *    con il tasso di ritiro tipico ~0.10 il tetto 3.0 clampava sempre il
+     *    lato "si" e il "no" dominava;
+     *  - altri tipi a quota: [0.5; 3.0].
      */
-    private fun quotaFuoriRange(quota: Double?): Boolean =
-        quota == null || !quota.isFinite() ||
-            quota < OverUnderQuotes.QUOTA_MIN || quota > OverUnderQuotes.QUOTA_MAX
+    private fun quotaFuoriRange(
+        quota: Double?,
+        min: Double = OverUnderQuotes.QUOTA_MIN,
+        max: Double = OverUnderQuotes.QUOTA_MAX,
+    ): Boolean =
+        quota == null || !quota.isFinite() || quota < min || quota > max
+
+    private fun quotaDnfFuoriRange(quota: Double?): Boolean =
+        quotaFuoriRange(quota, OverUnderQuotes.QUOTA_MIN_DNF, OverUnderQuotes.QUOTA_MAX_DNF)
 
     /** Posizione massima prevedibile = piloti in griglia. */
     const val MAX_POSITION = DriversCatalog.MAX_DRIVERS
@@ -142,10 +152,11 @@ object PredictionValidation {
                 if (entry.booleanValue == null) {
                     errors += "\"$label\": indica se il pilota ritira"
                 }
-                // 0009: il lato "non ritira" non e' piu' gratis — la quota
-                // congelata e' obbligatoria alle nuove scritture.
-                if (quotaFuoriRange(entry.quota)) {
-                    errors += "\"$label\": quota non valida (tra 0.5 e 3)"
+                // 0009/0010: il lato "non ritira" non e' piu' uguale — la quota
+                // congelata e' obbligatoria alle nuove scritture e accetta il
+                // range dedicato DNF [0.5; 8].
+                if (quotaDnfFuoriRange(entry.quota)) {
+                    errors += "\"$label\": quota non valida (tra 0.5 e 8)"
                 }
             }
 

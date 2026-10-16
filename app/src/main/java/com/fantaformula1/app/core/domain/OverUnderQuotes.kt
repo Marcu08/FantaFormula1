@@ -19,9 +19,19 @@ object OverUnderQuotes {
     /** Valore atteso target di ogni lato del pronostico. */
     const val EV_TARGET = 0.5
 
-    /** Limiti di quota (coerenti con validazione e trigger SQL 0009). */
+    /** Limiti di quota generici (coerenti con validazione e trigger SQL). */
     const val QUOTA_MIN = 0.5
     const val QUOTA_MAX = 3.0
+
+    /**
+     * Limiti DEDICATI al DNF (0010): il tasso di ritiro e' quasi sempre basso
+     * (~0.10), quindi con il tetto generico 3.0 il lato "si" restava
+     * permanentemente clampato (EV ~0.3) mentre il "no" pagava libero
+     * (EV ~0.5): il "no" dominava. Con il tetto 8.0 entrambi i lati stanno
+     * non-clampati per rate >= ~0.0625 e l'EV e' identico su entrambi.
+     */
+    const val QUOTA_MIN_DNF = 0.5
+    const val QUOTA_MAX_DNF = 8.0
 
     /**
      * Quota per un esito di probabilita' [p]: 0.5 / p, limitata in [0.5; 3.0].
@@ -34,15 +44,26 @@ object OverUnderQuotes {
     }
 
     /**
+     * Quota per il DNF: stessa formula del generale ma con i limiti dedicati
+     * [QUOTA_MIN_DNF; QUOTA_MAX_DNF] (0010). Validazione Kotlin e trigger SQL
+     * usano QUESTI limiti per DRIVER_DNF, i generali per gli altri tipi.
+     */
+    fun quotaDnfFor(p: Double): Double {
+        val pSafe = p.coerceIn(0.0, 1.0).coerceAtLeast(0.01)
+        return (EV_TARGET / pSafe).coerceIn(QUOTA_MIN_DNF, QUOTA_MAX_DNF)
+    }
+
+    /**
      * Quote del pronostico DNF per un pilota con tasso di ritiro [dnfRate]:
      * prima = "ritira", seconda = "non ritira". Con dnfRate clampato <= 0.5
      * (vedi [DriverSeasonStats.dnfRate]) "non ritira" non paga mai piu'
-     * di "ritira".
+     * di "ritira", e dal tetto DNF 8.0 i due lati hanno lo STESSO valore
+     * atteso per quasi tutte le rate reali (0010).
      */
     fun dnfQuotas(dnfRate: Double): Pair<Double, Double> {
         val pSi = dnfRate.coerceAtLeast(0.01)
         val pNo = (1.0 - dnfRate).coerceAtLeast(0.01)
-        return quotaFor(pSi) to quotaFor(pNo)
+        return quotaDnfFor(pSi) to quotaDnfFor(pNo)
     }
 
     /**

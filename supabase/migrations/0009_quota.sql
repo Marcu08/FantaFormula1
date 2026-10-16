@@ -159,7 +159,13 @@ begin
             when jsonb_typeof(v_entry -> 'quota') = 'number'
                 then (v_entry ->> 'quota')::numeric
         end;
-        if v_quota is not null and (v_quota < 0.5 or v_quota > 3.0) then
+        if v_type = 'DRIVER_DNF' then
+            -- 0009/0010: il DNF ha il range dedicato [0.5; 8.0]; gli altri
+            -- tipi restano [0.5; 3.0] (vedi 0010_quota_dnf.sql).
+            if v_quota < 0.5 or v_quota > 8.0 then
+                raise exception 'PRONOSTICO NON VALIDO: quota fuori range per il DNF (0.5-8.0)';
+            end if;
+        elsif v_quota < 0.5 or v_quota > 3.0 then
             raise exception 'PRONOSTICO NON VALIDO: quota fuori range (0.5-3.0)';
         end if;
 
@@ -197,9 +203,9 @@ begin
             if jsonb_typeof(v_entry -> 'booleanValue') <> 'boolean' then
                 raise exception 'PRONOSTICO NON VALIDO: indica se il pilota ritira';
             end if;
-            -- 0009: quota congelata obbligatoria.
+            -- 0009/0010: quota congelata obbligatoria, range DNF dedicato.
             if v_quota is null then
-                raise exception 'PRONOSTICO NON VALIDO: quota obbligatoria per il DNF (0.5-3.0)';
+                raise exception 'PRONOSTICO NON VALIDO: quota obbligatoria per il DNF (0.5-8.0)';
             end if;
 
         elsif v_type = 'DRIVER_POINTS_OVER_UNDER' then

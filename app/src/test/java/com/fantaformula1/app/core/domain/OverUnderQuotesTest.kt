@@ -78,10 +78,45 @@ class OverUnderQuotesTest {
     }
 
     @Test
-    fun `dnf rate bassissima si clampa al tetto e paga comunque piu' del no`() {
+    fun `dnf rate bassissima si clampa al tetto DNF dedicato`() {
+        // 0010: il tetto DNF e' 8.0, non 3.0. rate=0.05 -> 0.5/0.05 = 10 -> clamp 8.0.
         val (qSi, qNo) = OverUnderQuotes.dnfQuotas(0.05)
-        assertEquals(3.0, qSi, 0.0001) // 0.5/0.05 = 10 -> tetto
+        assertEquals(8.0, qSi, 0.0001)
         assertTrue(qSi > qNo)
+    }
+
+    @Test
+    fun `dnf range dedicato da 0_5 a 8_0 non 3_0`() {
+        // rate 0.10 (tipica): qSi = 5.0, che col vecchio tetto generico 3.0
+        // era clampato (EV "si" 0.3 contro "no" 0.5): ora resta libero.
+        val (qSi, qNo) = OverUnderQuotes.dnfQuotas(0.10)
+        assertEquals(5.0, qSi, 0.0001)
+        assertTrue(qSi <= OverUnderQuotes.QUOTA_MAX_DNF)
+    }
+
+    @Test
+    fun `ev dei due lati dnf quasi identici per rate reali`() {
+        // Per rate >= ~0.0625 nessuno dei due lati e' clampato: l'EV del "si"
+        // e del "no" devono differire meno del 10% del valore atteso (0.05).
+        val rates = listOf(0.07, 0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50)
+        rates.forEach { rate ->
+            val (qSi, qNo) = OverUnderQuotes.dnfQuotas(rate)
+            val evSi = rate * qSi
+            val evNo = (1.0 - rate) * qNo
+            val delta = kotlin.math.abs(evSi - evNo)
+            assertTrue(
+                "rate=$rate: EV si=$evSi no=$evNo differiscono piu' del 10%",
+                delta <= 0.05,
+            )
+        }
+    }
+
+    @Test
+    fun `quota dnf estremi dedicati`() {
+        assertEquals(OverUnderQuotes.QUOTA_MAX_DNF, OverUnderQuotes.quotaDnfFor(0.001), 0.0001)
+        assertEquals(OverUnderQuotes.QUOTA_MIN_DNF, OverUnderQuotes.quotaDnfFor(1.0), 0.0001)
+        // La generica resta [0.5; 3.0].
+        assertEquals(3.0, OverUnderQuotes.quotaFor(0.1), 0.0001)
     }
 
     @Test

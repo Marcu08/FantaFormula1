@@ -350,24 +350,56 @@ class PredictionValidationTest {
 
     @Test
     fun `quota fuori range rifiutata su dnf punti e h2h`() {
-        for (bad in listOf(0.4, 3.1, 10.0, -1.0)) {
+        // Range DNF dedicato [0.5; 8] (0010): 0.4/8.1/10/-1 sono fuori per il
+        // DNF; per punti e H2H il range resta [0.5; 3] quindi anche 3.1.
+        for (dnfBad in listOf(0.4, 8.1, 10.0, -1.0)) {
             val prediction = RacePrediction(
                 entries = completeSprintEntries().map {
                     when (it.type) {
-                        PredictionType.DRIVER_DNF,
+                        PredictionType.DRIVER_DNF -> it.copy(quota = dnfBad)
+                        else -> it
+                    }
+                },
+            )
+            val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+            assertTrue("DNF quota $dnfBad deve essere rifiutata", errors.count { it.contains("quota non valida") } >= 1)
+        }
+        for (otherBad in listOf(0.4, 3.1, 10.0, -1.0)) {
+            val prediction = RacePrediction(
+                entries = completeSprintEntries().map {
+                    when (it.type) {
                         PredictionType.DRIVER_POINTS_OVER_UNDER,
                         PredictionType.HEAD_TO_HEAD,
-                        -> it.copy(quota = bad)
+                        -> it.copy(quota = otherBad)
                         else -> it
                     }
                 },
             )
             val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
             assertTrue(
-                "quota $bad deve generare errore",
-                errors.count { it.contains("quota non valida") } >= 3,
+                "quota $otherBad deve generare 2 errori (punti + H2H)",
+                errors.count { it.contains("quota non valida") } >= 2,
             )
         }
+    }
+
+    @Test
+    fun `dnf accetta quote fino a 8 mentre punti si ferma a 3`() {
+        // 0010: stessa quota 5.0 accettata per DNF, rifiutata per il resto.
+        val dnfOk = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_DNF) it.copy(quota = 5.0) else it
+            },
+        )
+        assertEquals(emptyList<String>(), PredictionValidation.validate(dnfOk, rules, isSprintRace = true))
+
+        val puntiNo = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_POINTS_OVER_UNDER) it.copy(quota = 5.0) else it
+            },
+        )
+        val errors = PredictionValidation.validate(puntiNo, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("quota non valida") })
     }
 
     @Test
