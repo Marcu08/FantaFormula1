@@ -65,6 +65,7 @@ import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.DriversCatalog
 import com.fantaformula1.app.core.domain.DriverPointsEstimates
+import com.fantaformula1.app.core.domain.DriverSeasonStats
 import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
 import com.fantaformula1.app.core.domain.Rules
@@ -97,6 +98,7 @@ fun PredictionScreen(
             raceRepository = container.raceRepository,
             leagueRepository = container.leagueRepository,
             predictionRepository = container.predictionRepository,
+            leagueDataRepository = container.leagueDataRepository,
             raceId = raceId,
         )
     }
@@ -205,6 +207,7 @@ fun PredictionScreen(
                             enabled = state.canSubmit,
                             isSprintRace = state.race?.isSprint == true,
                             rules = state.rules,
+                            seasonStats = state.seasonStats,
                             viewModel = viewModel,
                         )
                     }
@@ -302,8 +305,8 @@ private fun bandLabel(band: Pair<Int, Int>): String = when {
     else -> "${band.first}-${band.second}"
 }
 
-/** Fascia testa a testa del pilota: ALTA = i 7 piu' forti, poi MEDIA, poi BASSA. */
-private fun tierName(driverId: String): String = when (DriverPointsEstimates.tierOf(driverId)) {
+/** Fascia testa a testa per indice: 0=ALTA (i 7 piu' forti), 1=MEDIA, 2=BASSA. */
+private fun tierLabel(tier: Int): String = when (tier) {
     0 -> "ALTA"
     1 -> "MEDIA"
     else -> "BASSA"
@@ -326,6 +329,7 @@ private fun PredictionCard(
     enabled: Boolean,
     isSprintRace: Boolean,
     rules: Rules,
+    seasonStats: DriverSeasonStats,
     viewModel: PredictionViewModel,
 ) {
     Card(
@@ -379,6 +383,7 @@ private fun PredictionCard(
                         // Testa a testa: il picker mostra le 3 fasce di forza
                         // (ALTA/MEDIA/BASSA) cosi' la scelta e' consapevole.
                         groupByTier = type == PredictionType.HEAD_TO_HEAD,
+                        tierOfDriver = { seasonStats.tierOf(it) },
                         onDismiss = { pickerOpen.value = false },
                         onDriverSelected = { driverId ->
                             viewModel.setDriverAt(type, pickerSlot.value, driverId)
@@ -387,14 +392,18 @@ private fun PredictionCard(
                     )
                 }
                 if (type == PredictionType.HEAD_TO_HEAD) {
-                    // Quota e fasce della coppia scelte: chiaro PRIMA di salvare
-                    // quanto rende la sfida (pari 1.2x, favorito poco, sorpresa tanto).
+                    // Quota e fasce della coppia scelta: chiaro PRIMA di salvare
+                    // quanto rende la sfida (pari 1.2x, favorito poco, sorpresa
+                    // tanto). Fasce REALI (0009): senza gare completate valgono
+                    // quelle del prior pre-stagione.
                     val firstId = draft.driverIds.getOrNull(0)
                     val secondId = draft.driverIds.getOrNull(1)
                     if (firstId != null && secondId != null) {
-                        val factor = OverUnderQuotes.headToHeadFactor(firstId, secondId)
+                        val tierA = seasonStats.tierOf(firstId)
+                        val tierB = seasonStats.tierOf(secondId)
+                        val factor = OverUnderQuotes.headToHeadFactor(tierA, tierB)
                         Text(
-                            text = "Fasce: ${tierName(firstId)} vs ${tierName(secondId)} — " +
+                            text = "Fasce: ${tierLabel(tierA)} vs ${tierLabel(tierB)} — " +
                                 "quota x${formatEstimate(factor)} → " +
                                 "${formatEstimate(points * factor)} punti se vince",
                             style = MaterialTheme.typography.labelLarge,
@@ -402,8 +411,8 @@ private fun PredictionCard(
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
+                 Spacer(Modifier.height(8.dp))
+             }
 
             when (type) {
                 PredictionType.DRIVER_EXACT_POSITION -> FantaNumberField(
@@ -475,47 +484,98 @@ private fun PredictionCard(
                     }
                 }
 
-                PredictionType.DRIVER_DNF -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.pronostico_ritira))
-                    Switch(
-                        checked = draft.booleanValue ?: false,
-                        onCheckedChange = { if (enabled) viewModel.setBooleanValue(type, it) },
-                        enabled = enabled,
-                    )
+                PredictionType.DRIVER_DNF -> {
+                    val driverId = draft.driverIds.firstOrNull()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.pronostico_ritira))
+                        Switch(
+                            checked = draft.booleanValue ?: false,
+                            onCheckedChange = { if (enabled) viewModel.setBooleanValue(type, it) },
+                            enabled = enabled,
+                        )
+                    }
+                    if (driverId != null) {
+                        // Quote a valore atteso (0009): "non ritira" non e' piu'
+                        // gratis — paga in proporzione alla sua probabilita'.
+                        val rate = seasonStats.dnfRate(driverId)
+                        val (qSi, qNo) = OverUnderQuotes.dnfQuotas(rate)
+                        val chosen = draft.booleanValue
+                        Text(
+                            text = stringResource(
+                                R.string.pronostico_dnf_quote,
+                                formatEstimate(qSi),
+                                formatEstimate(points * qSi),
+                                formatEstimate(qNo),
+                                formatEstimate(points * qNo),
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = when (chosen) {
+                                null -> MaterialTheme.colorScheme.onSurfaceVariant
+                                true -> MaterialTheme.colorScheme.primary
+                                false -> MaterialTheme.colorScheme.secondary
+                            },
+                        )
+                    }
                 }
 
                 PredictionType.DRIVER_POINTS_OVER_UNDER -> {
                     val driverId = draft.driverIds.firstOrNull()
-                    val estimate = driverId?.let { DriverPointsEstimates.forDriver(it) }
-                    if (driverId == null || estimate == null) {
+                    if (driverId == null) {
                         Text(
                             text = stringResource(R.string.pronostico_scegli_prima_pilota),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
+                        // Soglia dai DATI REALI (mediana empirica, 0009); sotto
+                        // il minimo di 3 gare queda la stima pre-stagione.
+                        val threshold = seasonStats.thresholdFor(driverId)
+                        val n = seasonStats.racesRun(driverId)
+                        val (qOver, qUnder) = OverUnderQuotes.pointsOverUnderQuotas(
+                            seasonStats.countOverPoints(driverId, threshold),
+                            n,
+                        )
                         Text(
-                            text = stringResource(
-                                R.string.pronostico_soglia_stimata,
-                                formatEstimate(estimate),
-                                DriversCatalog.nameOf(driverId),
-                            ),
+                            text = if (seasonStats.isEmpirical(driverId)) {
+                                stringResource(
+                                    R.string.pronostico_soglia_reale,
+                                    n,
+                                    DriversCatalog.nameOf(driverId),
+                                    formatEstimate(threshold),
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.pronostico_soglia_stimata,
+                                    formatEstimate(threshold),
+                                    DriversCatalog.nameOf(driverId),
+                                )
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         OverUnderRow(
                             over = draft.over,
                             enabled = enabled,
                             onChange = {
-                                // Soglia fissa = stima del pilota: si setta in
-                                // automatico al primo giro, il giocatore sceglie
-                                // solo sopra/sotto.
-                                viewModel.setThreshold(type, formatEstimate(estimate))
+                                // Soglia = dati reali (o stima): si setta al
+                                // primo giro, il giocatore sceglie sopra/sotto.
+                                viewModel.setThreshold(type, formatEstimate(threshold))
                                 viewModel.setOver(type, it)
                             },
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.pronostico_punti_quote,
+                                formatEstimate(qOver),
+                                formatEstimate(points * qOver),
+                                formatEstimate(qUnder),
+                                formatEstimate(points * qUnder),
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }

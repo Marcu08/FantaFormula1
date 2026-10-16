@@ -22,6 +22,7 @@ class PredictionValidationTest {
         threshold: Double? = null,
         over: Boolean? = null,
         booleanValue: Boolean? = null,
+        quota: Double? = null,
     ) = PredictionEntry(
         type = type,
         driverIds = driverIds,
@@ -31,6 +32,7 @@ class PredictionValidationTest {
         threshold = threshold,
         over = over,
         booleanValue = booleanValue,
+        quota = quota,
     )
 
     private fun completeSprintEntries(): List<PredictionEntry> = listOf(
@@ -40,13 +42,16 @@ class PredictionValidationTest {
         entry(PredictionType.FASTEST_LAP, listOf("NOR")),
         entry(PredictionType.DRIVER_EXACT_POSITION, listOf("LEC"), position = 3),
         entry(PredictionType.DRIVER_POSITION_RANGE, listOf("HAM"), rangeMin = 6, rangeMax = 10),
-        entry(PredictionType.HEAD_TO_HEAD, listOf("VER", "LEC")),
-        entry(PredictionType.DRIVER_DNF, listOf("STR"), booleanValue = true),
+        // 0009: DNF/punti/H2H portano la quota congelata; la soglia punti e'
+        // un multiplo di 0.5 in [0.5, 25] (non piu' l'uguaglianza con la stima).
+        entry(PredictionType.HEAD_TO_HEAD, listOf("VER", "LEC"), quota = 1.2),
+        entry(PredictionType.DRIVER_DNF, listOf("STR"), booleanValue = true, quota = 1.0),
         entry(
             PredictionType.DRIVER_POINTS_OVER_UNDER,
             listOf("VER"),
-            threshold = 14.0, // stima punti/gara di VER (non modificabile)
+            threshold = 12.5,
             over = true,
+            quota = 1.0,
         ),
         entry(PredictionType.SPRINT_WINNER, listOf("NOR")),
         entry(
@@ -258,7 +263,7 @@ class PredictionValidationTest {
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("soglia di punti non valida") })
+        assertTrue(errors.any { it.contains("soglia multiplo di 0.5 tra 0.5 e 25") })
         assertTrue(errors.any { it.contains("scegli una delle opzioni 0, 1, 2") })
         assertTrue(errors.any { it.contains("scegli una delle fasce 0-14") })
     }
@@ -295,20 +300,91 @@ class PredictionValidationTest {
     }
 
     @Test
-    fun `soglia punti pilota deve coincidere con la stima fissa`() {
-        // La media e' precompilata e non variabile: una soglia diversa da
-        // quella del pilota e' rifiutata.
+    fun `soglia punti libera se multiplo di 0_5 nel range`() {
+        // 0009: niente piu' uguaglianza con la stima — la soglia e' la mediana
+        // empirica calcolata dal client: bastera' il formato (multiplo 0.5 in [0.5; 25]).
         val prediction = RacePrediction(
             entries = completeSprintEntries().map {
                 if (it.type == PredictionType.DRIVER_POINTS_OVER_UNDER) {
-                    it.copy(threshold = 20.0)
+                    it.copy(threshold = 20.5)
                 } else {
                     it
                 }
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("media punti del pilota") })
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    @Test
+    fun `soglia punti non multiplo di 0_5 rifiutata`() {
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_POINTS_OVER_UNDER) {
+                    it.copy(threshold = 7.3)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("soglia multiplo di 0.5 tra 0.5 e 25") })
+    }
+
+    @Test
+    fun `soglia punti 26 e 0 fuori range rifiutate`() {
+        for (bad in listOf(0.0, 25.5, 26.0)) {
+            val prediction = RacePrediction(
+                entries = completeSprintEntries().map {
+                    if (it.type == PredictionType.DRIVER_POINTS_OVER_UNDER) {
+                        it.copy(threshold = bad)
+                    } else {
+                        it
+                    }
+                },
+            )
+            val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+            assertTrue("soglia $bad deve essere rifiutata", errors.any { it.contains("soglia multiplo di 0.5") })
+        }
+    }
+
+    @Test
+    fun `quota fuori range rifiutata su dnf punti e h2h`() {
+        for (bad in listOf(0.4, 3.1, 10.0, -1.0)) {
+            val prediction = RacePrediction(
+                entries = completeSprintEntries().map {
+                    when (it.type) {
+                        PredictionType.DRIVER_DNF,
+                        PredictionType.DRIVER_POINTS_OVER_UNDER,
+                        PredictionType.HEAD_TO_HEAD,
+                        -> it.copy(quota = bad)
+                        else -> it
+                    }
+                },
+            )
+            val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+            assertTrue(
+                "quota $bad deve generare errore",
+                errors.count { it.contains("quota non valida") } >= 3,
+            )
+        }
+    }
+
+    @Test
+    fun `quota mancante su dnf punti h2h rifiuta le nuove scritture`() {
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                when (it.type) {
+                    PredictionType.DRIVER_DNF,
+                    PredictionType.DRIVER_POINTS_OVER_UNDER,
+                    PredictionType.HEAD_TO_HEAD,
+                    -> it.copy(quota = null)
+                    else -> it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.count { it.contains("quota non valida") } >= 3)
     }
 
     @Test

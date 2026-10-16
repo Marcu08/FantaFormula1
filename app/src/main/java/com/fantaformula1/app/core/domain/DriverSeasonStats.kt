@@ -178,3 +178,40 @@ data class DriverSeasonStats(
             .map { it.first }
     }
 }
+
+/**
+ * Congela la QUOTA del lato scelto in una voce di pronostico (0009) usando le
+ * [DriverSeasonStats] del momento della scrittura:
+ *  - DRIVER_DNF: quote si/no dal tasso di ritiro reale;
+ *  - DRIVER_POINTS_OVER_UNDER: la soglia viene SEMPRE riallineata alla soglia
+ *    empirica corrente (o alla stima se n < 3) e la quota del lato scelto
+ *    viene congelata;
+ *  - HEAD_TO_HEAD: quota dalle fasce reali correnti.
+ * Gli altri tipi restano senza quota (null). Le statistiche NON vengono mai
+ * rilette dopo il salvataggio: il motore usa la quota congelata nel jsonb.
+ */
+internal fun PredictionEntry.withFrozenQuota(stats: DriverSeasonStats): PredictionEntry {
+    val quota: Double? = when (type) {
+        PredictionType.DRIVER_DNF -> {
+            val rate = stats.dnfRate(driverIds.firstOrNull() ?: return this)
+            val (qSi, qNo) = OverUnderQuotes.dnfQuotas(rate)
+            if (booleanValue == true) qSi else qNo
+        }
+        PredictionType.DRIVER_POINTS_OVER_UNDER -> {
+            val driverId = driverIds.firstOrNull() ?: return this
+            val threshold = stats.thresholdFor(driverId)
+            val (qOver, qUnder) = OverUnderQuotes.pointsOverUnderQuotas(
+                stats.countOverPoints(driverId, threshold),
+                stats.racesRun(driverId),
+            )
+            return copy(threshold = threshold, quota = if (over == true) qOver else qUnder)
+        }
+        PredictionType.HEAD_TO_HEAD -> {
+            val first = driverIds.getOrNull(0) ?: return this
+            val second = driverIds.getOrNull(1) ?: return this
+            OverUnderQuotes.headToHeadFactor(stats.tierOf(first), stats.tierOf(second))
+        }
+        else -> null
+    }
+    return quota?.let { copy(quota = it) } ?: this
+}

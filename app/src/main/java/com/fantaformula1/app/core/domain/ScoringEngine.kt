@@ -155,12 +155,13 @@ object ScoringEngine {
                 if (posA == null || posB == null) {
                     0.0
                 } else if (posA < posB) {
-                    // Quota per la coppia: pick del favorito paga 0.8, della
-                    // sorpresa 1.5 (equilibra le probabilita' reali).
+                    // Payout: quota congelata nel pronostico (scritture 0009+),
+                    // altrimenti fallback sulle fasce del PRIOR pre-stagione
+                    // (i pronostici vecchi restano punteggiati come prima).
+                    val quota = entry.quota ?: OverUnderQuotes.headToHeadFactor(first, second)
                     adjust(
                         first,
-                        rules.pointsFor(PredictionType.HEAD_TO_HEAD) *
-                            OverUnderQuotes.headToHeadFactor(first, second),
+                        rules.pointsFor(PredictionType.HEAD_TO_HEAD) * quota,
                         result,
                         rules,
                     )
@@ -177,7 +178,10 @@ object ScoringEngine {
             if (driverId == null || expected == null || actual == null) {
                 0.0
             } else if (actual == expected) {
-                rules.pointsFor(PredictionType.DRIVER_DNF)
+                // Quota congelata (0009): "non ritira" non e' piu' gratis, paga
+                // x0.5/pNo. Le voci vintage senza quota restano piatte.
+                val quota = entry.quota ?: 1.0
+                rules.pointsFor(PredictionType.DRIVER_DNF) * quota
             } else 0.0
         }
 
@@ -193,7 +197,9 @@ object ScoringEngine {
             if (driverId == null || threshold == null || over == null || actual == null) {
                 0.0
             } else if (isOver(actual, threshold) == over) {
-                rules.pointsFor(PredictionType.DRIVER_POINTS_OVER_UNDER)
+                // Quota congelata (0009) se presente, altrimenti piatto.
+                val quota = entry.quota ?: 1.0
+                rules.pointsFor(PredictionType.DRIVER_POINTS_OVER_UNDER) * quota
             } else 0.0
         }
 

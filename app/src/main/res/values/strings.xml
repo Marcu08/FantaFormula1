@@ -247,6 +247,9 @@
     <string name="slot_cambia">Cambia</string>
     <string name="pronostico_scegli_prima_pilota">Scegli prima il pilota: la soglia è la sua media punti</string>
     <string name="pronostico_soglia_stimata">Soglia stimata per %2$s: %1$s punti</string>
+    <string name="pronostico_soglia_reale">Soglia dai dati reali (%1$d gare) per %2$s: %3$s punti</string>
+    <string name="pronostico_dnf_quote">Si (ritira): ×%1$s → %2$s punti · No (non ritira): ×%3$s → %4$s punti</string>
+    <string name="pronostico_punti_quote">Sopra ×%1$s → %2$s punti · Sotto ×%3$s → %4$s punti</string>
     <string name="pronostico_quota">Quota ×%1$s → %2$s punti</string>
     <string name="pronostico_fascia_legacy">Fascia salvata: %1$d-%2$d. Le fasce sono diventate obbligatorie: scegli una delle nuove bande.</string>
 </resources>

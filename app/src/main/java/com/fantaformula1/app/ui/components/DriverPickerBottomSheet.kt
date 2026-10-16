@@ -65,14 +65,17 @@ internal data class PickerRow(val heading: String? = null, val driver: Driver? =
 /**
  * Raggruppa i piloti nelle tre fasce di forza (ALTA/MEDIA/BASSA, ordine per
  * stima punti decrescente) usate dal testa a testa: scelta visibile, niente
- * caselle a sorpresa. Funzione pura, il chiamante decide se raggruppare.
- * [DriverPointsEstimates.tierOf] copre tutti i piloti del catalogo.
+ * caselle a sorpresa. Funzione pura: [tierOfDriver] decide la fascia (dati
+ * reali dal chiamante, o prior pre-stagione di default).
  */
-internal fun buildTierRows(drivers: List<Driver>): List<PickerRow> = buildList {
+internal fun buildTierRows(
+    drivers: List<Driver>,
+    tierOfDriver: (String) -> Int = { DriverPointsEstimates.tierOf(it) },
+): List<PickerRow> = buildList {
     val tierTitles = listOf("Fascia ALTA" to 0, "Fascia MEDIA" to 1, "Fascia BASSA" to 2)
     tierTitles.forEach { (title, tier) ->
         val driversInTier = drivers
-            .filter { DriverPointsEstimates.tierOf(it.id) == tier }
+            .filter { tierOfDriver(it.id) == tier }
             .sortedByDescending { DriverPointsEstimates.forDriver(it.id) }
         if (driversInTier.isNotEmpty()) {
             add(PickerRow(heading = title))
@@ -94,6 +97,8 @@ internal fun buildTierRows(drivers: List<Driver>): List<PickerRow> = buildList {
 fun DriverPickerBottomSheet(
     selectedDriverId: String?,
     groupByTier: Boolean = false,
+    /** Origine della fascia per il raggruppamento (fasce reali dal chiamante). */
+    tierOfDriver: (String) -> Int = { DriverPointsEstimates.tierOf(it) },
     onDismiss: () -> Unit,
     onDriverSelected: (String) -> Unit,
 ) {
@@ -105,7 +110,7 @@ fun DriverPickerBottomSheet(
     val filtered = filterDrivers(query, teamFilter)
     val noActiveFilter = query.isBlank() && teamFilter == null
     val pickerRows = if (groupByTier && noActiveFilter) {
-        buildTierRows(filtered)
+        buildTierRows(filtered, tierOfDriver)
     } else {
         filtered.map { PickerRow(driver = it) }
     }

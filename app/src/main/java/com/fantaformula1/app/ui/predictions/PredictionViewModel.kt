@@ -2,6 +2,7 @@ package com.fantaformula1.app.ui.predictions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fantaformula1.app.core.domain.DriverSeasonStats
 import com.fantaformula1.app.core.domain.PredictionEntry
 import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
@@ -9,7 +10,9 @@ import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RacePrediction
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.isSprintRelated
+import com.fantaformula1.app.core.domain.withFrozenQuota
 import com.fantaformula1.app.data.repository.League
+import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
 import com.fantaformula1.app.data.repository.RaceRepository
@@ -97,6 +100,8 @@ data class PredictionUiState(
     val mine: RacePrediction? = null,
     val drafts: List<DraftEntry> = emptyList(),
     val others: List<OtherPrediction> = emptyList(),
+    /** Statistiche reali di stagione (quote/soglie; vuota = solo prior). */
+    val seasonStats: DriverSeasonStats = DriverSeasonStats.empty,
     val canSubmit: Boolean = false,
     val deadlinePassed: Boolean = false,
     val canRevealOthers: Boolean = false,
@@ -116,6 +121,7 @@ class PredictionViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
     private val predictionRepository: PredictionRepository,
+    private val leagueDataRepository: LeagueDataRepository,
     private val raceId: String,
 ) : ViewModel() {
 
@@ -144,10 +150,18 @@ class PredictionViewModel(
                 val others = predictionRepository.othersPredictions(raceId)
                 val names = leagueRepository.members(race.leagueId)
                     .associate { it.userId to it.displayName }
-                Quad(race, league, mine, others.map { (id, p) ->
+                // Statistiche reali dalle gare completate (quota/soglie/fasce).
+                // Fallisca = "nessuna statistica" (solo prior), non errore bloccante.
+                val results = runCatching {
+                    leagueDataRepository.raceData(race.leagueId)
+                        .races
+                        .mapNotNull { it.result }
+                }.getOrDefault(emptyList())
+                val stats = DriverSeasonStats.fromResults(results)
+                Quint(race, league, mine, others.map { (id, p) ->
                     OtherPrediction(id, names[id] ?: "Giocatore", p)
-                })
-            }.onSuccess { (race, league, mine, others) ->
+                }, stats)
+            }.onSuccess { (race, league, mine, others, stats) ->
                 val rules = league?.rules ?: Rules()
                 // B9/B10: la decisione "gara aperta" viene da
                 // Race.isPredictionOpen, che considera deadline E status.
@@ -164,6 +178,7 @@ class PredictionViewModel(
                         // riempiono solo i tipi ancora attivi.
                         drafts = buildDrafts(rules, race, mine),
                         others = others,
+                        seasonStats = stats,
                         canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
                         deadlinePassed = !open,
                         // B10: se revealOthersAfterDeadline è false gli altri
@@ -263,7 +278,9 @@ class PredictionViewModel(
 
         val entries = state.drafts
             .filter { it.complete }
-            .map { it.toDomain() }
+            // Quota/Soglia congelati con le statistiche DEL MOMENTO della
+            // scrittura: dopo il save, il ricalcolo non dipende piu' dai dati.
+            .map { it.toDomain().withFrozenQuota(state.seasonStats) }
 
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
@@ -305,8 +322,8 @@ class PredictionViewModel(
     }
 }
 
-/** Tupla comoda a 4 elementi per il caricamento iniziale. */
-private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+/** Tupla comoda a 5 elementi per il caricamento iniziale. */
+private data class Quint<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
 /**
  * Logica pura della selezione a slot per i pronostici a tendina.

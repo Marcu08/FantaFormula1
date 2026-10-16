@@ -1,12 +1,24 @@
 package com.fantaformula1.app.core.domain
 
+import kotlin.math.roundToInt
+
 /**
  * Validazione di un pronostico compilato dal giocatore.
  * Regole: un solo pronostico per tipo attivo, numero corretto di piloti,
  * campi numerici nei range, nessun pilota ripetuto nello stesso pronostico,
- * tipi legati allo sprint solo su gare con sprint.
+ * tipi legati allo sprint solo su gare con sprint. Con 0009, le scritture
+ * nuove di DNF / punti over-under / testa a testa devono portare la QUOTA
+ * congelata nel range ammesso (le voci gia' salvate non vengono rivalidate).
  */
 object PredictionValidation {
+
+    /**
+     * True se la quota e' assente, non finita o fuori [0.5; 3.0]. Verso i
+     * limiti di [OverUnderQuotes] (coerenti con il trigger SQL 0009).
+     */
+    private fun quotaFuoriRange(quota: Double?): Boolean =
+        quota == null || !quota.isFinite() ||
+            quota < OverUnderQuotes.QUOTA_MIN || quota > OverUnderQuotes.QUOTA_MAX
 
     /** Posizione massima prevedibile = piloti in griglia. */
     const val MAX_POSITION = DriversCatalog.MAX_DRIVERS
@@ -130,25 +142,34 @@ object PredictionValidation {
                 if (entry.booleanValue == null) {
                     errors += "\"$label\": indica se il pilota ritira"
                 }
+                // 0009: il lato "non ritira" non e' piu' gratis — la quota
+                // congelata e' obbligatoria alle nuove scritture.
+                if (quotaFuoriRange(entry.quota)) {
+                    errors += "\"$label\": quota non valida (tra 0.5 e 3)"
+                }
             }
 
             PredictionType.DRIVER_POINTS_OVER_UNDER -> {
                 val threshold = entry.threshold
-                if (threshold == null || !threshold.isFinite() || threshold < 0) {
-                    errors += "\"$label\": soglia di punti non valida"
-                } else {
-                    // Soglia NON variabile: deve coincidere con la stima
-                    // punti/gara del pilota scelto (la UI la precompila).
-                    val driverId = entry.driverIds.firstOrNull()
-                    if (driverId != null && DriversCatalog.byId(driverId) != null) {
-                        val expected = DriverPointsEstimates.forDriver(driverId)
-                        if (threshold != expected) {
-                            errors += "\"$label\": la soglia deve essere la media punti del pilota ($expected)"
-                        }
-                    }
+                if (threshold == null || !threshold.isFinite() ||
+                    threshold < DriverSeasonStats.MIN_THRESHOLD ||
+                    threshold > DriverSeasonStats.MAX_THRESHOLD ||
+                    (threshold * 2) != (threshold * 2).roundToInt().toDouble()
+                ) {
+                    errors += "\"$label\": soglia multiplo di 0.5 tra 0.5 e 25"
                 }
                 if (entry.over == null) {
                     errors += "\"$label\": indica se sarà sopra o sotto la soglia"
+                }
+                if (quotaFuoriRange(entry.quota)) {
+                    errors += "\"$label\": quota non valida (tra 0.5 e 3)"
+                }
+            }
+
+            PredictionType.HEAD_TO_HEAD -> {
+                // 0009: quota (fasce reali) obbligatoria alle nuove scritture.
+                if (quotaFuoriRange(entry.quota)) {
+                    errors += "\"$label\": quota non valida (tra 0.5 e 3)"
                 }
             }
 
