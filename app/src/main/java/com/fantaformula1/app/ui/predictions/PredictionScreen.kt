@@ -312,13 +312,19 @@ private fun tierLabel(tier: Int): String = when (tier) {
     else -> "BASSA"
 }
 
-/** 2.5 -> "2.5", 1.0 -> "1": formato compatto per soglie e quote. */
-private fun formatEstimate(value: Double): String =
-    if (value == value.toInt().toDouble()) {
-        value.toInt().toString()
+/**
+ * 2.5 -> "2.5", 1.0 -> "1", 0.5454... -> "0.55": MASSIMO 2 cifre decimali.
+ * Le quote a valore atteso escono da una divisione (0.5/p) con cifre
+ * periodiche: senza arrotondamento la UI mostrava 0.5454545454545455.
+ */
+private fun formatEstimate(value: Double): String {
+    val rounded = kotlin.math.round(value * 100.0) / 100.0
+    return if (rounded == rounded.toInt().toDouble()) {
+        rounded.toInt().toString()
     } else {
-        value.toString()
+        rounded.toString()
     }
+}
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
