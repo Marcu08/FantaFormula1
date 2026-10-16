@@ -359,28 +359,58 @@ class ScoringEngineTest {
     // -- 9. Safety car e pit stop ---------------------------------------------
 
     @Test
-    fun `safety car over indovinato assegna i punti`() {
-        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 1.0, over = true)
-        assertEquals(5.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    fun `safety car over indovinato con quota base 1`() {
+        // Soglia 1.5, quota over = 1.1x (tabella Rules): 5 x 1.1 = 5.5.
+        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 1.5, over = true)
+        assertEquals(5.0 * 1.1, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
-    fun `safety car under sbagliato assegna zero`() {
-        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 1.0, over = false)
+    fun `safety car over su soglia improbabile paga di piu`() {
+        // Over 2.5 (>=3 safety car) e' raro: quota 1.6x -> 8 punti. Il sample
+        // viene forzato a 3 safety car per rendere il pronostico vincente.
+        val chaotic = sampleResult().copy(safetyCars = 3)
+        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 2.5, over = true)
+        assertEquals(5.0 * 1.6, ScoringEngine.score(e, chaotic, rules), 0.001)
+    }
+
+    @Test
+    fun `safety car under 05 zero safety car paga di piu`() {
+        // Under 0.5 = zero safety car: evento piu' raro (1.6x). Ma sampleResult
+        // ne ha 2: pronostico perso.
+        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 0.5, over = false)
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
-    fun `pit stop totali over indovinato assegna i punti`() {
-        // 2 + 1 + 2 + 1 + 0 + 1 = 7 pit stop
-        val e = PredictionEntry(type = PredictionType.PIT_STOPS_OVER_UNDER, threshold = 5.0, over = true)
-        assertEquals(5.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    fun `safety car over sbagliato assegna zero`() {
+        // Over 0.5 con 2 safety car vince: il caso sbagliato e' over 2.5
+        // con 2 safety car (ne servono 3).
+        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 2.5, over = true)
+        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `pit stop totali over indovinato assegna i punti con quota`() {
+        // 2 + 1 + 2 + 1 + 0 + 1 = 7 pit stop: sotto la soglia 24.5? No, 7 < 24.5:
+        // over 24.5 perso... la soglia minima ammessa e' 24.5, quindi con 7 stop
+        // si vince l'UNDER: quota under 24.5 = 2.2x.
+        val e = PredictionEntry(type = PredictionType.PIT_STOPS_OVER_UNDER, threshold = 24.5, over = false)
+        assertEquals(5.0 * 2.2, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
     fun `pit stop totali sotto soglia con over perde`() {
-        val e = PredictionEntry(type = PredictionType.PIT_STOPS_OVER_UNDER, threshold = 10.0, over = true)
+        val e = PredictionEntry(type = PredictionType.PIT_STOPS_OVER_UNDER, threshold = 24.5, over = true)
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `soglia fuori tabella paga quota base per compatibilita storica`() {
+        // Dati storici con soglie non piu' ammesse: il motore non crashe e
+        // applica il fattore neutro 1.0.
+        val e = PredictionEntry(type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold = 1.0, over = true)
+        assertEquals(5.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     // -- 10. Tipo disattivato --------------------------------------------------

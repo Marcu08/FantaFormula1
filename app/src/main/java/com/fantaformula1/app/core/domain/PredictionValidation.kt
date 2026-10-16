@@ -60,7 +60,7 @@ object PredictionValidation {
         }
 
         prediction.entries.forEach { entry ->
-            errors += validateEntry(entry, isSprintRace)
+            errors += validateEntry(entry, isSprintRace, rules)
         }
 
         // B15: i pronostici PARZIALI sono ammessi. Un giocatore puo' inviare
@@ -85,6 +85,7 @@ object PredictionValidation {
     private fun validateEntry(
         entry: PredictionEntry,
         isSprintRace: Boolean,
+        rules: Rules,
     ): List<String> {
         val errors = mutableListOf<String>()
         val label = entry.type.italianLabel
@@ -135,18 +136,40 @@ object PredictionValidation {
                 val threshold = entry.threshold
                 if (threshold == null || !threshold.isFinite() || threshold < 0) {
                     errors += "\"$label\": soglia di punti non valida"
+                } else {
+                    // Soglia NON variabile: deve coincidere con la stima
+                    // punti/gara del pilota scelto (la UI la precompila).
+                    val driverId = entry.driverIds.firstOrNull()
+                    if (driverId != null && DriversCatalog.byId(driverId) != null) {
+                        val expected = DriverPointsEstimates.forDriver(driverId)
+                        if (threshold != expected) {
+                            errors += "\"$label\": la soglia deve essere la media punti del pilota ($expected)"
+                        }
+                    }
                 }
                 if (entry.over == null) {
                     errors += "\"$label\": indica se sarà sopra o sotto la soglia"
                 }
             }
 
-            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
-            PredictionType.PIT_STOPS_OVER_UNDER,
-            -> {
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> {
                 val threshold = entry.threshold
                 if (threshold == null || !threshold.isFinite() || threshold < 0) {
                     errors += "\"$label\": soglia non valida"
+                } else if (!rules.allowedSafetyCarThresholds.contains(threshold)) {
+                    errors += "\"$label\": soglia non ammessa (ammesse: 0.5, 1.5, 2.5)"
+                }
+                if (entry.over == null) {
+                    errors += "\"$label\": indica se sarà sopra o sotto la soglia"
+                }
+            }
+
+            PredictionType.PIT_STOPS_OVER_UNDER -> {
+                val threshold = entry.threshold
+                if (threshold == null || !threshold.isFinite() || threshold < 0) {
+                    errors += "\"$label\": soglia non valida"
+                } else if (!rules.allowedPitStopThresholds.contains(threshold)) {
+                    errors += "\"$label\": soglia non ammessa (ammesse: 24.5-59.5 di 5 in 5)"
                 }
                 if (entry.over == null) {
                     errors += "\"$label\": indica se sarà sopra o sotto la soglia"

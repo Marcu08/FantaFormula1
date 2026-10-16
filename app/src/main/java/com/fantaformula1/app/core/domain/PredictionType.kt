@@ -71,12 +71,12 @@ val PredictionType.italianDescription: String
         PredictionType.FASTEST_LAP -> "Indovina chi fa il giro veloce"
         PredictionType.DRIVER_EXACT_POSITION -> "Indovina la posizione esatta di un pilota"
         PredictionType.DRIVER_POSITION_RANGE -> "Indovina in quale fascia finisce un pilota"
-        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due piloti finisce meglio (valgono solo se ENTRAMBI sono classificati)"
+        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due finisce meglio (vale solo se ENTRAMBI classificati: favorito 0.8x, sorpresa 1.5x)"
         PredictionType.DRIVER_DNF -> "Indovina se un pilota ritira"
-        PredictionType.DRIVER_POINTS_OVER_UNDER -> "Scommetti sui punti di un pilota"
+        PredictionType.DRIVER_POINTS_OVER_UNDER -> "Sopra o sotto la media punti/gara del pilota (soglia fissa precompilata)"
         PredictionType.SPRINT_WINNER -> "Indovina il vincitore dello sprint"
-        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Scommetti sul numero di safety car"
-        PredictionType.PIT_STOPS_OVER_UNDER -> "Scommetti sul numero di pit stop"
+        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Quante safety car: scegli soglia (0.5-2.5) e sopra/sotto, la quota varia"
+        PredictionType.PIT_STOPS_OVER_UNDER -> "Pit stop TOTALI di tutti i piloti: soglia (24.5-59.5) e sopra/sotto, la quota varia"
     }
 
 /** Tipi che dipendono dallo sprint (usati per applicare il moltiplicatore sprint). */

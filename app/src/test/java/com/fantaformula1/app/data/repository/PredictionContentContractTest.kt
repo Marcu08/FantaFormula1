@@ -99,11 +99,25 @@ class PredictionContentContractTest {
                 "DRIVER_DNF" ->
                     assertTrue("booleanValue booleano", obj["booleanValue"]?.jsonPrimitive?.booleanOrNull != null)
                 "DRIVER_POINTS_OVER_UNDER",
-                "SAFETY_CAR_COUNT_OVER_UNDER",
-                "PIT_STOPS_OVER_UNDER",
                 -> {
                     val threshold = obj["threshold"]?.jsonPrimitive?.doubleOrNull
                     assertTrue("soglia numerica >= 0", threshold != null && threshold >= 0.0)
+                    assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
+                }
+                "SAFETY_CAR_COUNT_OVER_UNDER" -> {
+                    val threshold = obj["threshold"]?.jsonPrimitive?.doubleOrNull
+                    assertTrue(
+                        "soglia safety car ammessa (0.5/1.5/2.5)",
+                        threshold in setOf(0.5, 1.5, 2.5),
+                    )
+                    assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
+                }
+                "PIT_STOPS_OVER_UNDER" -> {
+                    val threshold = obj["threshold"]?.jsonPrimitive?.doubleOrNull
+                    assertTrue(
+                        "soglia pit stop ammessa (24.5-59.5 di 5 in 5)",
+                        threshold in setOf(24.5, 29.5, 34.5, 39.5, 44.5, 49.5, 54.5, 59.5),
+                    )
                     assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
                 }
             }
@@ -126,9 +140,10 @@ class PredictionContentContractTest {
                     PredictionEntry(type = type, driverIds = listOf("VER", "NOR", "LEC"))
                 PredictionType.HEAD_TO_HEAD ->
                     PredictionEntry(type = type, driverIds = listOf("VER", "NOR"))
-                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
-                PredictionType.PIT_STOPS_OVER_UNDER,
-                -> PredictionEntry(type = type, threshold = 2.5, over = true)
+                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER ->
+                    PredictionEntry(type = type, threshold = 2.5, over = true)
+                PredictionType.PIT_STOPS_OVER_UNDER ->
+                    PredictionEntry(type = type, threshold = 44.5, over = true)
                 PredictionType.DRIVER_EXACT_POSITION ->
                     PredictionEntry(type = type, driverIds = listOf("VER"), position = 5)
                 PredictionType.DRIVER_POSITION_RANGE ->

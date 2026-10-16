@@ -64,8 +64,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.DriversCatalog
+import com.fantaformula1.app.core.domain.DriverPointsEstimates
 import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
+import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
@@ -201,6 +203,7 @@ fun PredictionScreen(
                             points = state.rules.pointsFor(type),
                             enabled = state.canSubmit,
                             isSprintRace = state.race?.isSprint == true,
+                            rules = state.rules,
                             viewModel = viewModel,
                         )
                     }
@@ -291,6 +294,14 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
+/** 2.5 -> "2.5", 1.0 -> "1": formato compatto per soglie e quote. */
+private fun formatEstimate(value: Double): String =
+    if (value == value.toInt().toDouble()) {
+        value.toInt().toString()
+    } else {
+        value.toString()
+    }
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PredictionCard(
@@ -299,6 +310,7 @@ private fun PredictionCard(
     points: Double,
     enabled: Boolean,
     isSprintRace: Boolean,
+    rules: Rules,
     viewModel: PredictionViewModel,
 ) {
     Card(
@@ -442,23 +454,81 @@ private fun PredictionCard(
                     )
                 }
 
-                PredictionType.DRIVER_POINTS_OVER_UNDER,
+                PredictionType.DRIVER_POINTS_OVER_UNDER -> {
+                    val driverId = draft.driverIds.firstOrNull()
+                    val estimate = driverId?.let { DriverPointsEstimates.forDriver(it) }
+                    if (driverId == null || estimate == null) {
+                        Text(
+                            text = stringResource(R.string.pronostico_scegli_prima_pilota),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = stringResource(
+                                R.string.pronostico_soglia_stimata,
+                                formatEstimate(estimate),
+                                DriversCatalog.nameOf(driverId),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        OverUnderRow(
+                            over = draft.over,
+                            enabled = enabled,
+                            onChange = {
+                                // Soglia fissa = stima del pilota: si setta in
+                                // automatico al primo giro, il giocatore sceglie
+                                // solo sopra/sotto.
+                                viewModel.setThreshold(type, formatEstimate(estimate))
+                                viewModel.setOver(type, it)
+                            },
+                        )
+                    }
+                }
+
                 PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
                 PredictionType.PIT_STOPS_OVER_UNDER,
                 -> {
-                    FantaTextField(
-                        value = draft.threshold,
-                        onValueChange = { viewModel.setThreshold(type, it) },
-                        label = stringResource(R.string.pronostico_soglia),
-                        keyboardType = KeyboardType.Decimal,
-                        enabled = enabled,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    OverUnderRow(
-                        over = draft.over,
-                        enabled = enabled,
-                        onChange = { if (enabled) viewModel.setOver(type, it) },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Soglie ammesse (quote calcistiche): niente valore libero.
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val allowed = when (type) {
+                                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER ->
+                                    rules.allowedSafetyCarThresholds
+                                else -> rules.allowedPitStopThresholds
+                            }
+                            allowed.forEach { t ->
+                                FilterChip(
+                                    selected = draft.threshold.toDoubleOrNull() == t,
+                                    onClick = {
+                                        if (enabled) viewModel.setThreshold(type, formatEstimate(t))
+                                    },
+                                    label = { Text(formatEstimate(t)) },
+                                    enabled = enabled,
+                                )
+                            }
+                        }
+                        // Payout prevista: base x quota (si aggiorna a scelta).
+                        val t = draft.threshold.toDoubleOrNull()
+                        val over = draft.over
+                        if (t != null && over != null && rules.pointsFor(type) > 0.0) {
+                            val factor = rules.overUnderFactor(type, t, over)
+                            Text(
+                                text = stringResource(
+                                    R.string.pronostico_quota,
+                                    formatEstimate(factor),
+                                    formatEstimate(points * factor),
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        OverUnderRow(
+                            over = draft.over,
+                            enabled = enabled,
+                            onChange = { if (enabled) viewModel.setOver(type, it) },
+                        )
+                    }
                 }
 
                 else -> Unit

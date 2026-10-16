@@ -45,7 +45,7 @@ class PredictionValidationTest {
         entry(
             PredictionType.DRIVER_POINTS_OVER_UNDER,
             listOf("VER"),
-            threshold = 18.5,
+            threshold = 14.0, // stima punti/gara di VER (non modificabile)
             over = true,
         ),
         entry(PredictionType.SPRINT_WINNER, listOf("NOR")),
@@ -54,7 +54,7 @@ class PredictionValidationTest {
             threshold = 1.5,
             over = false,
         ),
-        entry(PredictionType.PIT_STOPS_OVER_UNDER, threshold = 42.5, over = true),
+        entry(PredictionType.PIT_STOPS_OVER_UNDER, threshold = 44.5, over = true),
     )
 
     @Test
@@ -259,6 +259,77 @@ class PredictionValidationTest {
         assertTrue(errors.any { it.contains("soglia di punti non valida") })
         assertTrue(errors.any { it.contains("sopra o sotto la soglia") })
         assertTrue(errors.any { it.contains("Safety car over/under") })
+    }
+
+    @Test
+    fun `soglia safety car fuori dalle ammesse e rifiutata`() {
+        // Test della scimmia: niente soglie assurde tipo 330.5.
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) {
+                    it.copy(threshold = 330.5)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("soglia non ammessa") })
+    }
+
+    @Test
+    fun `soglia pit stop fuori dalle ammesse e rifiutata`() {
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.PIT_STOPS_OVER_UNDER) {
+                    it.copy(threshold = 10.0)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("soglia non ammessa") })
+    }
+
+    @Test
+    fun `soglia punti pilota deve coincidere con la stima fissa`() {
+        // La media e' precompilata e non variabile: una soglia diversa da
+        // quella del pilota e' rifiutata.
+        val prediction = RacePrediction(
+            entries = completeSprintEntries().map {
+                if (it.type == PredictionType.DRIVER_POINTS_OVER_UNDER) {
+                    it.copy(threshold = 20.0)
+                } else {
+                    it
+                }
+            },
+        )
+        val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
+        assertTrue(errors.any { it.contains("media punti del pilota") })
+    }
+
+    @Test
+    fun `la stima esiste per tutti i titolari e copre il testa a testa`() {
+        DriversCatalog.all.forEach { driver ->
+            val estimate = DriverPointsEstimates.forDriver(driver.id)
+            assertTrue(estimate in 0.0..30.0)
+        }
+        assertEquals(
+            0.8,
+            Rules.default().headToHeadFactor("VER", "BOR"), // favorito: 0.8x
+            0.001,
+        )
+        assertEquals(
+            1.5,
+            Rules.default().headToHeadFactor("BOR", "VER"), // sorpresa: 1.5x
+            0.001,
+        )
+        assertEquals(
+            1.0,
+            Rules.default().headToHeadFactor("RUS", "HAM"), // pari forza: 1.0x
+            0.001,
+        )
     }
 
     @Test

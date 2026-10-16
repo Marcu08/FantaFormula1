@@ -155,7 +155,15 @@ object ScoringEngine {
                 if (posA == null || posB == null) {
                     0.0
                 } else if (posA < posB) {
-                    adjust(first, rules.pointsFor(PredictionType.HEAD_TO_HEAD), result, rules)
+                    // Quota per la coppia: pick del favorito paga 0.8, della
+                    // sorpresa 1.5 (equilibra le probabilita' reali).
+                    adjust(
+                        first,
+                        rules.pointsFor(PredictionType.HEAD_TO_HEAD) *
+                            rules.headToHeadFactor(first, second),
+                        result,
+                        rules,
+                    )
                 } else {
                     0.0
                 }
@@ -202,7 +210,9 @@ object ScoringEngine {
             if (threshold == null || over == null) {
                 0.0
             } else if (isOver(result.safetyCars.toDouble(), threshold) == over) {
-                rules.pointsFor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER)
+                // Payout a quota: soglie piu' improbabili pagano di piu'.
+                rules.pointsFor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) *
+                    rules.overUnderFactor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold, over)
             } else 0.0
         }
 
@@ -212,7 +222,9 @@ object ScoringEngine {
             if (threshold == null || over == null) {
                 0.0
             } else if (isOver(result.totalPitStops.toDouble(), threshold) == over) {
-                rules.pointsFor(PredictionType.PIT_STOPS_OVER_UNDER)
+                // Payout a quota: come safety car.
+                rules.pointsFor(PredictionType.PIT_STOPS_OVER_UNDER) *
+                    rules.overUnderFactor(PredictionType.PIT_STOPS_OVER_UNDER, threshold, over)
             } else 0.0
         }
     }

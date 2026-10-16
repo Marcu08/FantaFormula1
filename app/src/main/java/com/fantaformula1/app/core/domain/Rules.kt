@@ -62,6 +62,64 @@ data class Rules(
     fun pointsFor(type: PredictionType): Double = points[type] ?: 0.0
 
     /**
+     * Soglia ammessa per safety car / pit stop. Quote calcistiche: soglie
+     * fisse dal realistico (niente 330.5); il payout varia con la soglia
+     * (vedi [overUnderFactor]).
+     */
+    val allowedSafetyCarThresholds: List<Double> = listOf(0.5, 1.5, 2.5)
+    val allowedPitStopThresholds: List<Double> =
+        listOf(24.5, 29.5, 34.5, 39.5, 44.5, 49.5, 54.5, 59.5)
+
+    /**
+     * Payout per gli over/under (oracle tab 2026): la soglia consentita marca
+     * la probabilita' a-priori dell'esito: piu' la quota e' lontana dal
+     * consenso, piu' punti paga (over 2.5 SC paghe 1.5x, over 0.5 solo 0.7x).
+     * Soglie fuori tabella (dati storici) -> 1.0.
+     */
+    fun overUnderFactor(
+        type: PredictionType,
+        threshold: Double,
+        over: Boolean,
+    ): Double {
+        val table = when (type) {
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER ->
+                if (over) SAFETY_CAR_OVER else SAFETY_CAR_UNDER
+            PredictionType.PIT_STOPS_OVER_UNDER ->
+                if (over) PIT_STOPS_OVER else PIT_STOPS_UNDER
+            else -> return 1.0
+        }
+        return table[threshold] ?: 1.0
+    }
+
+    /**
+     * Quota del testa a testa in funzione della coppia scelta con gli
+     * stel DriverPointsEstimates: scegliere il piu' forte paga 0.8x, scelgere
+     * la sorpresa (pilota percepito piu' debole) 1.5x, pari forza 1.0x.
+     * Il vincolo "entrambi classificati" e' nel motore.
+     */
+    fun headToHeadFactor(picked: String?, opponent: String?): Double {
+        if (picked == null || opponent == null) return 1.0
+        val pickedEst = DriverPointsEstimates.forDriver(picked)
+        val oppEst = DriverPointsEstimates.forDriver(opponent)
+        return when {
+            pickedEst > oppEst -> 0.8 // favorito: pronostico piu' facile
+            oppEst > pickedEst -> 1.5 // sorpresa: piu' difficile
+            else -> 1.0
+        }
+    }
+
+    private val SAFETY_CAR_OVER = mapOf(0.5 to 0.7, 1.5 to 1.1, 2.5 to 1.6)
+    private val SAFETY_CAR_UNDER = mapOf(0.5 to 1.6, 1.5 to 0.8, 2.5 to 0.6)
+    private val PIT_STOPS_OVER = mapOf(
+        24.5 to 0.6, 29.5 to 0.7, 34.5 to 0.8, 39.5 to 0.9,
+        44.5 to 1.0, 49.5 to 1.2, 54.5 to 1.3, 59.5 to 1.6,
+    )
+    private val PIT_STOPS_UNDER = mapOf(
+        24.5 to 2.2, 29.5 to 1.8, 34.5 to 1.4, 39.5 to 1.2,
+        44.5 to 1.0, 49.5 to 0.9, 54.5 to 0.8, 59.5 to 0.7,
+    )
+
+    /**
      * Controlla la coerenza dei valori numerici. Restituisce la lista degli
      * errori in italiano (vuota se tutto valido) — usata dall'editor regole.
      */
