@@ -92,21 +92,9 @@ data class Rules(
     }
 
     /**
-     * Quota del testa a testa in funzione della coppia scelta con gli
-     * stel DriverPointsEstimates: scegliere il piu' forte paga 0.8x, scelgere
-     * la sorpresa (pilota percepito piu' debole) 1.5x, pari forza 1.0x.
-     * Il vincolo "entrambi classificati" e' nel motore.
+     * Quota del testa a testa, fasce safety car/pit stop e relativi payout:
+     * vedi [OverUnderQuotes] (tabelle fixed, fuori dalla config serializzata).
      */
-    fun headToHeadFactor(picked: String?, opponent: String?): Double {
-        if (picked == null || opponent == null) return 1.0
-        val pickedEst = DriverPointsEstimates.forDriver(picked)
-        val oppEst = DriverPointsEstimates.forDriver(opponent)
-        return when {
-            pickedEst > oppEst -> 0.8 // favorito: pronostico piu' facile
-            oppEst > pickedEst -> 1.5 // sorpresa: piu' difficile
-            else -> 1.0
-        }
-    }
 
     private val SAFETY_CAR_OVER = mapOf(0.5 to 0.7, 1.5 to 1.1, 2.5 to 1.6)
     private val SAFETY_CAR_UNDER = mapOf(0.5 to 1.6, 1.5 to 0.8, 2.5 to 0.6)

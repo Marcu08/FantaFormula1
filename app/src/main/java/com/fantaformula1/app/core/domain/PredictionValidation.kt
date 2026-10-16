@@ -153,26 +153,20 @@ object PredictionValidation {
             }
 
             PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> {
-                val threshold = entry.threshold
-                if (threshold == null || !threshold.isFinite() || threshold < 0) {
-                    errors += "\"$label\": soglia non valida"
-                } else if (!rules.allowedSafetyCarThresholds.contains(threshold)) {
-                    errors += "\"$label\": soglia non ammessa (ammesse: 0.5, 1.5, 2.5)"
-                }
-                if (entry.over == null) {
-                    errors += "\"$label\": indica se sarà sopra o sotto la soglia"
+                // Opzioni a numero esatto di SC+VSC (0..5, 6 o piu').
+                val min = entry.rangeMin
+                val max = entry.rangeMax
+                if (OverUnderQuotes.safetyCountBands.none { it.first == min && it.second == max }) {
+                    errors += "\"$label\": scegli una delle opzioni 0, 1, 2, 3, 4, 5, 6+"
                 }
             }
 
             PredictionType.PIT_STOPS_OVER_UNDER -> {
-                val threshold = entry.threshold
-                if (threshold == null || !threshold.isFinite() || threshold < 0) {
-                    errors += "\"$label\": soglia non valida"
-                } else if (!rules.allowedPitStopThresholds.contains(threshold)) {
-                    errors += "\"$label\": soglia non ammessa (ammesse: 24.5-59.5 di 5 in 5)"
-                }
-                if (entry.over == null) {
-                    errors += "\"$label\": indica se sarà sopra o sotto la soglia"
+                // Fasce obbligatorie sui pit stop TOTALI della griglia.
+                val min = entry.rangeMin
+                val max = entry.rangeMax
+                if (OverUnderQuotes.pitStopBands.none { it.first == min && it.second == max }) {
+                    errors += "\"$label\": scegli una delle fasce 0-14, 15-25, 26-35, 36-45, 46-55, 56-65, 66+"
                 }
             }
 

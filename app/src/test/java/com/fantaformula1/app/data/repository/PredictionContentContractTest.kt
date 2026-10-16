@@ -105,20 +105,27 @@ class PredictionContentContractTest {
                     assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
                 }
                 "SAFETY_CAR_COUNT_OVER_UNDER" -> {
-                    val threshold = obj["threshold"]?.jsonPrimitive?.doubleOrNull
+                    // Semantica a opzioni (0008): count esatto in rangeMin/rangeMax.
+                    val min = obj["rangeMin"]?.jsonPrimitive?.longOrNull
+                    val max = obj["rangeMax"]?.jsonPrimitive?.longOrNull
                     assertTrue(
-                        "soglia safety car ammessa (0.5/1.5/2.5)",
-                        threshold in setOf(0.5, 1.5, 2.5),
+                        "opzione safety car ammessa",
+                        min != null && max != null &&
+                            (min == max && min in 0..5 || min == 6L && max == 99L),
                     )
-                    assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
                 }
                 "PIT_STOPS_OVER_UNDER" -> {
-                    val threshold = obj["threshold"]?.jsonPrimitive?.doubleOrNull
+                    // Fasce obbligatorie sui pit stop totali.
+                    val min = obj["rangeMin"]?.jsonPrimitive?.longOrNull
+                    val max = obj["rangeMax"]?.jsonPrimitive?.longOrNull
                     assertTrue(
-                        "soglia pit stop ammessa (24.5-59.5 di 5 in 5)",
-                        threshold in setOf(24.5, 29.5, 34.5, 39.5, 44.5, 49.5, 54.5, 59.5),
+                        "fascia pit stop ammessa",
+                        min != null && max != null &&
+                            (min to max) in listOf(
+                                0L to 14L, 15L to 25L, 26L to 35L,
+                                36L to 45L, 46L to 55L, 56L to 65L, 66L to 99L,
+                            ),
                     )
-                    assertTrue("over booleano", obj["over"]?.jsonPrimitive?.booleanOrNull != null)
                 }
             }
         }
@@ -141,9 +148,9 @@ class PredictionContentContractTest {
                 PredictionType.HEAD_TO_HEAD ->
                     PredictionEntry(type = type, driverIds = listOf("VER", "NOR"))
                 PredictionType.SAFETY_CAR_COUNT_OVER_UNDER ->
-                    PredictionEntry(type = type, threshold = 2.5, over = true)
+                    PredictionEntry(type = type, rangeMin = 2, rangeMax = 2)
                 PredictionType.PIT_STOPS_OVER_UNDER ->
-                    PredictionEntry(type = type, threshold = 44.5, over = true)
+                    PredictionEntry(type = type, rangeMin = 46, rangeMax = 55)
                 PredictionType.DRIVER_EXACT_POSITION ->
                     PredictionEntry(type = type, driverIds = listOf("VER"), position = 5)
                 PredictionType.DRIVER_POSITION_RANGE ->

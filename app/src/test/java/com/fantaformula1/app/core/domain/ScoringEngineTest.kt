@@ -272,9 +272,10 @@ class ScoringEngineTest {
     // -- 5. Testa a testa ----------------------------------------------------
 
     @Test
-    fun `testa a testa vinto dal pilota scelto assegna i punti`() {
+    fun `testa a testa vinto dal pilota scelto stesso livello`() {
+        // RUS e HAM sono entrambi nel livello Top: sfida vera, quota 1.2x.
         val e = entryOf(PredictionType.HEAD_TO_HEAD, "RUS", "HAM")
-        assertEquals(8.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+        assertEquals(8.0 * 1.2, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
@@ -283,26 +284,136 @@ class ScoringEngineTest {
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
+    /**
+     * Result per i test di QUOTA del testa a testa: un pilota per livello
+     * (VER Top, ALO Mid, BOR Bottom) tutti classificati.
+     */
+    private fun tierResult() = RaceResultData(
+        raceId = "r1",
+        drivers = listOf(
+            driver("VER", position = 1, grid = 1),
+            driver("ALO", position = 2, grid = 2),
+            driver("BOR", position = 3, grid = 3),
+        ),
+        safetyCars = 0,
+    )
+
+    /**
+     * Result "ribaltato" per le sorprese: BOR (Bottom) davanti a VER (Top).
+     */
+    private fun tierUpsetResult() = RaceResultData(
+        raceId = "r1",
+        drivers = listOf(
+            driver("BOR", position = 1, grid = 5),
+            driver("ALO", position = 2, grid = 4),
+            driver("VER", position = 3, grid = 1),
+        ),
+        safetyCars = 0,
+    )
+
     @Test
-    fun `testa a testa con avversario ritirato non assegna punti (regola realistica)`() {
-        // Regola "entrambi classificati": PER e' ritirato, quindi la sfida
-        // HAM-PER vale 0 anche se HAM e' classificato. Nasce dal test della
-        // scimmia: con il vecchio comportamento si vinceva quasi sempre
-        // scegliendo un favorito contro il coda.
-        val e = entryOf(PredictionType.HEAD_TO_HEAD, "HAM", "PER")
+    fun `testa a testa favorito contro due livelli sotto paga poco`() {
+        // VER (Top) contro BOR (Bottom): quasi scontato, 0.6x.
+        val e = entryOf(PredictionType.HEAD_TO_HEAD, "VER", "BOR")
+        assertEquals(8.0 * 0.6, ScoringEngine.score(e, tierResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `testa a testa sorpresa di due livelli paga tanto`() {
+        // BOR (Bottom) batte VER (Top): sorpresa massima, 2.5x.
+        val e = entryOf(PredictionType.HEAD_TO_HEAD, "BOR", "VER")
+        assertEquals(8.0 * 2.5, ScoringEngine.score(e, tierUpsetResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `testa a testa sorpresa di un livello paga 18`() {
+        // ALO (Mid) batte VER (Top): 1.8x.
+        val e = entryOf(PredictionType.HEAD_TO_HEAD, "ALO", "VER")
+        assertEquals(8.0 * 1.8, ScoringEngine.score(e, tierUpsetResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `testa a testa richiede entrambi classificati`() {
+        // PER ritirato (nessuna posizione): qualunque sfida che lo coinvolge
+        // vale 0, in entrambi i versi, e anche due ritirati e' pari.
+        assertEquals(
+            0.0,
+            ScoringEngine.score(entryOf(PredictionType.HEAD_TO_HEAD, "HAM", "PER"), sampleResult(), rules),
+            0.001,
+        )
+        assertEquals(
+            0.0,
+            ScoringEngine.score(entryOf(PredictionType.HEAD_TO_HEAD, "PER", "HAM"), sampleResult(), rules),
+            0.001,
+        )
+        assertEquals(
+            0.0,
+            ScoringEngine.score(entryOf(PredictionType.HEAD_TO_HEAD, "PER", "ALO"), sampleResult(), rules),
+            0.001,
+        )
+    }
+
+    // -- 9b. Safety car a opzioni e fasce pit stop -----------------------------
+
+    @Test
+    fun `safety car opzione esatta indovinata`() {
+        // sampleResult ha 2 safety car: opzione "2" vince con quota 0.8x.
+        val e = PredictionEntry(
+            type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            rangeMin = 2,
+            rangeMax = 2,
+        )
+        assertEquals(5.0 * 0.8, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `safety car opzione sbagliata prende zero`() {
+        val e = PredictionEntry(
+            type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            rangeMin = 0,
+            rangeMax = 0,
+        )
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
-    fun `testa a testa con pilota scelto ritirato non assegna punti`() {
-        val e = entryOf(PredictionType.HEAD_TO_HEAD, "PER", "HAM")
+    fun `safety car opzione 6 o piu vince con la gara caotica`() {
+        val chaotic = sampleResult().copy(safetyCars = 7)
+        val e = PredictionEntry(
+            type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            rangeMin = 6,
+            rangeMax = 99,
+        )
+        assertEquals(5.0 * 3.0, ScoringEngine.score(e, chaotic, rules), 0.001)
+    }
+
+    @Test
+    fun `pit stop a fascia indovinata`() {
+        // Totale = 7 stop: fascia 0-14 vince con quota 3.0x.
+        val e = PredictionEntry(
+            type = PredictionType.PIT_STOPS_OVER_UNDER,
+            rangeMin = 0,
+            rangeMax = 14,
+        )
+        assertEquals(5.0 * 3.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    }
+
+    @Test
+    fun `pit stop a fascia sbagliata prende zero`() {
+        val e = PredictionEntry(
+            type = PredictionType.PIT_STOPS_OVER_UNDER,
+            rangeMin = 46,
+            rangeMax = 55,
+        )
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     @Test
-    fun `testa a testa tra due ritirati e' pari`() {
-        val e = entryOf(PredictionType.HEAD_TO_HEAD, "PER", "ALO")
-        assertEquals(0.0, ScoringEngine.score(e, sampleResult(), rules), 0.001)
+    fun `pit stop legacy sopra-sotto resta punteggiato per i dati storici`() {
+        // Compatibilita': i vecchi pronostici sopra/sotto continuano a valere
+        // con la tabella quote storica.
+        val e = PredictionEntry(type = PredictionType.PIT_STOPS_OVER_UNDER, threshold = 24.5, over = false)
+        assertEquals(5.0 * 2.2, ScoringEngine.score(e, sampleResult(), rules), 0.001)
     }
 
     // -- 6. DNF ---------------------------------------------------------------

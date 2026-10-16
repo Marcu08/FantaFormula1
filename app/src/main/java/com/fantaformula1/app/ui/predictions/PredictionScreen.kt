@@ -69,6 +69,7 @@ import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.italianDescription
+import com.fantaformula1.app.core.domain.OverUnderQuotes
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.DriverAvatar
@@ -294,6 +295,10 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
+/** Etichetta banda: singolo numero per safety car ("0".."6+"), intervallo per pit stop. */
+private fun bandLabel(band: Pair<Int, Int>): String =
+    if (band.second >= 99) "${band.first}+" else "${band.first}-${band.second}"
+
 /** 2.5 -> "2.5", 1.0 -> "1": formato compatto per soglie e quote. */
 private fun formatEstimate(value: Double): String =
     if (value == value.toInt().toDouble()) {
@@ -490,44 +495,42 @@ private fun PredictionCard(
                 PredictionType.PIT_STOPS_OVER_UNDER,
                 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Soglie ammesse (quote calcistiche): niente valore libero.
+                        // Opzioni a fascia (safety car = numero esatto di
+                        // SC+VSC; pit stop = totale della griglia). Payout
+                        // per rarita' mostrato sul chip selezionato.
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val allowed = when (type) {
+                            val bands = when (type) {
                                 PredictionType.SAFETY_CAR_COUNT_OVER_UNDER ->
-                                    rules.allowedSafetyCarThresholds
-                                else -> rules.allowedPitStopThresholds
+                                    OverUnderQuotes.safetyCountBands
+                                else -> OverUnderQuotes.pitStopBands
                             }
-                            allowed.forEach { t ->
+                            bands.forEach { band ->
+                                val bandLabel = bandLabel(band)
+                                val selected = draft.rangeMin.toIntOrNull() == band.first &&
+                                    draft.rangeMax.toIntOrNull() == band.second
                                 FilterChip(
-                                    selected = draft.threshold.toDoubleOrNull() == t,
+                                    selected = selected,
                                     onClick = {
-                                        if (enabled) viewModel.setThreshold(type, formatEstimate(t))
+                                        if (enabled) viewModel.setBand(type, band.first, band.second)
                                     },
-                                    label = { Text(formatEstimate(t)) },
+                                    label = {
+                                        Text(
+                                            text = if (selected) {
+                                                val factor = if (type == PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) {
+                                                    OverUnderQuotes.safetyBandFactor(band.first, band.second)
+                                                } else {
+                                                    OverUnderQuotes.pitBandFactor(band.first, band.second)
+                                                }
+                                                "$bandLabel (x${formatEstimate(factor)})"
+                                            } else {
+                                                bandLabel
+                                            },
+                                        )
+                                    },
                                     enabled = enabled,
                                 )
                             }
                         }
-                        // Payout prevista: base x quota (si aggiorna a scelta).
-                        val t = draft.threshold.toDoubleOrNull()
-                        val over = draft.over
-                        if (t != null && over != null && rules.pointsFor(type) > 0.0) {
-                            val factor = rules.overUnderFactor(type, t, over)
-                            Text(
-                                text = stringResource(
-                                    R.string.pronostico_quota,
-                                    formatEstimate(factor),
-                                    formatEstimate(points * factor),
-                                ),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        OverUnderRow(
-                            over = draft.over,
-                            enabled = enabled,
-                            onChange = { if (enabled) viewModel.setOver(type, it) },
-                        )
                     }
                 }
 

@@ -60,7 +60,8 @@ data class DraftEntry(
                 driverIds.size == 1 && threshold.isNotBlank() && over != null
             PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
             PredictionType.PIT_STOPS_OVER_UNDER,
-            -> threshold.isNotBlank() && over != null
+            // Opzioni/fasce: rangeMin/rangeMax definiscono l'opzione scelta.
+            -> rangeMin.isNotBlank() && rangeMax.isNotBlank()
             PredictionType.PODIUM -> driverIds.size == 3
             PredictionType.HEAD_TO_HEAD -> driverIds.size == 2
             else -> driverIds.size == 1
@@ -208,8 +209,23 @@ class PredictionViewModel(
             it.copy(threshold = value.filter { c -> c.isDigit() || c == '.' }.take(6))
         }
 
-    fun setOver(type: PredictionType, value: Boolean) =
+        fun setOver(type: PredictionType, value: Boolean) =
         updateDraft(type) { it.copy(over = value) }
+
+    /**
+     * Seleziona un'opzione/fascia (safety car a numero esatto, pit stop a
+     * banda): scrive rangeMin/rangeMax e azzera i vecchi campi soglia/direzione
+     * cosi' il JSON salvato contiene solo la forma nuova.
+     */
+    fun setBand(type: PredictionType, min: Int, max: Int) =
+        updateDraft(type) {
+            it.copy(
+                rangeMin = min.toString(),
+                rangeMax = max.toString(),
+                threshold = "",
+                over = null,
+            )
+        }
 
     fun setBooleanValue(type: PredictionType, value: Boolean) =
         updateDraft(type) { it.copy(booleanValue = value) }

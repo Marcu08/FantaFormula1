@@ -40,5 +40,20 @@ object DriverPointsEstimates {
     fun forDriver(driverId: String): Double =
         byId[driverId.uppercase()] ?: 2.0
 
+    /**
+     * Livello di forza del pilota: 0 = Top, 1 = Mid, 2 = Bottom. Derivato
+     * dall'ordine di stima (7-8-7 piloti), usato dal testa a testa equilibrato.
+     */
+    fun tierOf(driverId: String): Int {
+        val ranked = all.entries.sortedByDescending { it.value }.map { it.key }
+        val index = ranked.indexOf(driverId.uppercase())
+        if (index < 0) return 2
+        return when {
+            index < 7 -> 0
+            index < 15 -> 1
+            else -> 2
+        }
+    }
+
     val all: Map<String, Double> get() = byId
 }

@@ -51,10 +51,10 @@ class PredictionValidationTest {
         entry(PredictionType.SPRINT_WINNER, listOf("NOR")),
         entry(
             PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
-            threshold = 1.5,
-            over = false,
+            rangeMin = 2,
+            rangeMax = 2,
         ),
-        entry(PredictionType.PIT_STOPS_OVER_UNDER, threshold = 44.5, over = true),
+        entry(PredictionType.PIT_STOPS_OVER_UNDER, rangeMin = 46, rangeMax = 55),
     )
 
     @Test
@@ -244,52 +244,54 @@ class PredictionValidationTest {
     }
 
     @Test
-    fun `over under senza soglia o direzione`() {
+    fun `over under senza opzione selezionata`() {
         val prediction = RacePrediction(
             entries = completeSprintEntries().map {
                 when (it.type) {
                     PredictionType.DRIVER_POINTS_OVER_UNDER ->
                         it.copy(threshold = null, over = null)
-                    PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> it.copy(over = null)
+                    PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+                    PredictionType.PIT_STOPS_OVER_UNDER,
+                    -> it.copy(rangeMin = null, rangeMax = null)
                     else -> it
                 }
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
         assertTrue(errors.any { it.contains("soglia di punti non valida") })
-        assertTrue(errors.any { it.contains("sopra o sotto la soglia") })
-        assertTrue(errors.any { it.contains("Safety car over/under") })
+        assertTrue(errors.any { it.contains("scegli una delle opzioni 0, 1, 2") })
+        assertTrue(errors.any { it.contains("scegli una delle fasce 0-14") })
     }
 
     @Test
-    fun `soglia safety car fuori dalle ammesse e rifiutata`() {
-        // Test della scimmia: niente soglie assurde tipo 330.5.
+    fun `safety car senza opzione fissa rifiutata`() {
+        // Banda inventata (7 non e' un'opzione): rifiutata alle nuove scritture.
         val prediction = RacePrediction(
             entries = completeSprintEntries().map {
                 if (it.type == PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) {
-                    it.copy(threshold = 330.5)
+                    it.copy(rangeMin = 7, rangeMax = 7)
                 } else {
                     it
                 }
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("soglia non ammessa") })
+        assertTrue(errors.any { it.contains("scegli una delle opzioni 0, 1, 2") })
     }
 
     @Test
-    fun `soglia pit stop fuori dalle ammesse e rifiutata`() {
+    fun `pit stop con banda inventata rifiutata`() {
         val prediction = RacePrediction(
             entries = completeSprintEntries().map {
                 if (it.type == PredictionType.PIT_STOPS_OVER_UNDER) {
-                    it.copy(threshold = 10.0)
+                    it.copy(rangeMin = 40, rangeMax = 50)
                 } else {
                     it
                 }
             },
         )
         val errors = PredictionValidation.validate(prediction, rules, isSprintRace = true)
-        assertTrue(errors.any { it.contains("soglia non ammessa") })
+        assertTrue(errors.any { it.contains("scegli una delle fasce 0-14") })
     }
 
     @Test
@@ -316,18 +318,18 @@ class PredictionValidationTest {
             assertTrue(estimate in 0.0..30.0)
         }
         assertEquals(
-            0.8,
-            Rules.default().headToHeadFactor("VER", "BOR"), // favorito: 0.8x
+            0.6,
+            OverUnderQuotes.headToHeadFactor("VER", "BOR"), // favorito due livelli sotto: 0.6x
             0.001,
         )
         assertEquals(
-            1.5,
-            Rules.default().headToHeadFactor("BOR", "VER"), // sorpresa: 1.5x
+            2.5,
+            OverUnderQuotes.headToHeadFactor("BOR", "VER"), // sorpresa due livelli: 2.5x
             0.001,
         )
         assertEquals(
-            1.0,
-            Rules.default().headToHeadFactor("RUS", "HAM"), // pari forza: 1.0x
+            1.2,
+            OverUnderQuotes.headToHeadFactor("RUS", "HAM"), // stesso livello: 1.2x
             0.001,
         )
     }
