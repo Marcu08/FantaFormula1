@@ -145,7 +145,7 @@
     <string name="sezione_gara">Dati della gara</string>
     <string name="sezione_piloti">Piloti</string>
     <string name="piloti_istruzioni">Compila almeno i piloti classificati: griglia, posizione, DNF, penalità e pit stop.</string>
-    <string name="campo_safety_car">Safety car</string>
+    <string name="campo_safety_car">Safety car + Virtual (totale SC+VSC)</string>
     <string name="campo_bandiere_rosse">B. rosse</string>
     <string name="campo_giri">Giri</string>
     <string name="campo_meteo">Meteo</string>
