@@ -58,8 +58,8 @@ val PredictionType.italianLabel: String
         PredictionType.DRIVER_DNF -> "Ritiro (DNF)"
         PredictionType.DRIVER_POINTS_OVER_UNDER -> "Punti pilota over/under"
         PredictionType.SPRINT_WINNER -> "Vincitore sprint"
-        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Safety car over/under"
-        PredictionType.PIT_STOPS_OVER_UNDER -> "Pit stop over/under"
+        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Numero safety car (SC+VSC)"
+        PredictionType.PIT_STOPS_OVER_UNDER -> "Fascia pit stop"
     }
 
 /** Descrizione una riga, utile nell'editor regole. */
@@ -71,11 +71,11 @@ val PredictionType.italianDescription: String
         PredictionType.FASTEST_LAP -> "Indovina chi fa il giro veloce"
         PredictionType.DRIVER_EXACT_POSITION -> "Indovina la posizione esatta di un pilota"
         PredictionType.DRIVER_POSITION_RANGE -> "Indovina in quale fascia finisce un pilota"
-        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due finisce meglio (vale solo se ENTRAMBI classificati: favorito 0.8x, sorpresa 1.5x)"
+        PredictionType.HEAD_TO_HEAD -> "Scegli chi dei due finisce meglio in classifica: vale solo se ENTRAMBI classificati, la quota segue la difficolta' (favorito 0.6-0.8x, sfida pari 1.2x, sorpresa fino a 2.5x)"
         PredictionType.DRIVER_DNF -> "Indovina se un pilota ritira"
         PredictionType.DRIVER_POINTS_OVER_UNDER -> "Sopra o sotto la media punti/gara del pilota (soglia fissa precompilata)"
         PredictionType.SPRINT_WINNER -> "Indovina il vincitore dello sprint"
-        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Indovina il numero esatto di safety car + virtual (0-5, 6 o piu')"
+        PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> "Il totale sommato di safety car e virtual: UN solo numero che include entrambe (0, 1, 2, 3, 4, 5, 6 o piu')"
         PredictionType.PIT_STOPS_OVER_UNDER -> "Indovina la fascia dei pit stop TOTALI della griglia"
     }
 

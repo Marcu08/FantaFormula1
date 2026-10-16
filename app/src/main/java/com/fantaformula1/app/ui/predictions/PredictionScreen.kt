@@ -295,9 +295,12 @@ private fun DeadlineBanner(state: PredictionUiState) {
     }
 }
 
-/** Etichetta banda: singolo numero per safety car ("0".."6+"), intervallo per pit stop. */
-private fun bandLabel(band: Pair<Int, Int>): String =
-    if (band.second >= 99) "${band.first}+" else "${band.first}-${band.second}"
+/** Etichetta banda: numero semplice per safety car ("0".."5", "6+"), intervallo per pit stop ("46-55"). */
+private fun bandLabel(band: Pair<Int, Int>): String = when {
+    band.first == band.second -> "${band.first}"
+    band.second >= 99 -> "${band.first}+"
+    else -> "${band.first}-${band.second}"
+}
 
 /** 2.5 -> "2.5", 1.0 -> "1": formato compatto per soglie e quote. */
 private fun formatEstimate(value: Double): String =
