@@ -302,6 +302,13 @@ private fun bandLabel(band: Pair<Int, Int>): String = when {
     else -> "${band.first}-${band.second}"
 }
 
+/** Fascia testa a testa del pilota: ALTA = i 7 piu' forti, poi MEDIA, poi BASSA. */
+private fun tierName(driverId: String): String = when (DriverPointsEstimates.tierOf(driverId)) {
+    0 -> "ALTA"
+    1 -> "MEDIA"
+    else -> "BASSA"
+}
+
 /** 2.5 -> "2.5", 1.0 -> "1": formato compatto per soglie e quote. */
 private fun formatEstimate(value: Double): String =
     if (value == value.toInt().toDouble()) {
@@ -369,12 +376,31 @@ private fun PredictionCard(
                 if (pickerOpen.value) {
                     DriverPickerBottomSheet(
                         selectedDriverId = draft.driverIds.getOrNull(pickerSlot.value),
+                        // Testa a testa: il picker mostra le 3 fasce di forza
+                        // (ALTA/MEDIA/BASSA) cosi' la scelta e' consapevole.
+                        groupByTier = type == PredictionType.HEAD_TO_HEAD,
                         onDismiss = { pickerOpen.value = false },
                         onDriverSelected = { driverId ->
                             viewModel.setDriverAt(type, pickerSlot.value, driverId)
                             pickerOpen.value = false
                         },
                     )
+                }
+                if (type == PredictionType.HEAD_TO_HEAD) {
+                    // Quota e fasce della coppia scelte: chiaro PRIMA di salvare
+                    // quanto rende la sfida (pari 1.2x, favorito poco, sorpresa tanto).
+                    val firstId = draft.driverIds.getOrNull(0)
+                    val secondId = draft.driverIds.getOrNull(1)
+                    if (firstId != null && secondId != null) {
+                        val factor = OverUnderQuotes.headToHeadFactor(firstId, secondId)
+                        Text(
+                            text = "Fasce: ${tierName(firstId)} vs ${tierName(secondId)} — " +
+                                "quota x${formatEstimate(factor)} → " +
+                                "${formatEstimate(points * factor)} punti se vince",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }

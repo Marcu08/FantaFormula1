@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.domain.Driver
 import com.fantaformula1.app.core.domain.DriversCatalog
+import com.fantaformula1.app.core.domain.DriverPointsEstimates
 
 /**
  * Filtra il catalogo per nome, cognome, sigla e scuderia. Funzione pura,
@@ -57,17 +59,41 @@ internal fun filterDrivers(query: String, team: String?): List<Driver> {
 private fun teamFilterMatches(teamFilter: String?, driver: Driver): Boolean =
     teamFilter == null || driver.team == teamFilter
 
+/** Riga del picker: intestazione di fascia o carta pilota. */
+internal data class PickerRow(val heading: String? = null, val driver: Driver? = null)
+
+/**
+ * Raggruppa i piloti nelle tre fasce di forza (ALTA/MEDIA/BASSA, ordine per
+ * stima punti decrescente) usate dal testa a testa: scelta visibile, niente
+ * caselle a sorpresa. Funzione pura, il chiamante decide se raggruppare.
+ * [DriverPointsEstimates.tierOf] copre tutti i piloti del catalogo.
+ */
+internal fun buildTierRows(drivers: List<Driver>): List<PickerRow> = buildList {
+    val tierTitles = listOf("Fascia ALTA" to 0, "Fascia MEDIA" to 1, "Fascia BASSA" to 2)
+    tierTitles.forEach { (title, tier) ->
+        val driversInTier = drivers
+            .filter { DriverPointsEstimates.tierOf(it.id) == tier }
+            .sortedByDescending { DriverPointsEstimates.forDriver(it.id) }
+        if (driversInTier.isNotEmpty()) {
+            add(PickerRow(heading = title))
+            driversInTier.forEach { add(PickerRow(driver = it)) }
+        }
+    }
+}
+
 /**
  * Selettore grafico dei piloti in un bottom sheet: ricerca testuale, filtro
  * per scuderia e griglia responsive di [DriverCard] (colonne adattive: su
- * schermi stretti passa automaticamente a una colonna). Nessuna rete: il
- * catalogo e' locale. La chiusura dopo una scelta valida e' gestita dal
- * chiamante tramite [onDriverSelected].
+ * schermi stretti passa automaticamente a una colonna). Con [groupByTier]
+ * (testa a testa) i piloti compaiono divisi nelle 3 fasce ALTA/MEDIA/BASSA.
+ * Nessuna rete: il catalogo e' locale. La chiusura dopo una scelta valida e'
+ * gestita dal chiamante tramite [onDriverSelected].
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DriverPickerBottomSheet(
     selectedDriverId: String?,
+    groupByTier: Boolean = false,
     onDismiss: () -> Unit,
     onDriverSelected: (String) -> Unit,
 ) {
@@ -77,6 +103,12 @@ fun DriverPickerBottomSheet(
 
     val teams = remember { DriversCatalog.all.map { it.team }.distinct().sorted() }
     val filtered = filterDrivers(query, teamFilter)
+    val noActiveFilter = query.isBlank() && teamFilter == null
+    val pickerRows = if (groupByTier && noActiveFilter) {
+        buildTierRows(filtered)
+    } else {
+        filtered.map { PickerRow(driver = it) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -148,12 +180,29 @@ fun DriverPickerBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(filtered, key = { it.id }) { driver ->
-                        DriverCard(
-                            driverId = driver.id,
-                            selected = driver.id == selectedDriverId,
-                            onClick = { onDriverSelected(driver.id) },
-                        )
+                    items(
+                        pickerRows,
+                        key = { row -> row.heading?.let { "h:$it" } ?: "d:${row.driver!!.id}" },
+                        span = { row ->
+                            // Le intestazioni di fascia occupano tutta la riga.
+                            if (row.heading != null) GridItemSpan(maxLineSpan) else GridItemSpan(1)
+                        },
+                    ) { row ->
+                        if (row.heading != null) {
+                            Text(
+                                text = row.heading,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        } else {
+                            val driver = row.driver!!
+                            DriverCard(
+                                driverId = driver.id,
+                                selected = driver.id == selectedDriverId,
+                                onClick = { onDriverSelected(driver.id) },
+                            )
+                        }
                     }
                 }
             }
