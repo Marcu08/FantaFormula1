@@ -99,6 +99,7 @@ fun PredictionScreen(
             leagueRepository = container.leagueRepository,
             predictionRepository = container.predictionRepository,
             leagueDataRepository = container.leagueDataRepository,
+            seasonResultsStore = container.seasonResultsStore,
             raceId = raceId,
         )
     }

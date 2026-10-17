@@ -16,6 +16,7 @@ import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.sync.F1SyncPrefs
 import com.fantaformula1.app.data.sync.F1SyncRepository
 import com.fantaformula1.app.data.sync.F1SyncStateHolder
+import com.fantaformula1.app.data.sync.SeasonResultsStore
 import com.fantaformula1.app.data.f1api.F1ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,9 @@ class AppContainer(
     /** Detiene il client Supabase corrente. */
     val supabaseHolder = SupabaseHolder()
 
+    /** Client unico verso Jolpica/Ergast, condiviso da sync e cache stagione. */
+    val f1ApiClient = F1ApiClient()
+
     val authRepository: AuthRepository = SupabaseAuthRepository(supabaseHolder)
 
     val leagueRepository: LeagueRepository = SupabaseLeagueRepository(supabaseHolder, authRepository)
@@ -55,8 +59,14 @@ class AppContainer(
 
     /** Sincronizzazione calendario e risultati dal mondiale F1 reale. */
     val f1SyncRepository: F1SyncRepository = F1SyncRepository(
-        f1ApiClient = F1ApiClient(),
+        f1ApiClient = f1ApiClient,
         raceRepository = raceRepository,
+    )
+
+    /** Cache dei risultati reali della stagione, informieren per le statistiche. */
+    val seasonResultsStore: SeasonResultsStore = SeasonResultsStore(
+        context = applicationContext,
+        f1ApiClient = f1ApiClient,
     )
 
     /** Orario dell'ultima sincronizzazione riuscita (indicatore in UI). */

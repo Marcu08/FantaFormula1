@@ -17,6 +17,7 @@ import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
+import com.fantaformula1.app.data.sync.SeasonResultsStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -122,6 +123,7 @@ class PredictionViewModel(
     private val leagueRepository: LeagueRepository,
     private val predictionRepository: PredictionRepository,
     private val leagueDataRepository: LeagueDataRepository,
+    private val seasonResultsStore: SeasonResultsStore,
     private val raceId: String,
 ) : ViewModel() {
 
@@ -150,14 +152,29 @@ class PredictionViewModel(
                 val others = predictionRepository.othersPredictions(raceId)
                 val names = leagueRepository.members(race.leagueId)
                     .associate { it.userId to it.displayName }
-                // Statistiche reali dalle gare completate (quota/soglie/fasce).
-                // Fallisca = "nessuna statistica" (solo prior), non errore bloccante.
-                val results = runCatching {
-                    leagueDataRepository.raceData(race.leagueId)
-                        .races
-                        .mapNotNull { it.result }
+                // Statistiche reali: unione di gare lega e STAGIONE REALE
+                // (cache Jolpica/Ergast con dedup per round). Ogni fonte
+                // fallisce in silenzio (fallback = altra fonte o prior).
+                val leagueResults = runCatching {
+                    val snapshot = leagueDataRepository.raceData(race.leagueId)
+                    val roundsById = runCatching {
+                        raceRepository.races(race.leagueId).associate { it.id to it.round }
+                    }.getOrDefault(emptyMap())
+                    snapshot.races.mapNotNull { legaRace ->
+                        legaRace.result?.let { result ->
+                            DriverSeasonStats.StampedResult(
+                                round = roundsById[legaRace.raceId],
+                                result = result,
+                            )
+                        }
+                    }
                 }.getOrDefault(emptyList())
-                val stats = DriverSeasonStats.fromResults(results)
+                val realSeasonResults = runCatching {
+                    seasonResultsStore.ensureFresh()
+                }.getOrNull()?.results?.map {
+                    DriverSeasonStats.StampedResult(round = it.round, result = it.result)
+                }.orEmpty()
+                val stats = DriverSeasonStats.fromMergedResults(leagueResults, realSeasonResults)
                 Quint(race, league, mine, others.map { (id, p) ->
                     OtherPrediction(id, names[id] ?: "Giocatore", p)
                 }, stats)

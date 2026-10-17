@@ -212,4 +212,77 @@ class DriverSeasonStatsTest {
         assertEquals(listOf(0.0), stats.pointsList("BOR"))
         assertEquals(listOf(25.0, 18.0), stats.pointsList("VER"))
     }
+
+    // ---------------------------------------------------------------
+    // Unione lega + stagione reale con dedup per round (0010+)
+    // ---------------------------------------------------------------
+
+    private fun stamped(round: Int?, result: RaceResultData) =
+        DriverSeasonStats.StampedResult(round = round, result = result)
+
+    @Test
+    fun `stesso round lega e stagione reale conta una volta e vince la lega`() {
+        val leagueVersion = raceResult("lega", Triple("VER", 25.0, false), Triple("BOR", 0.0, false))
+        val realVersion = raceResult("reale", Triple("VER", 18.0, false), Triple("BOR", 12.0, false))
+        val stats = DriverSeasonStats.fromMergedResults(
+            league = listOf(stamped(4, leagueVersion)),
+            realSeason = listOf(stamped(4, realVersion)),
+        )
+        // Stessa gara = stesso round: il round 4 conta UNA volta con i punti
+        // della versione lega (l'admin e' autorita' sul suo calendario).
+        assertEquals(1, stats.racesRun("VER"))
+        assertEquals(listOf(25.0), stats.pointsList("VER"))
+        assertEquals(listOf(0.0), stats.pointsList("BOR"))
+    }
+
+    @Test
+    fun `round solo nella stagione reale sono contati (lega a meta stagione)`() {
+        val realR1 = raceResult("s1", Triple("VER", 25.0, false))
+        val realR2 = raceResult("s2", Triple("VER", 18.0, false))
+        val realR3 = raceResult("s3", Triple("VER", 15.0, false))
+        val leagueR4 = raceResult("l4", Triple("VER", 12.0, false))
+        val stats = DriverSeasonStats.fromMergedResults(
+            league = listOf(stamped(4, leagueR4)),
+            realSeason = listOf(stamped(1, realR1), stamped(2, realR2), stamped(3, realR3)),
+        )
+        assertEquals(4, stats.racesRun("VER"))
+        assertEquals(listOf(25.0, 18.0, 15.0, 12.0), stats.pointsList("VER"))
+    }
+
+    @Test
+    fun `duplicati dentro la cache della stagione contano una volta sola`() {
+        val realR2 = raceResult("s2a", Triple("VER", 18.0, false))
+        val realR2b = raceResult("s2b", Triple("VER", 25.0, false)) // stessa gara, cache doppia
+        val stats = DriverSeasonStats.fromMergedResults(
+            league = emptyList(),
+            realSeason = listOf(stamped(2, realR2), stamped(2, realR2b)),
+        )
+        assertEquals(1, stats.racesRun("VER"))
+        // La prima in ordine di arrivo vince.
+        assertEquals(listOf(18.0), stats.pointsList("VER"))
+    }
+
+    @Test
+    fun `gare lega senza round entrano comunque nelle statistiche`() {
+        val special = raceResult("spec", Triple("VER", 10.0, false))
+        val realR1 = raceResult("s1", Triple("VER", 25.0, false))
+        val stats = DriverSeasonStats.fromMergedResults(
+            league = listOf(stamped(null, special)),
+            realSeason = listOf(stamped(1, realR1)),
+        )
+        assertEquals(2, stats.racesRun("VER"))
+        assertEquals(listOf(25.0, 10.0), stats.pointsList("VER"))
+    }
+
+    @Test
+    fun ` stagione reale senza lega con sostituti gestiti`() {
+        val realR1 = raceResult("s1", Triple("SOST", 6.0, false))
+        val realR2 = raceResult("s2", Triple("SOST", 0.0, true))
+        val stats = DriverSeasonStats.fromMergedResults(
+            league = emptyList(),
+            realSeason = listOf(stamped(1, realR1), stamped(2, realR2)),
+        )
+        assertEquals(2, stats.racesRun("SOST"))
+        assertEquals(1, stats.dnfs("SOST"))
+    }
 }

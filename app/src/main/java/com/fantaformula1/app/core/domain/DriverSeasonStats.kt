@@ -21,6 +21,16 @@ data class DriverSeasonStats(
     private val perDriver: Map<String, DriverStat>,
 ) {
 
+    /**
+     * Risultato etichettato con il round della stagione (null = gare speciali
+     * del calendario lega senza round). Serve all'unione lega/stagione reale
+     * per NON contare due volte la stessa gara: stessa gara = stesso round.
+     */
+    data class StampedResult(
+        val round: Int?,
+        val result: RaceResultData,
+    )
+
     /** Statistiche empiriche di un pilota + il prior pre-stagione. */
     data class DriverStat(
         /** Gare con risultato che includono il pilota (assenza = non disputata). */
@@ -84,6 +94,45 @@ data class DriverSeasonStats(
                 )
             }
             return DriverSeasonStats(stats)
+        }
+
+        /**
+         * Unisce i risultati della lega e quelli della STAGIONE REALE
+         * (Jolpica/Ergast, cache locale) senza contarli due volte: stessa gara
+         * = stesso round. Prevale la copia della LEGA (l'admin e' l'autorita'
+         * per le gare del suo calendario). I gare-round NULL (gare d'esercizi
+         * senza round) vengono sempre contate.
+         */
+        fun fromMergedResults(
+            league: List<StampedResult>,
+            realSeason: List<StampedResult>,
+        ): DriverSeasonStats {
+            val byRound = LinkedHashMap<Int, RaceResultData>()
+            val noRound = mutableListOf<RaceResultData>()
+            league.forEach { stamped ->
+                val round = stamped.round
+                val result = stamped.result
+                if (round == null) {
+                    noRound += result
+                } else {
+                    byRound.putIfAbsent(round, result)
+                }
+            }
+            realSeason.forEach { stamped ->
+                val round = stamped.round
+                val result = stamped.result
+                if (round == null) {
+                    noRound += result
+                } else if (!byRound.containsKey(round)) {
+                    byRound[round] = result
+                }
+            }
+            // in ordine di round (cronologia) per una lista punti leggibile;
+            // le gare lega senza round vanno in coda (cronologia ignota).
+            val merged = byRound.entries
+                .sortedBy { it.key }
+                .map { it.value } + noRound
+            return fromResults(merged)
         }
     }
 
