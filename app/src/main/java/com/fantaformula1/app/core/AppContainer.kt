@@ -16,6 +16,7 @@ import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.sync.F1SyncPrefs
 import com.fantaformula1.app.data.sync.F1SyncRepository
 import com.fantaformula1.app.data.sync.F1SyncStateHolder
+import com.fantaformula1.app.data.sync.F1ApiSeasonResultsRemote
 import com.fantaformula1.app.data.sync.SeasonResultsStore
 import com.fantaformula1.app.data.f1api.F1ApiClient
 import kotlinx.coroutines.CoroutineScope
@@ -66,7 +67,7 @@ class AppContainer(
     /** Cache dei risultati reali della stagione, informieren per le statistiche. */
     val seasonResultsStore: SeasonResultsStore = SeasonResultsStore(
         context = applicationContext,
-        f1ApiClient = f1ApiClient,
+        remote = F1ApiSeasonResultsRemote(f1ApiClient),
     )
 
     /** Orario dell'ultima sincronizzazione riuscita (indicatore in UI). */

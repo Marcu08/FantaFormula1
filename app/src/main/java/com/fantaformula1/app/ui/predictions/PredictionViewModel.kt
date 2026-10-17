@@ -17,6 +17,7 @@ import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
+import com.fantaformula1.app.data.repository.LeagueDataSnapshot
 import com.fantaformula1.app.data.sync.SeasonResultsStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -152,33 +153,39 @@ class PredictionViewModel(
                 val others = predictionRepository.othersPredictions(raceId)
                 val names = leagueRepository.members(race.leagueId)
                     .associate { it.userId to it.displayName }
-                // Statistiche reali: unione di gare lega e STAGIONE REALE
-                // (cache Jolpica/Ergast con dedup per round). Ogni fonte
-                // fallisce in silenzio (fallback = altra fonte o prior).
-                val leagueResults = runCatching {
-                    val snapshot = leagueDataRepository.raceData(race.leagueId)
-                    val roundsById = runCatching {
-                        raceRepository.races(race.leagueId).associate { it.id to it.round }
-                    }.getOrDefault(emptyMap())
-                    snapshot.races.mapNotNull { legaRace ->
-                        legaRace.result?.let { result ->
-                            DriverSeasonStats.StampedResult(
-                                round = roundsById[legaRace.raceId],
-                                result = result,
-                            )
-                        }
+
+                // Risultati della LEGA con i loro round (2 query esistenti).
+                val snapshot = runCatching {
+                    leagueDataRepository.raceData(race.leagueId)
+                }.getOrDefault(LeagueDataSnapshot(emptyList(), 0, 0))
+                val roundsById = runCatching {
+                    raceRepository.races(race.leagueId).associate { it.id to it.round }
+                }.getOrDefault(emptyMap())
+                val leagueResults = snapshot.races.mapNotNull { legaRaceData ->
+                    legaRaceData.result?.let { result ->
+                        DriverSeasonStats.StampedResult(
+                            round = roundsById[legaRaceData.raceId],
+                            result = result,
+                        )
                     }
-                }.getOrDefault(emptyList())
-                val realSeasonResults = runCatching {
-                    seasonResultsStore.ensureFresh()
-                }.getOrNull()?.results?.map {
-                    DriverSeasonStats.StampedResult(round = it.round, result = it.result)
-                }.orEmpty()
-                val stats = DriverSeasonStats.fromMergedResults(leagueResults, realSeasonResults)
-                Quint(race, league, mine, others.map { (id, p) ->
+                }
+
+                // Statistiche IMMEDIATE: cache stagione (ZERO rete) + lega.
+                // La schermata non aspetta mai la rete per le statistiche.
+                val cachedReal = runCatching { seasonResultsStore.current() }
+                    .getOrNull()?.results?.map {
+                        DriverSeasonStats.StampedResult(round = it.round, result = it.result)
+                    }.orEmpty()
+                val stats = DriverSeasonStats.fromMergedResults(leagueResults, cachedReal)
+
+                RaceLoad(race, league, mine, others.map { (id, p) ->
                     OtherPrediction(id, names[id] ?: "Giocatore", p)
-                }, stats)
-            }.onSuccess { (race, league, mine, others, stats) ->
+                }, leagueResults, stats)
+            }.onSuccess { load ->
+                val race = load.race
+                val league = load.league
+                val mine = load.mine
+                val others = load.others
                 val rules = league?.rules ?: Rules()
                 // B9/B10: la decisione "gara aperta" viene da
                 // Race.isPredictionOpen, che considera deadline E status.
@@ -195,7 +202,7 @@ class PredictionViewModel(
                         // riempiono solo i tipi ancora attivi.
                         drafts = buildDrafts(rules, race, mine),
                         others = others,
-                        seasonStats = stats,
+                        seasonStats = load.stats,
                         canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
                         deadlinePassed = !open,
                         // B10: se revealOthersAfterDeadline è false gli altri
@@ -204,6 +211,21 @@ class PredictionViewModel(
                         canRevealOthers = !rules.revealOthersAfterDeadline || !open,
                         saved = mine != null,
                     )
+                }
+                // RINFRESCO IN BACKGROUND (incrementale, max 6h, timeout 10s
+                // a richiesta): non blocca la schermata e nessun errore
+                // visibile se fallisce. Quando arriva aggiorna le statistiche.
+                viewModelScope.launch {
+                    val refreshed = runCatching { seasonResultsStore.ensureFresh() }.getOrNull()
+                    if (refreshed != null) {
+                        val statsAfter = DriverSeasonStats.fromMergedResults(
+                            load.leagueResults,
+                            refreshed.results.map {
+                                DriverSeasonStats.StampedResult(round = it.round, result = it.result)
+                            },
+                        )
+                        _uiState.update { it.copy(seasonStats = statsAfter) }
+                    }
                 }
             }.onFailure { throwable ->
                 _uiState.update {
@@ -339,8 +361,15 @@ class PredictionViewModel(
     }
 }
 
-/** Tupla comoda a 5 elementi per il caricamento iniziale. */
-private data class Quint<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
+/** Carico iniziale: dati schermata + risultati lega (per il rinfresco bg). */
+private data class RaceLoad(
+    val race: Race,
+    val league: League?,
+    val mine: RacePrediction?,
+    val others: List<OtherPrediction>,
+    val leagueResults: List<DriverSeasonStats.StampedResult>,
+    val stats: DriverSeasonStats,
+)
 
 /**
  * Logica pura della selezione a slot per i pronostici a tendina.
