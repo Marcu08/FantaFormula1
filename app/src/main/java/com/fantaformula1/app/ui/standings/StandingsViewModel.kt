@@ -93,7 +93,10 @@ class StandingsViewModel(
                     scores.map { score ->
                         RacePlayerScore(
                             userId = score.userId,
-                            displayName = inputs.memberNames[score.userId] ?: "Giocatore",
+                            // Come nelle righe generali: un ex-membro con
+                            // pronostici niente nome noto.
+                            displayName = inputs.memberNames[score.userId]
+                                ?: ScoringEngine.EX_MEMBER_NAME,
                             points = score.points,
                         )
                     }

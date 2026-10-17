@@ -413,11 +413,15 @@ object ScoringEngine {
         }
         val base: Comparator<StandingsRow> = compareByDescending<StandingsRow> { it.totalPoints }
             .then(tieBreak)
-        // Spareggi successivi sempre gli stessi, per un ordine deterministico.
+        // Spareggi successivi sempre gli stessi, per un ordine deterministico:
+        // l'ultimo criterio e' lo userId (stabile, irrepetibile nel DB), cosi'
+        // due giocatori omonimi identici su OGNI metrica non dipendono
+        // dall'ordine di ritorno dei membri dal database.
         return base
             .thenByDescending { it.raceWins }
             .thenByDescending { it.bestRacePoints }
             .thenBy { it.displayName }
+            .thenBy { it.userId }
     }
 
     // ---------------------------------------------------------------------

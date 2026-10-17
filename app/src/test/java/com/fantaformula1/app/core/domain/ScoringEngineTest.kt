@@ -863,6 +863,82 @@ class ScoringEngineTest {
     }
 
     @Test
+    fun `due omonimi identici si ordinano per userId stabile`() {
+        // Due giocatori con lo stesso displayName, identici su OGNI metrica
+        // (punti, vittorie, best). L'ordine NON deve dipendere dall'ordine di
+        // ritorno dei membri dal database: ultimo criterio = userId.
+        val prediction = RacePrediction(
+            raceId = "r1",
+            entries = listOf(entryOf(PredictionType.WINNER, "VER")),
+        )
+        val names = mapOf("user-aaa" to "Mario Rossi", "user-zzz" to "Mario Rossi")
+
+        val normale = ScoringEngine.computeStandings(
+            mapOf("user-aaa" to listOf(prediction), "user-zzz" to listOf(prediction)),
+            mapOf("r1" to sampleResult()),
+            rules,
+            names,
+        )
+        // Stesso identico input, con i membri/sessioni in ordine INVERTITO.
+        val invertito = ScoringEngine.computeStandings(
+            mapOf("user-zzz" to listOf(prediction), "user-aaa" to listOf(prediction)),
+            mapOf("r1" to sampleResult()),
+            rules,
+            mapOf("user-zzz" to "Mario Rossi", "user-aaa" to "Mario Rossi"),
+        )
+
+        // Metrica identica a conferma del caso di parita' totale.
+        assertEquals(normale[0].totalPoints, normale[1].totalPoints, 0.001)
+        assertEquals(normale[0].displayName, normale[1].displayName)
+        // L'ordine e' per userId (alfabetico) in ENTRAMBE le versioni: nessuna
+        // dipendenza dall'ordine di input.
+        assertEquals(listOf("user-aaa", "user-zzz"), normale.map { it.userId })
+        assertEquals(listOf("user-aaa", "user-zzz"), invertito.map { it.userId })
+    }
+
+    @Test
+    fun `userId non precede lo spareggio configurato`() {
+        // Parita' TOTALE su punti (43=43), vittorie (1=1) e best (25=25):
+        // decide quindi lo spareggio "displayName" (criterio gia' esistente,
+        // posizionato PRIMA di userId): "Alba" (user-99) va davanti a
+        // "Berta" (user-00) PUR essendo il suo userId alfabeticamente DOPO.
+        // Se lo userId precedesse, l'ordine sarebbe invertito e il test fallirebbe.
+        val names = mapOf("user-00" to "Berta", "user-99" to "Alba")
+        val predictions = mapOf(
+            // user-99: r1 WINNER (25, max della gara) + r2 POLE+FL (10+8=18) = 43
+            "user-99" to listOf(
+                RacePrediction("r1", listOf(entryOf(PredictionType.WINNER, "VER"))),
+                RacePrediction(
+                    "r2",
+                    listOf(entryOf(PredictionType.POLE, "RUS"), entryOf(PredictionType.FASTEST_LAP, "VER")),
+                ),
+            ),
+            // user-00: r1 POLE+FL (18) + r2 WINNER (25, max della gara) = 43
+            "user-00" to listOf(
+                RacePrediction("r1", listOf(entryOf(PredictionType.POLE, "RUS"), entryOf(PredictionType.FASTEST_LAP, "VER"))),
+                RacePrediction("r2", listOf(entryOf(PredictionType.WINNER, "VER"))),
+            ),
+        )
+        val results = mapOf(
+            "r1" to sampleResult(),
+            "r2" to sampleResult().copy(raceId = "r2"),
+        )
+        val rows = ScoringEngine.computeStandings(
+            predictions, results, rules.copy(tieBreaker = TieBreaker.RACE_WINS), names,
+        )
+        // Parita' reale confermata su punti/vittorie/best.
+        assertEquals(43.0, rows[0].totalPoints, 0.001)
+        assertEquals(43.0, rows[1].totalPoints, 0.001)
+        assertEquals(1, rows[0].raceWins)
+        assertEquals(1, rows[1].raceWins)
+        assertEquals(25.0, rows[0].bestRacePoints, 0.001)
+        assertEquals(25.0, rows[1].bestRacePoints, 0.001)
+        // Decide displayName, NON lo userId.
+        assertEquals("user-99", rows.first().userId)
+        assertEquals("user-00", rows[1].userId)
+    }
+
+    @Test
     fun `miglior punteggio in gara come spareggio`() {
         val results = mapOf(
             "r1" to sampleResult(),

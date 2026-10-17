@@ -223,6 +223,82 @@ class RulesAndSerializationTest {
         assertEquals(original, decoded)
     }
 
+    /**
+     * 0009/0010: i TRE tipi con quota congelata sopravvivono a encode/decode
+     * con TUTTI i campi necessari (quota, soglia, over/under, driver, opzioni).
+     * La quota e' congelata: anche frammenti infinitesimiali di precisione
+     * (7.692307...) devono tornare identici, il payout dipende da esso.
+     */
+    @Test
+    fun `quota congelata round-trip per dnf punti e h2h`() {
+        val original = RacePrediction(
+            raceId = "r9",
+            submittedAtEpochMs = 1_700_000_000_123L,
+            entries = listOf(
+                // DNF: banda dedicata [0.5; 8], quota piena non arrotondata.
+                PredictionEntry(
+                    type = PredictionType.DRIVER_DNF,
+                    driverIds = listOf("PER"),
+                    booleanValue = true,
+                    quota = 5.0 * 2.0 / 3.0, // ~3.3333... precisione piena
+                ),
+                // Punti: soglia x.5 + lato + quota generica [0.5; 3].
+                PredictionEntry(
+                    type = PredictionType.DRIVER_POINTS_OVER_UNDER,
+                    driverIds = listOf("VER"),
+                    threshold = 0.5,
+                    over = false,
+                    quota = 0.5 * 3.0, // 1.5 esatto
+                ),
+                // H2H: quota delle fasce reali.
+                PredictionEntry(
+                    type = PredictionType.HEAD_TO_HEAD,
+                    driverIds = listOf("BOR", "VER"),
+                    quota = 2.5,
+                ),
+            ),
+        )
+        val encoded = json.encodeToString(RacePrediction.serializer(), original)
+        val decoded = json.decodeFromString(RacePrediction.serializer(), encoded)
+        assertEquals(original, decoded)
+
+        val dnf = decoded.entries[0]
+        assertEquals(5.0 * 2.0 / 3.0, dnf.quota!!, 0.0)
+        assertEquals(true, dnf.booleanValue)
+        val punti = decoded.entries[1]
+        assertEquals(0.5, punti.threshold!!, 0.0)
+        assertEquals(false, punti.over)
+        assertEquals(1.5, punti.quota!!, 0.0)
+        val h2h = decoded.entries[2]
+        assertEquals(listOf("BOR", "VER"), h2h.driverIds)
+        assertEquals(2.5, h2h.quota!!, 0.0)
+    }
+
+    /**
+     * I JSONB storici NON contengono il campo quota (pre-0009) e L'AP NUOVA
+     * produce "quota": null (encodeDefaults + explicitNulls di AppJson):
+     * entrambi devono decodificare senza errori con quota = null perche' il
+     * motore li punteggia con il percorso vintage (piatto/fasce prior).
+     */
+    @Test
+    fun `vintage senza quota e quota null decodificano come quota assente`() {
+        // Formato storico: nessun campo quota nel JSON.
+        val vintageJson = """{"raceId":"r1","entries":[
+            {"type":"DRIVER_DNF","driverIds":["PER"],"booleanValue":true},
+            {"type":"HEAD_TO_HEAD","driverIds":["VER","LEC"]}
+        ]}"""
+        val decodedVintage = json.decodeFromString(RacePrediction.serializer(), vintageJson)
+        assertEquals(null, decodedVintage.entries[0].quota)
+        assertEquals(null, decodedVintage.entries[1].quota)
+
+        // Formato attuale con "quota": null esplicito — non doveva rompere.
+        val modernNullJson = """{"raceId":"r1","entries":[
+            {"type":"DRIVER_DNF","driverIds":["PER"],"booleanValue":false,"quota":null}
+        ]}"""
+        val decodedNull = json.decodeFromString(RacePrediction.serializer(), modernNullJson)
+        assertEquals(null, decodedNull.entries.single().quota)
+    }
+
     // -- Utility dominio ------------------------------------------------------
 
     @Test
