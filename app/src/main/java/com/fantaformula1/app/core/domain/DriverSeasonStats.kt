@@ -62,7 +62,7 @@ data class DriverSeasonStats(
          * Costruzione dai risultati gia' caricati (es. LeagueDataSnapshot):
          * - ogni pilota del catalogo parte con n=0 (solo prior);
          * - i piloti storici/sostituti presenti nei risultati ma fuori catalogo
-         *   vengono aggiunti (prior di default统一 2.0) senza eccezioni;
+         *   vengono aggiunti (prior di default 2.0) senza eccezioni;
          * - un pilota assente da un risultato semplicemente non conta quella
          *   gara (nessuna gara "inventata").
          * I risultati sono SOLO gare di gara: lo sprint non e' un RaceResultData
