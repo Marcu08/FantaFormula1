@@ -10,6 +10,8 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,7 +24,7 @@ class SeasonResultsStoreOptimizationTest {
 
     private val today = LocalDate.now(ZoneOffset.UTC)
 
-    /** Gara pastata se [daysAgo] > 0, futura se negativa. */
+    /** Gara disputata se [daysAgo] > 0, futura se negativa. */
     private fun calendarRace(round: Int, daysAgo: Int) = F1Race(
         season = "2026",
         round = round.toString(),
@@ -98,13 +100,13 @@ class SeasonResultsStoreOptimizationTest {
     @Test
     fun `piano con cache 1-10 e 3 round nuovi siano solo 11 12 13`() {
         val cached = cacheWith(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        assertEquals(listOf(11, 12, 13), refreshPlan(cached, fakeCalendar()))
+        assertEquals(listOf(11, 12, 13), refreshPlan(cached, fakeCalendar(), season = 2026))
     }
 
     @Test
     fun `piano vuoto quando la cache copre tutti i round passati`() {
         val cached = cacheWith(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-        assertEquals(emptyList<Int>(), refreshPlan(cached, fakeCalendar()))
+        assertEquals(emptyList<Int>(), refreshPlan(cached, fakeCalendar(), season = 2026))
     }
 
     @Test
@@ -116,14 +118,14 @@ class SeasonResultsStoreOptimizationTest {
             F1Race(season = "2026", round = "3", raceName = "GP 3", date = today.minusDays(2).toString()),
             F1Race(season = "2026", round = "4", raceName = "GP 4", date = today.plusDays(7).toString()),
         )
-        assertEquals(listOf(1, 3), refreshPlan(null, calendar))
+        assertEquals(listOf(1, 3), refreshPlan(null, calendar, season = 2026))
     }
 
     @Test
     fun `con cache 1-10 vengono fatte SOLO 3 richieste di round`() = runBlocking {
         val remote = FakeRemote(fakeCalendar(), result = fakeF1Result())
         val cached = cacheWith(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        val plan = refreshPlan(cached, remote.calendar(2026))
+        val plan = refreshPlan(cached, remote.calendar(2026), season = 2026)
         val fetched = downloadMissingRounds(remote, 2026, plan, timeoutMs = 10_000L)
         // NON si richiedono i 13 round gia' in cache: solo i 3 mancanti.
         assertEquals(listOf(11, 12, 13), remote.roundRequests)
@@ -134,7 +136,7 @@ class SeasonResultsStoreOptimizationTest {
     fun `fallimento su un round non butta gli altri gia scaricati`() = runBlocking {
         val remote = FakeRemote(fakeCalendar(), failRounds = setOf(12), result = fakeF1Result())
         val cached = cacheWith(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        val plan = refreshPlan(cached, remote.calendar(2026))
+        val plan = refreshPlan(cached, remote.calendar(2026), season = 2026)
         val fetched = downloadMissingRounds(remote, 2026, plan, 10_000L)
         // Il round 12 e' caduto: restano 11 e 13 (e in cache c'e' gia' 1-10).
         assertEquals(listOf(11, 13), fetched.map { it.round })
@@ -156,5 +158,74 @@ class SeasonResultsStoreOptimizationTest {
         assertEquals(listOf(4, 5, 6), merged.results.map { it.round })
         assertEquals(42L, merged.fetchedAtEpochMs)
         assertEquals(2026, merged.season)
+    }
+
+    // ---------------------------------------------------------------
+    // Cache di un'altra stagione: ignorata del tutto
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `cache di stagione diversa e' come assente`() {
+        val cache2026 = cacheWith(1, 2, 3) // season = 2026
+        assertNull(usableSeasonCache(cache2026, season = 2027))
+        assertNotNull(usableSeasonCache(cache2026, season = 2026))
+        assertNull(usableSeasonCache(null, season = 2027))
+    }
+
+    @Test
+    fun `piano ignora i round di una cache di stagione diversa`() {
+        // Cache 2026 piena (round 1-24) mentre si chiede la 2027: la chiave
+        // di dedup e' (stagione, round), quindi il piano deve coprire TUTTI i
+        // round passati del 2027, non saltare quelli della cache 2026.
+        val calendar2027 = (1..13).map { round -> calendarRace(round, daysAgo = 15 - round) } +
+            listOf(calendarRace(14, daysAgo = -3))
+        val cache2026Full = cacheWith(
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        )
+        assertEquals(
+            listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
+            refreshPlan(cache2026Full, calendar2027, season = 2027),
+        )
+        // Stessa cache, stessa stagione: i round in cache c + il 14 futuro
+        // escluso -> piano vuoto.
+        assertEquals(emptyList<Int>(), refreshPlan(cache2026Full, calendar2027, season = 2026))
+    }
+
+    // ---------------------------------------------------------------
+    // Persistenza incrementale e annullamento
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `annullamento dopo 5 round su 12 persiste solo i 5 round`() {
+        val savedByProgress = mutableListOf<RealSeasonResult>()
+        var requested = mutableListOf<Int>()
+        runBlocking {
+            val remote = FakeRemote(fakeCalendar(), result = fakeF1Result())
+            try {
+                downloadMissingRounds(
+                    remote,
+                    season = 2026,
+                    rounds = (1..12).toList(),
+                    timeoutMs = 10_000L,
+                    onProgress = { result ->
+                        savedByProgress += result
+                        requested = remote.roundRequests
+                        if (savedByProgress.size == 5) {
+                            // L'utente esce dalla schermata: la coroutine
+                            // viene annullata a meta' rinfresco.
+                            throw kotlin.coroutines.cancellation.CancellationException("uscita")
+                        }
+                    },
+                )
+            } catch (_: kotlin.coroutines.cancellation.CancellationException) {
+                // atteso: si propaga subito, non viene inghiottito
+            }
+        }
+        // I 5 round gia' scaricati sono arrivati al proprio onProgress
+        // (che nel store reale salva la cache round per round).
+        assertEquals(listOf(1, 2, 3, 4, 5), savedByProgress.map { it.round })
+        // I round 6-12 non vengono nemmeno richiesti dopo l'annullamento.
+        assertEquals(listOf(1, 2, 3, 4, 5), requested)
     }
 }

@@ -26,7 +26,7 @@ data class SeasonResultsCache(
 )
 
 /**
- * Sema fornitura: la cache e' STANCA se assente o piu' vecchia di [maxAgeMs].
+ * True se la cache e' assente o piu' vecchia di [maxAgeMs].
  * Funzione pura (testata su JVM in SeasonResultsCacheStaleTest).
  */
 internal fun isStaleSeasonCache(
@@ -42,6 +42,14 @@ internal fun shouldRefreshSeasonCache(
     nowEpochMs: Long,
     maxAgeMs: Long,
 ): Boolean = force || isStaleSeasonCache(cache, nowEpochMs, maxAgeMs)
+
+/**
+ * La cache e' utilizzabile SOLO se e' della stagione corrente: una cache di
+ * un'annata diversa (es. restata sul telefono al cambio stagione) viene
+ * ignorata del tutto come se non esistesse. Pura e testata su JVM.
+ */
+internal fun usableSeasonCache(cache: SeasonResultsCache?, season: Int): SeasonResultsCache? =
+    cache?.takeIf { it.season == season }
 
 /**
  * Fonte remota astratta della stagione reale: l'unica superficie di rete del
