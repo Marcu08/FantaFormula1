@@ -53,13 +53,22 @@ Test e lint (gate di verifica prima di ogni commit):
 L'app non ha un server proprio: usa un progetto Supabase come unica fonte di verità.
 
 1. Crea un progetto gratuito su [supabase.com](https://supabase.com).
-2. Apri **SQL Editor**, incolla tutto il contenuto di
-   [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) ed eseguilo.
+2. Apri **SQL Editor** ed esegui le migrazioni **in ordine**, una alla volta:
+   [`0001_init.sql`](supabase/migrations/0001_init.sql) →
+   [`0002_fixes.sql`](supabase/migrations/0002_fixes.sql) →
+   [`0003_security.sql`](supabase/migrations/0003_security.sql) →
+   [`0004_prediction_validation.sql`](supabase/migrations/0004_prediction_validation.sql) →
+   [`0005_prediction_count.sql`](supabase/migrations/0005_prediction_count.sql) →
+   [`0006_prediction_bands.sql`](supabase/migrations/0006_prediction_bands.sql) →
+   [`0007_over_under_soglie.sql`](supabase/migrations/0007_over_under_soglie.sql) →
+   [`0008_safety_pit_bands.sql`](supabase/migrations/0008_safety_pit_bands.sql) →
+   [`0009_quota.sql`](supabase/migrations/0009_quota.sql) →
+   [`0010_quota_dnf.sql`](supabase/migrations/0010_quota_dnf.sql).
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
-   `races`, `race_results`, `predictions`), le policy **RLS** e le funzioni di business.
-3. Esegui anche [`supabase/migrations/0002_fixes.sql`](supabase/migrations/0002_fixes.sql):
-   corregge i bug lato DB (deadline, stato gare, ultimo admin, scritture atomiche
-   dei risultati, integrità referenziale tra leghe).
+   `races`, `race_results`, `predictions`), le policy **RLS**, le funzioni di
+   business e il trigger di validazione server-side del contenuto dei
+   pronostici (fasce obbligatorie, quote congelate in range, soglie).
+   I test predisposti (non eseguiti, con self-rollback) sono in `supabase/tests/`.
 3. Da **Authentication → Providers → Email**, disattiva "Confirm email" se vuoi che i
    nuovi giocatori entrino subito senza dover cliccare il link di conferma.
 4. Copia **Project URL** e **anon public key** da **Settings → API**.
@@ -102,10 +111,40 @@ schermata **Configurazione** (raggiungibile dal menu in alto nelle leghe).
 4. Ogni giocatore apre la gara e compila i **pronostici** entro la deadline.
    Dopo la deadline i pronostici si chiudono e quelli degli altri diventano visibili.
 5. Sempre l'admin inserisce i **risultati** (griglia, posizione, sprint, giro veloce,
-   DNF + motivo, penalità, pit stop, safety car, bandiere rosse, giri, meteo/note).
+   DNF + motivo, penalità, pit stop, safety car + virtual sommate, bandiere rosse,
+   giri, meteo/note).
 6. La **classifica** si ricalcola da sola a ogni apertura; da *Punti per gara* vedi
    il dettaglio gara per gara. Da *Regole* l'admin può cambiare punti, tipi attivi,
    moltiplicatori, spareggio e opzioni (preset "F1 ufficiale" o "Arcade").
+
+### I pronostici, in breve
+
+| Tipo | Meccanica |
+| --- | --- |
+| Vincitore / Pole / Giro veloce / Sprint | scelta del pilota |
+| Podio | i primi 3 nell'ordine esatto (bonus opzionale per podio senza ordine) |
+| Posizione esatta | posizione precisa, con fattore ±1 (e ±2 opzionale) |
+| Fascia di posizione | fasce fisse obbligatorie 1-5 / 6-10 / 11-15 / 16-22 |
+| Testa a testa | piloti divisi in 3 fasce (ALTA/MEDIA/BASSA) dai dati reali; vale solo se entrambi classificati; quota per difficoltà (pari ×1.2, favorito ×0.6-×0.8, sorpresa fino a ×2.5) |
+| Ritiro (DNF) | si/no, con quote a valore atteso (la fascia è 0.5-8.0) |
+| Punti pilota over/under | soglia = mediana empirica dei punti/gara dai dati reali ("0.5" = va a punti?), con quota 0.5-3.0 |
+| Numero safety car | numero ESATTO di SC+VSC sommate (0, 1, 2, 3, 4, 5, 6+), quota per rarità |
+| Fascia pit stop | fascia fissa sui pit stop TOTALI della griglia (0-14 … 66+) |
+
+Per DNF, punti over/under e testa a testa la **quota viene congelata nel
+pronostico** al momento dell'invio: le statistiche della stagione cambiano
+col tempo, ma i punteggi già assegnati restano per sempre identici.
+
+### Sync e statistiche reali
+
+L'app si collega all'API Jolpica/Ergast per il calendario e i risultati reali:
+l'admin può sincronizzare gare e risultati (con pit stop reali) invece di
+inserirli a mano, e un promemoria arriva 1h prima della deadline.
+Le statistiche piloti (media punti, tasso di ritiro, fasce testa a testa)
+combinano i risultati della lega con **tutta la stagione reale già disputata**:
+i round esistono in una cache locale (DataStore, rinfrescata al massimo ogni
+6 ore, solo per i round mancanti, salvato round per round) e
+una lega creata a stagione in corso parte con statistiche complete, non a zero.
 
 ### Sicurezza
 
@@ -122,15 +161,27 @@ oltre la deadline.
 app/src/main/java/com/fantaformula1/app/
 ├── core/            # dominio puro Kotlin (Rules, ScoringEngine, Race…), zero Android
 ├── data/            # Supabase (supabase-kt), repository dietro interfacce, DTO
+│   ├── f1api/       # client Jolpica/Ergast + mapper -> modelli dominio
+│   ├── sync/        # sincronizzazione calendario/risultati + cache stagione reale
+│   └── ...          # config, notification (promemoria deadline), util
 └── ui/              # una cartella per feature: Screen + ViewModel + stato
 ```
 
 - **`core/domain/ScoringEngine`** calcola punteggi e classifica; è l'unica fonte
-  di verità del regolamento ed è coperto da 100+ unit test JVM.
+  di verità del regolamento ed è coperto da unit test JVM.
+- **`core/domain/DriverSeasonStats`** deriva dalle gare reali le statistiche del
+  giocatore: media punti shrinkata verso la stima pre-stagione (K=3), soglia
+  over/under = mediana empirica, fasce testa a testa 7/8/7, tasso di ritiro.
+  **`OverUnderQuotes`** contiene le quote a valore atteso (0.5/p, limitate) e
+  le fasce safety car/pit stop: costanti di design fuori da `Rules`.
+- **Quote congelate**: il motore ricalcola a ogni lettura, quindi ogni
+  valore variabile nel tempo (quota, soglia scelta) viene scritto nel JSONB del
+  pronostico all'invio: i punteggi storici non cambiano mai retroattivamente.
 - **`leagues.rules`** e **`race_results.result`** sono JSONB: il formato è definito
   dalle classi Kotlin serializzabili (`Rules`, `RaceResultData`), che restano la
-  sorgente di verità.
-- **DI manuale** via `AppContainer`: niente Hilt/KSP, build più affidabile.
+  sorgente di verità. Un trigger SQL valida il contenuto dei pronostici a ogni
+  scrittura (fasce, quote, soglie ammesse).
+- **DI manuale** via `AppContainer`: niente Hilt/KSP, build più affidabile
 - I punteggi vengono **ricalcolati a ogni lettura**: con leghe piccole il costo è
   trascurabile e non serve nessuna function server.
 
