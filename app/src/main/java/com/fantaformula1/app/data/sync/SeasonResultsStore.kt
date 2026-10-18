@@ -179,19 +179,31 @@ class SeasonResultsStore(
         }
 
         // Persistenza INCREMENTALE: dopo ogni round la cache cresce. Il
-        // timestamp dei salvataggi intermedi resta quello vecchio (0 se mai
-        // scaricati) cosi', se l'utente abbandona a meta', i round mancanti
-        // vengono ritentati presto; il salvataggio finale usa [nowEpochMs].
-        val partialTimestamp = cached?.fetchedAtEpochMs ?: nowEpochMs
+        // timestamp dei salvataggi intermedi resta quello vecchio (SEMPRE 0L
+        // se la cache era assente: cosi' un annullamento/uscita a meta' porta
+        // la prossima apertura a RIPRENDERE SUBITO i round mancanti); il
+        // salvataggio finale timestampa in base al tipo di esito (sotto).
+        val partialTimestamp = cached?.fetchedAtEpochMs ?: 0L
         var accumulated = cached
         val fetched = downloadMissingRounds(remote, SEASON, plan, NETWORK_TIMEOUT_MS) { result ->
             accumulated = mergeFetched(accumulated, listOf(result), SEASON, partialTimestamp)
             save(accumulated)
         }
         if (fetched.size < plan.size) {
-            return accumulated // parziale: gia' salvato round per round sopra
+            // CICLO COMPLETO MA PARZIALE (rete giu', round senza risultati):
+            // il timestamp viene ANTEGRATO in modo che il prossimo rinfresco
+            // parta circa DOVIRETRY_MS (30 min), ne' a ogni apertura ne' dopo
+            // le 6 ore piene (v. [backdatedForPartialRetry]).
+            val backdated = cached
+                ?: SeasonResultsCache(season = SEASON, fetchedAtEpochMs = 0L, results = emptyList())
+            val retriable = backdated.copy(
+                season = SEASON,
+                fetchedAtEpochMs = backdatedForPartialRetry(nowEpochMs, FRESH_MS, PARTIAL_RETRY_MS),
+            )
+            save(retriable)
+            return retriable
         }
-        // Completato: il timestamp avanza (prossima apertura senza richieste).
+        // Completato pieno: il timestamp avanza (prossima apertura zero richieste).
         val updated = (accumulated ?: SeasonResultsCache(
             season = SEASON,
             fetchedAtEpochMs = nowEpochMs,
@@ -211,6 +223,13 @@ class SeasonResultsStore(
         /** Eta' massima della cache: al massimo un rinfresco ogni 6 ore. */
         const val FRESH_MS: Long = 6 * 60 * 60 * 1000L
 
+        /**
+         *'Rilancio del rinfresco dopo un ciclo PARZIALE (round mancanti per
+         * rete/nessun esito): il prossimo tentativo parte dopo ~30 minuti,
+         * NON a ogni apertura e NON dopo le 6 ore.
+         */
+        const val PARTIAL_RETRY_MS: Long = 30 * 60 * 1000L
+
         /** Timeout su ogni singola richiesta di rete (calendario e round). */
         const val NETWORK_TIMEOUT_MS: Long = 10_000L
 
@@ -220,3 +239,12 @@ class SeasonResultsStore(
         private val KEY_CACHE = stringPreferencesKey("season_results_cache")
     }
 }
+
+/**
+ * Timestamp ANTICIPATO per far ripartire il rinfresco dopo [partialRetryMs]
+ * (30') da UN ciclo parziale: la cache sembra "quasi stanca" FINO A
+ * (maxAgeMs - partialRetryMs): entro 30 minuti → nessuna richiesta; dopo 30
+ * minuti → stanca → retry. Pura e testata su JVM.
+ */
+internal fun backdatedForPartialRetry(nowEpochMs: Long, maxAgeMs: Long, partialRetryMs: Long): Long =
+    nowEpochMs - (maxAgeMs - partialRetryMs)

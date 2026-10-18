@@ -1,6 +1,7 @@
 package com.fantaformula1.app.data.sync
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,5 +34,42 @@ class SeasonResultsCacheStaleTest {
         val maxAge = 6 * 60 * 60 * 1000L
         assertTrue(isStaleSeasonCache(cache(maxAge), 1_000_000L, maxAge))
         assertTrue(isStaleSeasonCache(cache(maxAge + 1), 1_000_000L, maxAge))
+    }
+
+    // ---------------------------------------------------------------
+    // 30 minuti di backoff dopo un ciclo PARZIALE (round mancanti)
+    // ---------------------------------------------------------------
+    private val maxAge = SeasonResultsStore.FRESH_MS
+    private val retry = SeasonResultsStore.PARTIAL_RETRY_MS
+
+    @Test
+    fun `ciclo parziale timestamp entro 30 min silenzio poi retry`() {
+        // Cache assente: il salvataggio parziale usa il timestamp ANTICIPATO
+        // (now - (6h - 30min)) → la cache "muore" 30 minuti dopo il ciclo.
+        val now = 1_792_000_000_000L
+        val stored = backdatedForPartialRetry(now, maxAge, retry)
+        assertEquals(now - (maxAge - retry), stored)
+        // A 29'59" dal ciclo (now + 30min - 1ms): NON stanca → zero richieste.
+        assertFalse(isStaleSeasonCache(
+            cache = SeasonResultsCache(2026, stored, emptyList()),
+            nowEpochMs = stored + maxAge - 1,
+            maxAgeMs = maxAge,
+        ))
+        // A 30' esatti (now + 30min) la cache e' stanca → il rinfresco riparte
+        // e richiede i round mancanti.
+        assertTrue(isStaleSeasonCache(
+            cache = SeasonResultsCache(2026, stored, emptyList()),
+            nowEpochMs = stored + maxAge,
+            maxAgeMs = maxAge,
+        ))
+    }
+
+    @Test
+    fun `annullamento a meta con cache assente riprende subito al prossimo apertura`() {
+        // I salvataggi INTERMEDI (annullamento) usano 0L quando la cache era
+        // assente: qualsiasi apertura successiva (tempo reale 2026) vede la
+        // cache stanca e richiede i ROUND MANCANTI, senza attendere 30 minuti.
+        val intermediates = SeasonResultsCache(2026, fetchedAtEpochMs = 0L, results = emptyList())
+        assertTrue(isStaleSeasonCache(intermediates, nowEpochMs = 1_792_000_000_000L, maxAgeMs = maxAge))
     }
 }

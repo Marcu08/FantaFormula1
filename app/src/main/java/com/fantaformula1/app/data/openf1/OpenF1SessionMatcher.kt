@@ -5,18 +5,18 @@ import java.time.Instant
 /**
  * Associa una gara interna dell'app alla corretta SESSIONE OpenF1 "Race".
  *
- * Regola NON negoziabilii: il round Jolpica NON e' un identificatore OpenF1
+ * Regola NON negoziabile: il round Jolpica NON e' un identificatore OpenF1
  * (i round possono difierri di numeri: test, gare cancellate), quindi il match
  * usa solo dati reali:
  *
  * 1. PRIMARIA — istante di deadline: la deadline della gara coincide con
- *    lo START della QUALIFYING dello stesso meeting (es. Australia 2026:
+ *    lo START della QUALIFYING dello stesso meeting ( 2026:
  *    deadline 2026-03-07T06:00Z == Qualifying date_start). Tolleranza 15
  *    minuti per gare create manualmente; una sola candidatura = match.
  * 2. FALLBACK — paese: alias dari nomenclatura Jolpica/Ergast -> ISO3
  *    (UK->GBR, UAE->ARE, USA->USA), confronto case-insensitive su
- *    countyd_code e country_name.
- * 0unknown candidati o >1 candidato -> NULL match + motivo: l'admin procede
+ *    country_code e country_name.
+ * ZERO candidati o >1 candidato -> NULL match + motivo: l'admin procede
  *    a mano (mai il fallback "latest", mai supuesto intuito).
  */
 object OpenF1SessionMatcher {
@@ -46,7 +46,7 @@ object OpenF1SessionMatcher {
         deadline: Instant?,
         sessions: List<OpenF1Session>,
     ): Match {
-        // ATTENZIONE (trovato collaudo live): nei weekend con SPRIT, OpenF1
+        // ATTENZIONE (trovato collaudo live): nei weekend con SPRINT OpenF1
         // marca la sessione Sprint con session_type="Race": filtrare per
         // session_type includerebbe lo Sprint e renderebbe ambigue le gare.
         // L'identificatore corretto della GRAN PREMIO e' session_name="Race".
@@ -95,7 +95,7 @@ object OpenF1SessionMatcher {
             }
         }
 
-        // 2) Fallback paesa (deadline assente o senza corrispondenze).
+        // 2) Fallback paese (deadline assente o senza corrispondenze).
         val byCountry = countryFilter(raceSessions, raceCountry)
         return when (byCountry.size) {
             1 -> Match.Ok(byCountry[0].sessionKey)
@@ -110,14 +110,14 @@ object OpenF1SessionMatcher {
         }
     }
 
-    /** Messaggi per session敏锐: prova exact code, poi alias, poi nome mercado. */
+    /** Messaggi per paese: prova exact code, poi alias, poi nome corrispondente. */
     private fun countryFilter(candidates: List<OpenF1Session>, raceCountry: String?): List<OpenF1Session> {
         val country = raceCountry?.trim().orEmpty().uppercase()
         if (country.isEmpty()) return emptyList()
         val iso = COUNTRY_ALIAS[country] ?: country
         val exact = candidates.filter { it.countryCode.uppercase() == iso }
         if (exact.size >= 1) return exact
-        // Ultima netsa: match longa del nome (es. "Spagna" vs "Spain" omonimo).
+        // Ultima rete: match largo del nome (es. "Spagna" vs "Spain" omonimo).
         return candidates.filter { it.countryName.uppercase().contains(country) || country.contains(it.countryName.uppercase()) }
     }
 
