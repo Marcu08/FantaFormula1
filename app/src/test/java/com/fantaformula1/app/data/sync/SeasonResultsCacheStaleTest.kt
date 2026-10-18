@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * Sema cache: la funzione e' PURA (top-level, senza Android) quindi
- * testabile su JVM. Datos: 6 ore di vita massima (SeasonResultsStore.FRESH_MS).
+ * testabile su JVM. Dato: 6 ore di vita massima (SeasonResultsStore.FRESH_MS).
  */
 class SeasonResultsCacheStaleTest {
 
@@ -65,7 +65,7 @@ class SeasonResultsCacheStaleTest {
     }
 
     @Test
-    fun `annullamento a meta con cache assente riprende subito al prossimo apertura`() {
+    fun `annullamento a meta con cache assente riprende subito alla prossima apertura`() {
         // I salvataggi INTERMEDI (annullamento) usano 0L quando la cache era
         // assente: qualsiasi apertura successiva (tempo reale 2026) vede la
         // cache stanca e richiede i ROUND MANCANTI, senza attendere 30 minuti.

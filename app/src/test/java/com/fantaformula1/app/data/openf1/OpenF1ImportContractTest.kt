@@ -13,12 +13,12 @@ import org.junit.Test
  *
  * L'import propone SC e VSC SEPARATI, ma nel JSONB del risultato esiste UN
  * solo campo `safetyCars` che li conta SOMMATI (SC+VSC insieme, come da
- * regolamento: "un solo numero che include entrambe"). Lo
+ * regolamento: "un solo numero che include entrambi"). Lo
  * `ScoringEngine` punteggia il pronostico `SAFETY_CAR_COUNT_OVER_UNDER`
- * (opzioni 0, 1, 2, ... 6+) confrontandolo con QUESTO TOTALE sommato:
+ * (opzioni 0, 1, 2, ... 6+) confrontandolo con questo totale sommato:
  * nel dialog l'admin conferma quindi il totale SC+VSC, non i due conteggi
- * separoti. L'import NON alimenta `PIT_STOPS_OVER_UNDER` (OpenF1 non
- * fornisceerez pit stop nel race control).
+ * separati. L'import NON alimenta `PIT_STOPS_OVER_UNDER` (OpenF1 non
+ * fornisce pit stop nel race control).
  */
 class OpenF1ImportContractTest {
 

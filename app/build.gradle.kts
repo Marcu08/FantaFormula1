@@ -158,3 +158,51 @@ dependencies {
     testImplementation(libs.androidx.junit)
     testImplementation(libs.androidx.espresso.core)
 }
+
+// -----------------------------------------------------------------------------
+// Controllo caratteri non latini (CJK) nei sorgenti: rifuso ricorrente degli
+// strumenti di editing. Il build `check` fallisce se ne trova uno.
+// Alberi controllati: app/src, supabase (migrations+tests) e README.md.
+// -----------------------------------------------------------------------------
+val cjkRegex = Regex("[\\p{InCJKUnifiedIdeographs}\\p{InHiragana}\\p{InKatakana}\\p{InHangulSyllables}]")
+tasks.register("checkNoCjkCharacters") {
+    doLast {
+        val roots = listOf(
+            file("src"),
+            file("../supabase"),
+            file("../README.md"),
+        )
+        val offenders = mutableListOf<String>()
+        roots.forEach { root ->
+            val files: List<File> = when {
+                root.isFile -> listOf(root)
+                root.isDirectory -> root.walkTopDown()
+                    .filter { it.isFile }
+                    .filter { it.extension.lowercase() in setOf("kt", "kts", "sql", "md", "xml") }
+                    .toList()
+                else -> emptyList()
+            }
+            files.forEach { f ->
+                val text = try {
+                    f.readText(Charsets.UTF_8)
+                } catch (e: Exception) {
+                    return@forEach
+                }
+                text.lines().forEachIndexed { idx, line ->
+                    if (cjkRegex.containsMatchIn(line)) {
+                        offenders += "${f.path}:${idx + 1}"
+                    }
+                }
+            }
+        }
+        if (offenders.isNotEmpty()) {
+            throw GradleException(
+                "CARATTERI CJK TROVATI (rifusi di editing): correggere i commenti in:\n" +
+                    offenders.joinToString("\n"),
+            )
+        }
+    }
+}
+tasks.matching { it.name == "check" }.configureEach {
+    dependsOn("checkNoCjkCharacters")
+}

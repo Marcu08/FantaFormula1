@@ -46,7 +46,7 @@ internal fun refreshPlan(cache: SeasonResultsCache?, calendar: List<F1Race>, sea
  * NON tocca nessun altro (quelli riusciti restano nel risultato, non tutto
  * viene buttato). Ogni richiesta ha un timeout proprio [timeoutMs].
  * Dopo OGNI round riuscito viene invocata [onProgress]: il chiamante lo usa
- * per salvare la cache in tempo reale — un'annullamento della coroutine
+ * per salvare la cache in tempo reale — un annullamento della coroutine
  * (l'utente esce dalla schermata) non perde i round gia' scaricati.
  * L'annullamento delle coroutine NON viene mai catturato: si propaga subito.
  */
@@ -141,7 +141,9 @@ class SeasonResultsStore(
     }
 
     /**
-     * Rinfresca se e solo se la cache e' stanca (o [force]).
+     * Rinfresca se e solo se la cache e' stanca (o [force]), delegando a
+     * [runRefreshCycle] (pura, testata su JVM: riceve la persistenza e il
+     * tempo come parametri, cosi' non serve un Context nel test).
      * - Cache fresca: ZERO richieste (nemmeno il calendario).
      * - Cache stanca o di stagione diversa: calendario (timeout dedicato) e
      *   poi SOLO i round mancanti, uno per volta con timeout individuale e
@@ -157,60 +159,7 @@ class SeasonResultsStore(
         if (!shouldRefreshSeasonCache(cached, force, nowEpochMs, FRESH_MS)) {
             return cached // zero richieste
         }
-        val calendar = try {
-            withTimeoutOrNull(NETWORK_TIMEOUT_MS) { remote.calendar(SEASON) }
-        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        } ?: return cached // rete giu' o timeout: la cache resta com'era
-
-        val plan = refreshPlan(cached, calendar, SEASON)
-        if (plan.isEmpty()) {
-            // Tutti i round disputati sono gia' in cache: solo il timestamp
-            // avanza, cosi' la prossima apertura resta senza richieste.
-            val bumped = (cached ?: SeasonResultsCache(
-                season = SEASON,
-                fetchedAtEpochMs = nowEpochMs,
-                results = emptyList(),
-            )).copy(season = SEASON, fetchedAtEpochMs = nowEpochMs)
-            save(bumped)
-            return bumped
-        }
-
-        // Persistenza INCREMENTALE: dopo ogni round la cache cresce. Il
-        // timestamp dei salvataggi intermedi resta quello vecchio (SEMPRE 0L
-        // se la cache era assente: cosi' un annullamento/uscita a meta' porta
-        // la prossima apertura a RIPRENDERE SUBITO i round mancanti); il
-        // salvataggio finale timestampa in base al tipo di esito (sotto).
-        val partialTimestamp = cached?.fetchedAtEpochMs ?: 0L
-        var accumulated = cached
-        val fetched = downloadMissingRounds(remote, SEASON, plan, NETWORK_TIMEOUT_MS) { result ->
-            accumulated = mergeFetched(accumulated, listOf(result), SEASON, partialTimestamp)
-            save(accumulated)
-        }
-        if (fetched.size < plan.size) {
-            // CICLO COMPLETO MA PARZIALE (rete giu', round senza risultati):
-            // il timestamp viene ANTEGRATO in modo che il prossimo rinfresco
-            // parta circa DOVIRETRY_MS (30 min), ne' a ogni apertura ne' dopo
-            // le 6 ore piene (v. [backdatedForPartialRetry]).
-            val backdated = cached
-                ?: SeasonResultsCache(season = SEASON, fetchedAtEpochMs = 0L, results = emptyList())
-            val retriable = backdated.copy(
-                season = SEASON,
-                fetchedAtEpochMs = backdatedForPartialRetry(nowEpochMs, FRESH_MS, PARTIAL_RETRY_MS),
-            )
-            save(retriable)
-            return retriable
-        }
-        // Completato pieno: il timestamp avanza (prossima apertura zero richieste).
-        val updated = (accumulated ?: SeasonResultsCache(
-            season = SEASON,
-            fetchedAtEpochMs = nowEpochMs,
-            results = emptyList(),
-        )).copy(season = SEASON, fetchedAtEpochMs = nowEpochMs)
-        save(updated)
-        return updated
+        return runRefreshCycle(cached, remote, nowEpochMs) { save(it) }
     }
 
     private suspend fun save(cache: SeasonResultsCache) {
@@ -224,7 +173,7 @@ class SeasonResultsStore(
         const val FRESH_MS: Long = 6 * 60 * 60 * 1000L
 
         /**
-         *'Rilancio del rinfresco dopo un ciclo PARZIALE (round mancanti per
+         * Rilancio del rinfresco dopo un ciclo PARZIALE (round mancanti per
          * rete/nessun esito): il prossimo tentativo parte dopo ~30 minuti,
          * NON a ogni apertura e NON dopo le 6 ore.
          */
@@ -238,6 +187,83 @@ class SeasonResultsStore(
 
         private val KEY_CACHE = stringPreferencesKey("season_results_cache")
     }
+}
+
+/**
+ * Ciclo di rinfresco completo (calendario + round mancanti), testato su JVM
+ * senza Android: `cached` e' la cache gia' letta (gia' valutata stanca),
+ * `save` e' la persistenza iniettata (niente Context). Restituisce la cache
+ * da considerare corrente dopo il ciclo, o la cache iniziale se anche il
+ * calendario fallisce (mai errori verso il chiamante).
+ *
+ * Persistenza INCREMENTALE: dopo ogni round la cache cresce. Il timestamp
+ * dei salvataggi intermedi resta quello vecchio (SEMPRE 0L se la cache era
+ * assente: cosi' un annullamento/uscita a meta' porta la prossima apertura a
+ * RIPRENDERE SUBITO i round mancanti); il salvataggio finale timestampa in
+ * base al tipo di esito (sotto).
+ */
+internal suspend fun runRefreshCycle(
+    cached: SeasonResultsCache?,
+    remote: SeasonResultsRemote,
+    nowEpochMs: Long,
+    save: suspend (SeasonResultsCache) -> Unit,
+): SeasonResultsCache? {
+    val season = SeasonResultsStore.SEASON
+    val calendar = try {
+        withTimeoutOrNull(SeasonResultsStore.NETWORK_TIMEOUT_MS) { remote.calendar(season) }
+    } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    } ?: return cached // rete giu' o timeout: la cache resta com'era
+
+    val plan = refreshPlan(cached, calendar, season)
+    if (plan.isEmpty()) {
+        // Tutti i round disputati sono gia' in cache: solo il timestamp
+        // avanza, cosi' la prossima apertura resta senza richieste.
+        val bumped = (cached ?: SeasonResultsCache(
+            season = season,
+            fetchedAtEpochMs = nowEpochMs,
+            results = emptyList(),
+        )).copy(season = season, fetchedAtEpochMs = nowEpochMs)
+        save(bumped)
+        return bumped
+    }
+
+    val partialTimestamp = cached?.fetchedAtEpochMs ?: 0L
+    var accumulated = cached
+    val fetched = downloadMissingRounds(remote, season, plan, SeasonResultsStore.NETWORK_TIMEOUT_MS) { result ->
+        accumulated = mergeFetched(accumulated, listOf(result), season, partialTimestamp)
+        save(accumulated)
+    }
+    if (fetched.size < plan.size) {
+        // CICLO COMPLETO MA PARZIALE (rete giu', round senza risultati): il
+        // timestamp viene ANTICIPATO in modo che il prossimo rinfresco parta
+        // circa PARTIAL_RETRY_MS (30 min), ne' a ogni apertura ne' dopo le
+        // 6 ore piene (v. [backdatedForPartialRetry]). La base e' ACCUMULATED
+        // (non la cache iniziale): i round scaricati in questo ciclo (salvati
+        // round per round) NON devono essere riscritti e persi.
+        val base = accumulated
+            ?: SeasonResultsCache(season = season, fetchedAtEpochMs = 0L, results = emptyList())
+        val retriable = base.copy(
+            season = season,
+            fetchedAtEpochMs = backdatedForPartialRetry(
+                nowEpochMs,
+                SeasonResultsStore.FRESH_MS,
+                SeasonResultsStore.PARTIAL_RETRY_MS,
+            ),
+        )
+        save(retriable)
+        return retriable
+    }
+    // Completato pieno: il timestamp avanza (prossima apertura zero richieste).
+    val updated = (accumulated ?: SeasonResultsCache(
+        season = season,
+        fetchedAtEpochMs = nowEpochMs,
+        results = emptyList(),
+    )).copy(season = season, fetchedAtEpochMs = nowEpochMs)
+    save(updated)
+    return updated
 }
 
 /**

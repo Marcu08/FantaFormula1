@@ -4,7 +4,7 @@ package com.fantaformula1.app.data.openf1
  * Parser dei messaggi FIA Race Control (OpenF1, categoria "SafetyCar") in
  * conteggi SC (Safety Car fisica) e VSC (Virtual Safety Car).
  * NON e' "contare le righe": i messaggi di FINE/aggiornamento/coda non sono
- * attivazioni. Semantica ricavata sui dati reali 2026 (
+ * attivazioni. Semantica ricavata sui dati reali 2026 (es. Australia:
  * "VSC DEPLOYED" @ giro 12 -> "VSC ENDING" @ giro 14, tre attivazioni VSC).
  *
  * Regole di conteggio (un'attivazione = uno START + eventuale END):
@@ -93,7 +93,7 @@ object OpenF1SafetyCarParser {
                     return
                 }
                 if (kind == Kind.SC && vscActive || kind == Kind.VSC && scActive) {
-                    warnings += "Transizione $kind -- mentre l'altro tipo e' ancora attivo: entrambe le conteggi " +
+                    warnings += "Transizione $kind -- mentre l'altro tipo e' ancora attivo: entrambi i conteggi " +
                         "seguono l'ordine FIA ($text, lap $lap)"
                 }
                 if (kind == Kind.SC) {

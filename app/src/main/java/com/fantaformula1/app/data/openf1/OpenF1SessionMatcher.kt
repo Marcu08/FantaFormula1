@@ -6,18 +6,18 @@ import java.time.Instant
  * Associa una gara interna dell'app alla corretta SESSIONE OpenF1 "Race".
  *
  * Regola NON negoziabile: il round Jolpica NON e' un identificatore OpenF1
- * (i round possono difierri di numeri: test, gare cancellate), quindi il match
+ * (i round possono differire di numeri: test, gare cancellate), quindi il match
  * usa solo dati reali:
  *
  * 1. PRIMARIA — istante di deadline: la deadline della gara coincide con
- *    lo START della QUALIFYING dello stesso meeting ( 2026:
+ *    lo START della QUALIFYING dello stesso meeting (es. Australia 2026:
  *    deadline 2026-03-07T06:00Z == Qualifying date_start). Tolleranza 15
  *    minuti per gare create manualmente; una sola candidatura = match.
- * 2. FALLBACK — paese: alias dari nomenclatura Jolpica/Ergast -> ISO3
+ * 2. FALLBACK — paese: alias della nomenclatura Jolpica/Ergast -> ISO3
  *    (UK->GBR, UAE->ARE, USA->USA), confronto case-insensitive su
  *    country_code e country_name.
  * ZERO candidati o >1 candidato -> NULL match + motivo: l'admin procede
- *    a mano (mai il fallback "latest", mai supuesto intuito).
+ *    a mano (mai il fallback "latest", mai presunto intuito).
  */
 object OpenF1SessionMatcher {
 
@@ -87,7 +87,7 @@ object OpenF1SessionMatcher {
                         return Match.Ok(byCountry[0].sessionKey)
                     }
                     return Match.Failed(
-                        "Sessione OpenF1 ambigua (${candidatesInWeekend.size} candidate con ritmo deadline identica): " +
+                        "Sessione OpenF1 ambigua (${candidatesInWeekend.size} candidate con la stessa deadline identica): " +
                             "risultato da inserire a mano",
                     )
                 }

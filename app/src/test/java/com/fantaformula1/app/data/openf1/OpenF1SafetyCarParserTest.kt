@@ -128,8 +128,8 @@ class OpenF1SafetyCarParserTest {
 
     @Test
     fun `gara chiusa in neutralizzazione conta comunque l attivazione`() {
-        // Solo il DEPLOY, nessun ENDING: gara chiusa in neutralizzazione: normale ma va
-        // avvertito: 1 attivazione +  warning, non blocca il conteggio.
+        // Solo il DEPLOY, nessun ENDING: gara chiusa in neutralizzazione:
+        // normale ma va avvertito: 1 attivazione + warning, non blocca il conteggio.
         val import = OpenF1SafetyCarParser.parse(listOf(msg("VSC DEPLOYED", lap = 55)))
         assertEquals(1, import.proposedVirtualSafetyCars)
         assertTrue(import.warnings.any { it.contains("ancora attiva") })
