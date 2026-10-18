@@ -19,20 +19,26 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +59,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.RaceResultValidation
+import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.DriverAvatar
 import com.fantaformula1.app.ui.components.ErrorState
@@ -71,11 +78,13 @@ fun RaceResultScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val openF1Client = remember { com.fantaformula1.app.data.openf1.OpenF1Client() }
     val viewModel: ResultViewModel = viewModel {
         ResultViewModel(
             raceRepository = container.raceRepository,
             leagueRepository = container.leagueRepository,
             authRepository = container.authRepository,
+            openF1 = openF1Client,
             raceId = raceId,
         )
     }
@@ -162,6 +171,7 @@ fun RaceResultScreen(
                         item { ReadOnlyNotice() }
                     } else {
                         item { SectionTitle(stringResource(R.string.sezione_gara)) }
+                        item { OpenF1ImportButton(state, viewModel) }
                         item { RaceFields(state, viewModel) }
 
                         item { SectionTitle(stringResource(R.string.sezione_piloti)) }
@@ -271,6 +281,145 @@ private fun ReadOnlyNotice() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp),
     )
+}
+
+@Composable
+private fun OpenF1ImportButton(state: ResultUiState, viewModel: ResultViewModel) {
+    // L'azione esiste solo per admin e solo se l'import non esta in corso;
+    // il flusso di salvataggio resta quello abituale (nessun write aggiunto).
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = viewModel::importSafetyCars,
+            enabled = state.isAdmin && state.scImport !is ScImportState.Loading,
+        ) {
+            if (state.scImport is ScImportState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+            } else {
+                Icon(Icons.Outlined.CloudDownload, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(stringResource(R.string.openf1_import_button))
+        }
+        Text(
+            text = stringResource(R.string.openf1_import_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    when (val scImport = state.scImport) {
+        is ScImportState.Success -> SafetyCarImportDialog(awaiting = scImport.import, viewModel = viewModel)
+        is ScImportState.Failed -> Text(
+            text = stringResource(R.string.openf1_import_failed, scImport.reason),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        else -> Unit
+    }
+}
+
+/**
+ * Revisione delle proposizioni OpenF1: contegi separati SC/VSC, eventi
+ * riconosciuti, avvisi e fiducia; campo TOTALE (SC+VSC) editabile — e' quel
+ * valore che alla conferma riempie il form. Nessun salvataggio qui.
+ */
+@Composable
+private fun SafetyCarImportDialog(
+    awaiting: OpenF1SafetyCarParser.Import,
+    viewModel: ResultViewModel,
+) {
+    var totalTextField by remember { mutableStateOf((awaiting.proposedSafetyCars + awaiting.proposedVirtualSafetyCars).toString()) }
+
+    AlertDialog(
+        onDismissRequest = viewModel::dismissSafetyCarImport,
+        title = { Text(stringResource(R.string.openf1_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.openf1_sc_proposta, awaiting.proposedSafetyCars))
+                    Text(stringResource(R.string.openf1_vsc_proposta, awaiting.proposedVirtualSafetyCars))
+                }
+                Text(
+                    text = when (awaiting.confidence) {
+                        OpenF1SafetyCarParser.Confidence.HIGH ->
+                            stringResource(R.string.openf1_fiducia_alta)
+                        OpenF1SafetyCarParser.Confidence.MEDIUM ->
+                            stringResource(R.string.openf1_fiducia_media)
+                        OpenF1SafetyCarParser.Confidence.LOW ->
+                            stringResource(R.string.openf1_fiducia_bassa)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (awaiting.confidence) {
+                        OpenF1SafetyCarParser.Confidence.HIGH -> MaterialTheme.colorScheme.primary
+                        OpenF1SafetyCarParser.Confidence.MEDIUM -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.error
+                    },
+                )
+                if (awaiting.events.isNotEmpty()) {
+                    Text(stringResource(R.string.openf1_eventi), style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = eventsLabel(awaiting.events),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (awaiting.warnings.isNotEmpty()) {
+                    awaiting.warnings.take(4).forEach { warning ->
+                        Text(
+                            text = warning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = totalTextField,
+                    onValueChange = { totalTextField = it.filter(Char::isDigit).take(2) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.openf1_totale_edit)) },
+                )
+                Text(
+                    text = stringResource(R.string.openf1_niente_automatico),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    viewModel.confirmSafetyCarImport(totalTextField.toIntOrNull() ?: 0)
+                },
+                enabled = totalTextField.isNotBlank() && totalTextField.toIntOrNull() != null,
+            ) { Text(stringResource(R.string.openf1_conferma)) }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::dismissSafetyCarImport) {
+                Text(stringResource(R.string.openf1_annulla))
+            }
+        },
+    )
+}
+
+/** Elenco compatto degli eventi riconosciuti ("Inizio VSC @ giro 12"). */
+@Composable
+private fun eventsLabel(events: List<OpenF1SafetyCarParser.ScEvent>): String {
+    val startLabel = stringResource(R.string.openf1_start)
+    val endLabel = stringResource(R.string.openf1_fine)
+    val giroLabel = stringResource(R.string.openf1_giro)
+    return events.take(8).joinToString("\n") { event ->
+        val kind = if (event.kind == OpenF1SafetyCarParser.Kind.VSC) "VSC" else "SC"
+        val action = if (event.isStart) startLabel else endLabel
+        val lap = event.lapNumber?.let { " @ $giroLabel $it" }.orEmpty()
+        "$action $kind$lap"
+    }
 }
 
 @Composable

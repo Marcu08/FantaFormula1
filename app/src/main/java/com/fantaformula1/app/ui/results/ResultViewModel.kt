@@ -11,6 +11,10 @@ import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
+import com.fantaformula1.app.data.openf1.OpenF1Client
+import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
+import com.fantaformula1.app.data.openf1.OpenF1SessionMatcher
+import com.fantaformula1.app.data.openf1.OpenF1Source
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -96,12 +100,29 @@ data class ResultUiState(
     val notes: String = "",
     val fieldErrors: List<String> = emptyList(),
     val saved: Boolean = false,
+    /** Importazione assistita SC/VSC da OpenF1 (mai salvata da sola). */
+    val scImport: ScImportState = ScImportState.Idle,
 )
+
+/**
+ * Stato dell'importazione assistita: Idle -> Loading -> Success(result) o
+ * Failed(motivo). L'esito e' SOLO proposta: ne salva ne' tocca i campi
+ * direttamente — l'amministratore revisiona, puo' editare il totale e
+ * convalida; la conferma riempie il campo esistente del form (SC+VSC sommate
+ * perche' il JSONB del risultato conta una sola neutralizzazione).
+ */
+sealed interface ScImportState {
+    data object Idle : ScImportState
+    data object Loading : ScImportState
+    data class Success(val import: com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser.Import) : ScImportState
+    data class Failed(val reason: String) : ScImportState
+}
 
 class ResultViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
     private val authRepository: AuthRepository,
+    private val openF1: OpenF1Source? = null,
     private val raceId: String,
 ) : ViewModel() {
 
@@ -232,6 +253,62 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
 
     fun onNotesChange(value: String) =
         _uiState.update { it.copy(notes = value.take(200)) }
+
+    /**
+     * Importazione ASSISTITA delle neutralizzazioni da OpenF1: cerca la
+     * sessione Race della stagione (niente "latest"), scarica i messaggi
+     * FIA e propone SC/VSC. NON tocca accredita i campi: solo dati con
+     * review dell'amministratore. Fallita = messaggio, il manual resta.
+     */
+    fun importSafetyCars() {
+        val race = _uiState.value.race ?: return
+        val client = openF1 ?: return
+        if (_uiState.value.scImport is ScImportState.Loading) return
+        _uiState.update { it.copy(scImport = ScImportState.Loading) }
+        viewModelScope.launch {
+            runCatching {
+                val sessions = client.sessions(OpenF1Client.SEASON)
+                val match = OpenF1SessionMatcher.match(
+                    raceSeason = OpenF1Client.SEASON,
+                    raceCountry = race.country,
+                    raceName = race.name,
+                    deadline = race.deadline,
+                    sessions = sessions,
+                )
+                when (match) {
+                    is OpenF1SessionMatcher.Match.Failed ->
+                        throw UserException(match.reason)
+                    is OpenF1SessionMatcher.Match.Ok -> {
+                        val events = client.raceControl(match.sessionKey)
+                        OpenF1SafetyCarParser.parse(events)
+                    }
+                }
+            }.onSuccess { import ->
+                _uiState.update { it.copy(scImport = ScImportState.Success(import)) }
+            }.onFailure { throwable ->
+                val message = throwable.message ?: "Impossibile importare da OpenF1"
+                _uiState.update { it.copy(scImport = ScImportState.Failed(message)) }
+                _events.emit(ResultEvent.Failure(message))
+            }
+        }
+    }
+
+    /**
+     * Conferma dell'amministratore: riempie il campo GIÀ esistente del form
+     * (SC+VSC, il JSONB li conta sommati). Nessun salvataggio automatico:
+     * con persistere scatta come prima con [save].
+     */
+    fun confirmSafetyCarImport(total: Int) {
+        _uiState.update {
+            it.copy(
+                safetyCars = total.coerceIn(0, 99).toString(),
+                scImport = ScImportState.Idle,
+            )
+        }
+    }
+
+    fun dismissSafetyCarImport() =
+        _uiState.update { it.copy(scImport = ScImportState.Idle) }
 
     fun save() {
         val state = _uiState.value
