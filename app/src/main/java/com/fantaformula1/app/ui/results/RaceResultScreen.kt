@@ -167,6 +167,14 @@ fun RaceResultScreen(
                 ) {
                     item { RaceHeader(state) }
 
+                    // N3: dati non confermato dall'admin (l'API non li
+                    // fornisce): avviso visibili a tutti.
+                    if (state.saved &&
+                        (state.safetyCarsUnknown || state.pitStopsUnknown)
+                    ) {
+                        item { PendingDataNotice(state) }
+                    }
+
                     if (!state.isAdmin) {
                         item { ReadOnlyNotice() }
                     } else {
@@ -422,6 +430,35 @@ private fun eventsLabel(events: List<OpenF1SafetyCarParser.ScEvent>): String {
     }
 }
 
+/**
+ * N3: avviso "In attesa di conferma admin" per i dati che l'API non
+ * fornisce (safety car, pit stop): finche' non li conferma l'admin i
+ * pronostici collegati valgono 0 punti.
+ */
+@Composable
+private fun PendingDataNotice(state: ResultUiState) {
+    val pending = buildList {
+        if (state.safetyCarsUnknown) add(stringResource(R.string.campo_safety_car))
+        if (state.pitStopsUnknown) add(stringResource(R.string.campo_pit_stop))
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Text(
+            text = stringResource(
+                R.string.risultato_in_attesa_conferma,
+                pending.joinToString(", "),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.padding(12.dp),
+        )
+    }
+}
+
 @Composable
 private fun RaceFields(state: ResultUiState, viewModel: ResultViewModel) {
     Card(
@@ -451,6 +488,22 @@ private fun RaceFields(state: ResultUiState, viewModel: ResultViewModel) {
                     onValueChange = { viewModel.onLapsChange(it?.toString().orEmpty()) },
                     label = stringResource(R.string.campo_giri),
                     modifier = Modifier.weight(1f),
+                )
+            }
+            // N3: evidenza i campi che l'API non fornisce e che vanno
+            // completati a mano dall'admin.
+            if (state.saved && state.safetyCarsUnknown) {
+                Text(
+                    text = stringResource(R.string.campo_da_completare, "Safety car"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (state.saved && state.pitStopsUnknown) {
+                Text(
+                    text = stringResource(R.string.campo_da_completare, "Pit stop"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             FantaTextField(

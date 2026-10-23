@@ -144,3 +144,24 @@ data class F1PitStopTable(
     val round: String? = null,
     @SerialName("PitStops") val pitStops: List<F1PitStop> = emptyList(),
 )
+
+/**
+ * Risposta dell'endpoint `f1/{season}/drivers.json`: la struttura MRData
+ * contiene DriverTable (non RaceTable). Usata dai test con una risposta
+ * reale di Jolpica per verificare il mapping piloti (N1).
+ */
+@Serializable
+data class F1DriversResponse(
+    @SerialName("MRData") val mrData: F1DriversMRData,
+)
+
+@Serializable
+data class F1DriversMRData(
+    @SerialName("DriverTable") val driverTable: F1DriverTable,
+)
+
+@Serializable
+data class F1DriverTable(
+    val season: String? = null,
+    @SerialName("Drivers") val drivers: List<F1Driver> = emptyList(),
+)

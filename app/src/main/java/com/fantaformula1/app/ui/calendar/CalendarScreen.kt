@@ -100,6 +100,7 @@ fun CalendarScreen(
             leagueId = leagueId,
         )
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // Stato di sincronizzazione F1 condiviso con il worker in background.
     val syncState by container.f1SyncStateHolder.state.collectAsStateWithLifecycle()
@@ -109,6 +110,13 @@ fun CalendarScreen(
 
     val savedMessage = stringResource(R.string.gara_salvata)
     val deletedMessage = stringResource(R.string.gara_elimina_ok)
+
+    // N5: senza ruolo admin la sincronizzazione periodica non resta attiva.
+    LaunchedEffect(leagueId, state.isAdmin) {
+        if (!state.loading && !state.isAdmin) {
+            com.fantaformula1.app.data.sync.F1SyncScheduler.cancel(context, leagueId)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -135,22 +143,25 @@ fun CalendarScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = onSyncResults,
-                        // Durante la sincronizzazione il pulsante e' disattivo:
-                        // e' anche il retry manuale dopo un fallimento.
-                        enabled = !syncState.isSyncing,
-                    ) {
-                        if (syncState.isSyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.Sync,
-                                contentDescription = "Sincronizza risultati F1",
-                            )
+                    // N5: la sincronizzazione e' riservata agli admin.
+                    if (state.isAdmin) {
+                        IconButton(
+                            onClick = onSyncResults,
+                            // Durante la sincronizzazione il pulsante e' disattivo:
+                            // e' anche il retry manuale dopo un fallimento.
+                            enabled = !syncState.isSyncing,
+                        ) {
+                            if (syncState.isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Sync,
+                                    contentDescription = "Sincronizza risultati F1",
+                                )
+                            }
                         }
                     }
                     IconButton(onClick = viewModel::load) {
@@ -217,6 +228,21 @@ fun CalendarScreen(
                                 isSyncing = syncState.isSyncing,
                                 lastSync = syncState.lastResultsSync,
                             )
+                        }
+                    }
+                    // N7: una gara finita da piu' di 12 ore senza risultato e'
+                    // un segnale che la sync non sta funzionando (es. nessun
+                    // admin con la app aperta): avviso in evidenza.
+                    val staleResults = past.count { race ->
+                        val deadline = race.deadline
+                        deadline != null &&
+                            race.status != RaceStatus.COMPLETED &&
+                            java.time.Duration.between(deadline, java.time.Instant.now())
+                                .compareTo(java.time.Duration.ofHours(12)) > 0
+                    }
+                    if (staleResults > 0) {
+                        item(key = "stale_results") {
+                            StaleResultsBanner(count = staleResults)
                         }
                     }
                     if (upcoming.isEmpty() && past.isNotEmpty()) {
@@ -455,6 +481,35 @@ private fun RaceCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * N7: avviso per gare finite da piu' di 12 ore senza risultato salvato —
+ * segnala che la sincronizzazione non sta arrivando (serve un admin attivo).
+ */
+@Composable
+private fun StaleResultsBanner(count: Int) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Sync,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = stringResource(R.string.risultati_in_attesa, count),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
         }
     }
 }

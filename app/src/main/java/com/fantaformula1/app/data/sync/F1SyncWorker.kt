@@ -29,6 +29,16 @@ class F1SyncWorker(
             ?: return Result.failure()
         val container = (applicationContext as FantaApplication).container
 
+        // N5: la scrittura dei risultati e' riservata agli admin (RLS). Se
+        // l'utente di questo dispositivo non e' piu' admin non ha senso
+        // riprovare: il worker si ferma (Result.failure, nessun retry).
+        val isAdmin = runCatching { container.leagueRepository.isAdmin(leagueId) }
+            .getOrDefault(false)
+        if (!isAdmin) {
+            F1SyncScheduler.cancel(applicationContext, leagueId)
+            return Result.failure()
+        }
+
         // Null = sincronizzazione manuale gia' in corso: si riprova piu' tardi.
         val calendar = container.f1SyncStateHolder.syncCalendar(leagueId)
         if (calendar?.isSuccess != true) {
@@ -50,11 +60,14 @@ class F1SyncWorker(
 
 /**
  * Schedula la sincronizzazione F1 ogni 30 minuti per la lega indicata.
- * Usa ExistingPeriodicWorkPolicy.KEEP per non creare duplicati.
+ *
+ * Riservato agli admin (N5): il worker riverifica il ruolo prima di ogni
+ * esecuzione e si ferma da solo se l'utente ha perso il ruolo. Usa
+ * ExistingPeriodicWorkPolicy.KEEP per non creare duplicati.
  */
 object F1SyncScheduler {
 
-    fun schedule(context: Context, leagueId: String) {
+    suspend fun schedule(context: Context, leagueId: String) {
         val request = PeriodicWorkRequestBuilder<F1SyncWorker>(30, TimeUnit.MINUTES)
             .setInputData(workDataOf(F1SyncWorker.KEY_LEAGUE_ID to leagueId))
             .setConstraints(
@@ -69,10 +82,25 @@ object F1SyncScheduler {
             ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
+        // Ricorda la lega schedulata su questo dispositivo, per poter
+        // cancellare tutto al logout o all'uscita dalla lega.
+        F1SyncPrefs(context).markLeagueScheduled(leagueId)
     }
 
     fun cancel(context: Context, leagueId: String) {
         WorkManager.getInstance(context).cancelUniqueWork(uniqueName(leagueId))
+    }
+
+    /**
+     * Cancella tutti i worker di sincronizzazione avviati da questo
+     * dispositivo (logout, utente non piu' admin): le leghe schedulate sono
+     * ricordate su DataStore.
+     */
+    suspend fun cancelAll(context: Context) {
+        F1SyncPrefs(context).scheduledLeagues().forEach { leagueId ->
+            cancel(context, leagueId)
+        }
+        F1SyncPrefs(context).clearAllScheduled()
     }
 
     private fun uniqueName(leagueId: String): String = "f1_sync_$leagueId"

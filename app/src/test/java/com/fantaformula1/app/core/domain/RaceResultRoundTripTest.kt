@@ -75,6 +75,7 @@ class RaceResultRoundTripTest {
 
         assertEquals(setOf(
             "raceId", "drivers", "safetyCars", "redFlags", "laps", "weather", "notes",
+            "totalPitStops",
         ), root.keys)
 
         val drivers = root["drivers"] as kotlinx.serialization.json.JsonArray
@@ -118,7 +119,30 @@ class RaceResultRoundTripTest {
         assertEquals("VER", result.sprintWinner()?.driverId)
         assertEquals("VER", result.fastestLapDriver()?.driverId)
         assertEquals("VER", result.poleDriver()?.driverId)
-        assertEquals(3, result.totalPitStops)
+        assertEquals(3, result.confirmedTotalPitStops())
         assertFalse(result.classifiedOrder().isEmpty())
+    }
+
+    @Test
+    fun `json vecchio senza totalPitStops usa la somma dei piloti`() {
+        // Risultati salvati prima del campo: il totale si deduce dai piloti.
+        val legacy = """
+            {"raceId":"r","drivers":[
+              {"driverId":"VER","driverName":"Max Verstappen","pitStops":2},
+              {"driverId":"NOR","driverName":"Lando Norris","pitStops":1}],
+             "safetyCars":1,"redFlags":0,"laps":57,"weather":null,"notes":null}
+        """.trimIndent()
+        val decoded = json.decodeFromString(RaceResultData.serializer(), legacy)
+        assertNull(decoded.totalPitStops)
+        assertEquals(3, decoded.confirmedTotalPitStops())
+    }
+
+    @Test
+    fun `safetyCars e totalPitStops null significano non confermati`() {
+        val pending = RaceResultData(raceId = "r", drivers = listOf(DriverRaceResult(driverId = "LEC")))
+        assertNull(pending.safetyCars)
+        assertNull(pending.totalPitStops)
+        // Nessun pilota con pit stop compilati: nessuna fonte per il totale.
+        assertNull(pending.confirmedTotalPitStops())
     }
 }

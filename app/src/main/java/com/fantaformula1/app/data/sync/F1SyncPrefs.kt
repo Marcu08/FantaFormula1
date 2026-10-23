@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import java.time.Instant
@@ -47,11 +48,37 @@ class F1SyncPrefs(private val context: Context) {
         context.syncDataStore.edit { prefs -> prefs[KEY_RESULTS] = time.toString() }
     }
 
+    /**
+     * Leghe per cui e' stata pianificata la sincronizzazione periodica su
+     * QUESTO dispositivo: serve a cancellare i worker al logout o quando
+     * l'utente non e' piu' admin (N5).
+     */
+    suspend fun markLeagueScheduled(leagueId: String) {
+        context.syncDataStore.edit { prefs ->
+            prefs[KEY_SCHEDULED_LEAGUES] = prefs[KEY_SCHEDULED_LEAGUES].orEmpty() + leagueId
+        }
+    }
+
+    suspend fun clearLeagueScheduled(leagueId: String) {
+        context.syncDataStore.edit { prefs ->
+            prefs[KEY_SCHEDULED_LEAGUES] = prefs[KEY_SCHEDULED_LEAGUES].orEmpty() - leagueId
+        }
+    }
+
+    suspend fun scheduledLeagues(): Set<String> = context.syncDataStore.data
+        .map { prefs -> prefs[KEY_SCHEDULED_LEAGUES].orEmpty() }
+        .first()
+
+    suspend fun clearAllScheduled() {
+        context.syncDataStore.edit { prefs -> prefs.remove(KEY_SCHEDULED_LEAGUES) }
+    }
+
     private fun parseInstant(text: String): Instant? =
         runCatching { Instant.parse(text) }.getOrNull()
 
     companion object {
         private val KEY_CALENDAR = stringPreferencesKey("last_calendar_sync")
         private val KEY_RESULTS = stringPreferencesKey("last_results_sync")
+        private val KEY_SCHEDULED_LEAGUES = stringSetPreferencesKey("scheduled_leagues")
     }
 }

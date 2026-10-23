@@ -131,8 +131,7 @@ fun LeagueScreen(
     LaunchedEffect(leagueId) {
         loadLeague()
         viewModel.loadMembers(leagueId)
-        runCatching {
-            val races = container.raceRepository.races(leagueId)
+        runCatching {            val races = container.raceRepository.races(leagueId)
             val mine = container.predictionRepository.myPredictions(leagueId)
             val upcoming = races.filterNot { it.isPastRace() }
             val next = upcoming.minByOrNull { it.deadline ?: java.time.Instant.MAX }
@@ -161,6 +160,16 @@ fun LeagueScreen(
         }
     }
 
+    // N5: se l'utente non e' (piu') admin la sincronizzazione periodica non
+    // deve restare attiva su questo dispositivo: il worker riceverebbe
+    // errori RLS.
+    val isAdmin = membersState.isAdmin
+    LaunchedEffect(leagueId, isAdmin) {
+        if (membersState.members.isNotEmpty() && !isAdmin) {
+            com.fantaformula1.app.data.sync.F1SyncScheduler.cancel(context, leagueId)
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -175,22 +184,26 @@ fun LeagueScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = onSyncCalendar,
-                        // Durante la sincronizzazione il pulsante e' disattivo:
-                        // e' anche il retry manuale dopo un fallimento.
-                        enabled = !syncState.isSyncing,
-                    ) {
-                        if (syncState.isSyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.Sync,
-                                contentDescription = "Sincronizza calendario F1",
-                            )
+                    // N5: la sincronizzazione e' riservata agli admin, per gli
+                    // altri membri la scrittura del risultato e' vietata (RLS).
+                    if (isAdmin) {
+                        IconButton(
+                            onClick = onSyncCalendar,
+                            // Durante la sincronizzazione il pulsante e' disattivo:
+                            // e' anche il retry manuale dopo un fallimento.
+                            enabled = !syncState.isSyncing,
+                        ) {
+                            if (syncState.isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Sync,
+                                    contentDescription = "Sincronizza calendario F1",
+                                )
+                            }
                         }
                     }
                 },

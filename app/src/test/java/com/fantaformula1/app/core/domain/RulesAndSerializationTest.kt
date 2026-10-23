@@ -193,7 +193,7 @@ class RulesAndSerializationTest {
         val encoded = json.encodeToString(RaceResultData.serializer(), original)
         val decoded = json.decodeFromString(RaceResultData.serializer(), encoded)
         assertEquals(original, decoded)
-        assertEquals(2, decoded.totalPitStops)
+        assertEquals(2, decoded.confirmedTotalPitStops())
     }
 
     @Test

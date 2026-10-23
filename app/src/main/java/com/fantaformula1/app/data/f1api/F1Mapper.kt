@@ -25,6 +25,17 @@ data class F1RaceCreate(
 )
 
 /**
+ * Esito della conversione dei risultati API: [Success] con l'esito pronto,
+ * oppure [UnknownDriver] quando l'API riporta un pilota fuori catalogo.
+ * In quest'ultimo caso il risultato NON va salvato: le posizioni dietro al
+ * pilota sconosciuto sarebbero spostate dalla rinormalizzazione (N2).
+ */
+sealed interface RaceMapping {
+    data class Success(val data: RaceResultData) : RaceMapping
+    data class UnknownDriver(val driverId: String) : RaceMapping
+}
+
+/**
  * Converte le risposte di Jolpica/Ergast in modelli di dominio dell'app.
  */
 object F1Mapper {
@@ -52,11 +63,19 @@ object F1Mapper {
         return date.isBefore(today)
     }
 
-    /** Estrae i dati per creare una gara nel DB. */
+    /**
+     * Estrae i dati per creare una gara nel DB.
+     *
+     * La deadline e' il primo evento utile del weekend (N4): nei weekend
+     * sprint lo sprint si corre il sabato PRIMA della qualifica, quindi
+     * pronosticare dopo la qualifica significherebbe conoscere gia' l'esito
+     * dello sprint. Ordine: SprintQualifying -> Sprint -> Qualifying -> gara.
+     */
     fun toRaceCreate(race: F1Race): F1RaceCreate {
-        val qualifyingStart = parseInstant(race.qualifying)
-        // Fallback: se non c'e' qualifica, usiamo l'inizio gara.
-        val deadline = qualifyingStart ?: parseInstant(F1Session(race.date, race.time))
+        val deadline = parseInstant(race.sprintQualifying)
+            ?: parseInstant(race.sprint)
+            ?: parseInstant(race.qualifying)
+            ?: parseInstant(F1Session(race.date, race.time))
         return F1RaceCreate(
             round = race.round.toIntOrNull() ?: 0,
             name = race.raceName,
@@ -71,34 +90,48 @@ object F1Mapper {
      *
      * Il formato deve rispettare le invarianti del motore di punteggio
      * (decisione B12): posizioni classificate contigue da 1 senza buchi,
-     * griglie e posizioni uniche. I piloti non presenti nel catalogo vengono
-     * scartati e le posizioni degli altri vengono rinormalizzate sull'ordine
-     * di arrivo restituito dall'API.
+     * griglie e posizioni uniche.
+     *
+     * Se l'API riporta un pilota non mappabile (riserva, sostituzione
+     * straordinaria, catalogo non aggiornato) la conversione fallisce con
+     * [RaceMapping.UnknownDriver]: salvare comunque sposterebbe le posizioni
+     * di tutti i piloti dietro al sconosciuto (N2). La gara resta in attesa
+     * e si riprovera' alla sync successiva.
      */
     fun toRaceResultData(
         raceResults: List<F1Result>,
         qualifyingResults: List<F1QualifyingResult>,
         sprintResults: List<F1SprintResult>,
-    ): RaceResultData {
+    ): RaceMapping {
+        // Un solo pilota sconosciuto blocca l'intero risultato: la griglia,
+        // le posizioni e lo sprint devono riferirsi alla stessa griglia.
+        val unknown = (raceResults.map { it.driver } +
+            qualifyingResults.map { it.driver } +
+            sprintResults.map { it.driver })
+            .firstOrNull { F1DriverMapping.toAppId(it) == null }
+        if (unknown != null) {
+            return RaceMapping.UnknownDriver(unknown.driverId)
+        }
+
         // Griglia: preferita la qualifica (posizioni normalizzate sui piloti
         // conosciuti); se la qualifica manca del tutto si usa la griglia di
         // gara dell'API. Non si mescolano le due fonti per evitare duplicati.
         val gridByDriver = normalizedPositions(
-            qualifyingResults.map { F1DriverMapping.toAppId(it.driver.driverId) },
+            qualifyingResults.map { F1DriverMapping.toAppId(it.driver) },
         )
         val gridFromQualifying = qualifyingResults.isNotEmpty()
 
         val sprintByDriver = normalizedPositions(
-            sprintResults.map { F1DriverMapping.toAppId(it.driver.driverId) },
+            sprintResults.map { F1DriverMapping.toAppId(it.driver) },
         )
 
         val fastestLapDriverId = raceResults
             .firstOrNull { it.fastestLap?.rank == "1" }
-            ?.driver?.driverId
+            ?.driver
             ?.let(F1DriverMapping::toAppId)
 
         val mapped = raceResults.mapNotNull { result ->
-            val appId = F1DriverMapping.toAppId(result.driver.driverId) ?: return@mapNotNull null
+            val appId = F1DriverMapping.toAppId(result.driver) ?: return@mapNotNull null
             val status = result.status?.lowercase().orEmpty()
             val classified = isClassified(result.positionText, status)
             MappedDriver(
@@ -129,14 +162,18 @@ object F1Mapper {
             .filter { !it.classified }
             .map { it.toDriverRaceResult(position = null) }
 
-        return RaceResultData(
-            raceId = "",
-            drivers = classified + notClassified,
-            safetyCars = 0,
-            redFlags = 0,
-            laps = 0,
-            weather = null,
-            notes = null,
+        return RaceMapping.Success(
+            RaceResultData(
+                raceId = "",
+                drivers = classified + notClassified,
+                // Safety car: Jolpica non la fornisce. Null = "da confermare"
+                // (N3): mai inventare uno zero che falserebbe gli over/under.
+                safetyCars = null,
+                redFlags = 0,
+                laps = 0,
+                weather = null,
+                notes = null,
+            ),
         )
     }
 

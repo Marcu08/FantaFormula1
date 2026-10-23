@@ -70,13 +70,13 @@ class F1JsonTest {
                   "Time":{"millis":"5324063","time":"1:28:44.063"},
                   "FastestLap":{"rank":"1","lap":"39","Time":{"millis":"918482","time":"1:31.447"}}},
                  {"number":"4","position":"2","positionText":"2","points":"18",
-                  "Driver":{"driverId":"lando_norris","code":"NOR","givenName":"Lando",
+                  "Driver":{"driverId":"norris","code":"NOR","givenName":"Lando",
                     "familyName":"Norris","dateOfBirth":"1999-11-13","nationality":"British"},
                   "Constructor":{"constructorId":"mclaren","name":"McLaren","nationality":"British"},
                   "grid":"3","laps":"57","status":"Finished",
                   "Time":{"millis":"5361490","time":"+6.217"}},
                  {"number":"55","position":"3","positionText":"R","points":"0",
-                  "Driver":{"driverId":"carlos_sainz","code":"SAI","givenName":"Carlos",
+                  "Driver":{"driverId":"sainz","code":"SAI","givenName":"Carlos",
                     "familyName":"Sainz","dateOfBirth":"1994-09-01","nationality":"Spanish"},
                   "Constructor":{"constructorId":"williams","name":"Williams","nationality":"British"},
                   "grid":"5","laps":"12","status":"Engine"}
@@ -87,8 +87,7 @@ class F1JsonTest {
         val response = F1Json.decodeFromString(F1Response.serializer(), payload)
         val results = response.mrData.raceTable.races.firstOrNull()?.results.orEmpty()
 
-        val data = F1Mapper.toRaceResultData(results, emptyList(), emptyList())
-
+        val data = (F1Mapper.toRaceResultData(results, emptyList(), emptyList()) as RaceMapping.Success).data
         assertEquals(1, data.positionOf("VER"))
         assertEquals(2, data.positionOf("NOR"))
         assertTrue(data.driver("VER")?.fastestLap == true)
@@ -112,7 +111,7 @@ class F1JsonTest {
                   "Constructor":{"constructorId":"red_bull","name":"Red Bull","nationality":"Austrian"},
                   "Q1":{"time":"1:30.012"},"Q2":{"time":"1:29.338"},"Q3":{"time":"1:29.001"}},
                  {"number":"4","position":"2",
-                  "Driver":{"driverId":"lando_norris","code":"NOR","givenName":"Lando",
+                  "Driver":{"driverId":"norris","code":"NOR","givenName":"Lando",
                     "familyName":"Norris","dateOfBirth":"1999-11-13","nationality":"British"},
                   "Constructor":{"constructorId":"mclaren","name":"McLaren","nationality":"British"},
                   "Q1":{"time":"1:30.220"},"Q2":{"time":"1:29.550"},"Q3":{"time":"1:29.120"}}
@@ -136,7 +135,7 @@ class F1JsonTest {
             "PitStopTable":{"season":"2026","round":"1","PitStops":[
               {"driverId":"max_verstappen","lap":"14","stop":"1","duration":"22.315","time":"14:21:22"},
               {"driverId":"max_verstappen","lap":"38","stop":"2","duration":"21.873","time":"14:52:30"},
-              {"driverId":"lando_norris","lap":"20","stop":"1","duration":"23.102","time":"14:31:40"}
+              {"driverId":"norris","lap":"20","stop":"1","duration":"23.102","time":"14:31:40"}
             ]}}}
         """.trimIndent()
 

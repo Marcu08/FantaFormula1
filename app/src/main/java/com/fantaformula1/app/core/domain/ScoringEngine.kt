@@ -211,13 +211,17 @@ object ScoringEngine {
         }
 
                 PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> {
+            // Dato non confermato dall'admin: 0 punti, mai indovinato (N3).
+            val safetyCars = result.safetyCars
             val min = entry.rangeMin
             val max = entry.rangeMax
-            if (min != null && max != null) {
+            if (safetyCars == null) {
+                0.0
+            } else if (min != null && max != null) {
                 // Semantica a opzioni (0008): si sceglie il numero esatto di
                 // SC+VSC ("6 o piu'" = 6..99). Payout per rarita'.
                 val factor = OverUnderQuotes.safetyBandFactor(min, max)
-                if (result.safetyCars >= min && result.safetyCars <= max) {
+                if (safetyCars >= min && safetyCars <= max) {
                     rules.pointsFor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) * factor
                 } else 0.0
             } else {
@@ -226,7 +230,7 @@ object ScoringEngine {
                 val over = entry.over
                 if (threshold == null || over == null) {
                     0.0
-                } else if (isOver(result.safetyCars.toDouble(), threshold) == over) {
+                } else if (isOver(safetyCars.toDouble(), threshold) == over) {
                     rules.pointsFor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER) *
                         rules.overUnderFactor(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER, threshold, over)
                 } else 0.0
@@ -234,13 +238,17 @@ object ScoringEngine {
         }
 
                 PredictionType.PIT_STOPS_OVER_UNDER -> {
+            // Pit stop totali non confermati: 0 punti, mai indovinato (N3).
+            val pitStops = result.confirmedTotalPitStops()
             val min = entry.rangeMin
             val max = entry.rangeMax
-            if (min != null && max != null) {
+            if (pitStops == null) {
+                0.0
+            } else if (min != null && max != null) {
                 // Semantica a fasce (0008): pit stop TOTALI della griglia in
                 // una delle bande predefinite. Payout per rarita'.
                 val factor = OverUnderQuotes.pitBandFactor(min, max)
-                if (result.totalPitStops >= min && result.totalPitStops <= max) {
+                if (pitStops >= min && pitStops <= max) {
                     rules.pointsFor(PredictionType.PIT_STOPS_OVER_UNDER) * factor
                 } else 0.0
             } else {
@@ -249,13 +257,37 @@ object ScoringEngine {
                 val over = entry.over
                 if (threshold == null || over == null) {
                     0.0
-                } else if (isOver(result.totalPitStops.toDouble(), threshold) == over) {
+                } else if (isOver(pitStops.toDouble(), threshold) == over) {
                     rules.pointsFor(PredictionType.PIT_STOPS_OVER_UNDER) *
                         rules.overUnderFactor(PredictionType.PIT_STOPS_OVER_UNDER, threshold, over)
                 } else 0.0
             }
         }
     }
+
+    /**
+     * Avvisi "In attesa di conferma admin" per i dati non confermati del
+     * risultato (N3): i tipi collegati valgono 0 punti finche l'admin non
+     * completa il dato. Restituisce solo i tipi ATTIVI dalle regole.
+     */
+    fun pendingDataNotes(result: RaceResultData, rules: Rules): List<String> {
+        val notes = mutableListOf<String>()
+        if (PredictionType.SAFETY_CAR_COUNT_OVER_UNDER in rules.enabledTypes &&
+            result.safetyCars == null
+        ) {
+            notes += "$SAFETY_CAR_LABEL: $PENDING_DATA_LABEL"
+        }
+        if (PredictionType.PIT_STOPS_OVER_UNDER in rules.enabledTypes &&
+            result.confirmedTotalPitStops() == null
+        ) {
+            notes += "$PIT_STOPS_LABEL: $PENDING_DATA_LABEL"
+        }
+        return notes
+    }
+
+    const val PENDING_DATA_LABEL = "in attesa di conferma admin"
+    private const val SAFETY_CAR_LABEL = "Safety car"
+    private const val PIT_STOPS_LABEL = "Pit stop"
 
     /**
      * Over = "piu' di N"; Under = "N o meno". La partizione e' complementare

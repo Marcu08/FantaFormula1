@@ -1170,4 +1170,70 @@ class ScoringEngineTest {
         )
         assertEquals(0.0, ScoringEngine.score(e, sampleResult(), negativeRules), 0.001)
     }
+
+    // -- N3: dati non confermati (null) ---------------------------------------
+
+    @Test
+    fun `safety car non confermate valgono zero anche se il pronostico azzecca`() {
+        val pending = sampleResult().copy(safetyCars = null)
+        val bands = PredictionEntry(
+            type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            rangeMin = 2,
+            rangeMax = 2,
+        )
+        assertEquals(0.0, ScoringEngine.score(bands, pending, rules), 0.001)
+        // Anche la forma storica sopra/sotto.
+        val legacy = PredictionEntry(
+            type = PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            threshold = 1.5,
+            over = true,
+        )
+        assertEquals(0.0, ScoringEngine.score(legacy, pending, rules), 0.001)
+    }
+
+    @Test
+    fun `pit stop totali non confermati valgono zero`() {
+        val pending = sampleResult().copy(
+            totalPitStops = null,
+            drivers = sampleResult().drivers.map { it.copy(pitStops = 0) },
+        )
+        val bands = PredictionEntry(
+            type = PredictionType.PIT_STOPS_OVER_UNDER,
+            rangeMin = 6,
+            rangeMax = 12,
+        )
+        assertEquals(0.0, ScoringEngine.score(bands, pending, rules), 0.001)
+    }
+
+    @Test
+    fun `pit stop totali espliciti hanno la priorita sulla somma piloti`() {
+        val explicit = sampleResult().copy(totalPitStops = 8)
+        assertEquals(8, explicit.confirmedTotalPitStops())
+    }
+
+    @Test
+    fun `pendingDataNotes elenca solo i tipi attivi mancanti`() {
+        val pending = sampleResult().copy(
+            safetyCars = null,
+            totalPitStops = null,
+            // Nessun pit stop compilato: il totale non e' deducibile.
+            drivers = sampleResult().drivers.map { it.copy(pitStops = 0) },
+        )
+        val notes = ScoringEngine.pendingDataNotes(pending, rules)
+        assertEquals(2, notes.size)
+        assertTrue(notes.any { it.contains("Safety car") })
+        assertTrue(notes.any { it.contains("Pit stop") })
+        assertTrue(notes.all { it.contains(ScoringEngine.PENDING_DATA_LABEL) })
+
+        // Tipi disattivati: nessun avviso.
+        val noOverUnder = rules.copy(
+            enabledTypes = rules.enabledTypes -
+                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -
+                PredictionType.PIT_STOPS_OVER_UNDER,
+        )
+        assertEquals(emptyList<String>(), ScoringEngine.pendingDataNotes(pending, noOverUnder))
+
+        // Dati confermati: nessun avviso.
+        assertEquals(emptyList<String>(), ScoringEngine.pendingDataNotes(sampleResult(), rules))
+    }
 }

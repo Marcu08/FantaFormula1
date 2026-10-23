@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.fantaformula1.app.data.f1api.F1ApiClient
 import com.fantaformula1.app.data.f1api.F1Mapper
+import com.fantaformula1.app.data.f1api.RaceMapping
 import com.fantaformula1.app.data.f1api.model.F1Race
 import com.fantaformula1.app.data.f1api.model.F1Result
 import com.fantaformula1.app.data.util.AppJson
@@ -67,8 +68,11 @@ internal suspend fun downloadMissingRounds(
             null // errore di rete del singolo round: solo questo salta
         }
         if (payload.isNullOrEmpty()) return@forEach
-        val data = F1Mapper.toRaceResultData(payload, emptyList(), emptyList())
-        if (data.drivers.isNotEmpty()) {
+        val mapping = F1Mapper.toRaceResultData(payload, emptyList(), emptyList())
+        // Pilota fuori catalogo: il round non entra nella statistica (stessa
+        // regola N2 della sync: niente dati falsati dalla rinormalizzazione).
+        val data = (mapping as? RaceMapping.Success)?.data
+        if (data != null && data.drivers.isNotEmpty()) {
             val entry = RealSeasonResult(round = round, result = data)
             results += entry
             onProgress(entry)

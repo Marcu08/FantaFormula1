@@ -146,6 +146,9 @@
     <string name="sezione_piloti">Piloti</string>
     <string name="piloti_istruzioni">Compila almeno i piloti classificati: griglia, posizione, DNF, penalità e pit stop.</string>
     <string name="campo_safety_car">Safety car + Virtual (totale SC+VSC)</string>
+    <string name="campo_da_completare">%1$s: da completare dall\'amministratore</string>
+    <string name="risultato_in_attesa_conferma">In attesa di conferma admin: %1$s. Fino alla conferma i pronostici collegati valgono 0 punti.</string>
+    <string name="risultati_in_attesa">Attenzione: %1$d gare finite da più di 12 ore senza risultato. Ultimo aggiornamento qui sopra: se non appare, tocca il pulsante di sincronizzazione (solo admin).</string>
     <string name="openf1_import_button">Importa SC/VSC (OpenF1)</string>
     <string name="openf1_import_hint">Proposta da OpenF1: revisiona e conferma, niente salvataggi automatici</string>
     <string name="openf1_import_failed">Importazione fallita: %1$s — inserisci a mano i valori noti</string>

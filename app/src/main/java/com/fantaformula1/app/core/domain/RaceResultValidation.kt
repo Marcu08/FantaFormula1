@@ -104,7 +104,8 @@ object RaceResultValidation {
         }
 
         if (result.laps < 0) errors += "Numero di giri non valido"
-        if (result.safetyCars < 0) errors += "Safety car non valide"
+        if (result.safetyCars?.let { it < 0 } == true) errors += "Safety car non valide"
+        if (result.totalPitStops?.let { it < 0 } == true) errors += "Pit stop totali non validi"
         if (result.redFlags < 0) errors += "Bandiere rosse non valide"
 
         return errors

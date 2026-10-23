@@ -5,7 +5,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import android.widget.Toast
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -13,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +60,8 @@ fun AppNavHost(
     )
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // U6: i messaggi di sync usano lo Snackbar del grafo, non i Toast.
+    val snackbarState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         runCatching { container.initialize() }
@@ -68,9 +74,11 @@ fun AppNavHost(
         }
     }
 
-    // Uscita dall'account: torna alla schermata di accesso.
+    // Uscita dall'account: torna alla schermata di accesso e ferma ogni
+    // sincronizzazione F1 avviata da questo dispositivo (N5).
     LaunchedEffect(authState) {
         if (authState is AuthState.SignedOut && startDestination != null) {
+            F1SyncScheduler.cancelAll(context)
             val onAuth = navController.currentDestination?.route == Routes.AUTH
             if (!onAuth) {
                 navController.navigate(Routes.AUTH) {
@@ -86,15 +94,15 @@ fun AppNavHost(
         return
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = destination,
-        modifier = modifier,
-        enterTransition = { slideInHorizontally(tween(240)) { it / 4 } + fadeIn(tween(240)) },
-        exitTransition = { fadeOut(tween(180)) },
-        popEnterTransition = { fadeIn(tween(180)) },
-        popExitTransition = { slideOutHorizontally(tween(240)) { it / 4 } + fadeOut(tween(240)) },
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = destination,
+            enterTransition = { slideInHorizontally(tween(240)) { it / 4 } + fadeIn(tween(240)) },
+            exitTransition = { fadeOut(tween(180)) },
+            popEnterTransition = { fadeIn(tween(180)) },
+            popExitTransition = { slideOutHorizontally(tween(240)) { it / 4 } + fadeOut(tween(240)) },
+        ) {
         composable(Routes.CONFIG) {
             ConfigScreen(
                 container = container,
@@ -140,9 +148,16 @@ fun AppNavHost(
 
         composable(Routes.LEAGUE) { entry ->
             val leagueId = entry.arguments?.getString("leagueId").orEmpty()
-            // Avvia la sincronizzazione periodica quando l'utente entra in una lega.
+            // La sincronizzazione periodica e' riservata agli admin (N5): i
+            // non-admin riceverebbero errori RLS dal worker.
             LaunchedEffect(leagueId) {
-                F1SyncScheduler.schedule(context, leagueId)
+                val isAdmin = runCatching { container.leagueRepository.isAdmin(leagueId) }
+                    .getOrDefault(false)
+                if (isAdmin) {
+                    F1SyncScheduler.schedule(context, leagueId)
+                } else {
+                    F1SyncScheduler.cancel(context, leagueId)
+                }
             }
             LeagueScreen(
                 container = container,
@@ -155,14 +170,19 @@ fun AppNavHost(
                 onOpenPrediction = { raceId -> navController.navigate(Routes.racePrediction(raceId)) },
                 onSyncCalendar = {
                     scope.launch {
-                        // Null = sincronizzazione gia' in corso: nessun Toast.
+                        // Null = sincronizzazione gia' in corso: nessun messaggio.
                         val result = container.f1SyncStateHolder.syncCalendar(leagueId)
                         if (result != null) {
                             val message = when (result) {
-                                is SyncResult.Success -> "Calendario aggiornato (${result.created} gare)"
+                                is SyncResult.Success -> buildString {
+                                    append("Calendario aggiornato (${result.created} gare)")
+                                    if (result.pastSkipped > 0) {
+                                        append(" · ${result.pastSkipped} gare passate saltate")
+                                    }
+                                }
                                 is SyncResult.Failure -> result.message
                             }
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            snackbarState.showSnackbar(message)
                         }
                     }
                 },
@@ -201,14 +221,14 @@ fun AppNavHost(
                 },
                 onSyncResults = {
                     scope.launch {
-                        // Null = sincronizzazione gia' in corso: nessun Toast.
+                        // Null = sincronizzazione gia' in corso: nessun messaggio.
                         val result = container.f1SyncStateHolder.syncResults(leagueId)
                         if (result != null) {
                             val message = when (result) {
                                 is SyncResult.Success -> "Risultati aggiornati (${result.completed} gare)"
                                 is SyncResult.Failure -> result.message
                             }
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            snackbarState.showSnackbar(message)
                         }
                     }
                 },
@@ -240,11 +260,19 @@ fun AppNavHost(
                 leagueId = leagueId,
                 onBack = { navController.popBackStack() },
                 onLeftLeague = {
+                    // Abbandono della lega: ferma anche la sync periodica (N5).
+                    F1SyncScheduler.cancel(context, leagueId)
                     navController.navigate(Routes.HOME) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
             )
         }
+        }
+
+        SnackbarHost(
+            hostState = snackbarState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }

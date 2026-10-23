@@ -31,3 +31,32 @@
 23. **Identita' visiva per gara** (`ui/components/RaceIdentity.kt`): bandiera emoji + gradiente tematico derivati dal nome del GP ("Miami Grand Prix" → rosa/teal), con fallback sul paese e infine palette deterministica per round (🏁). Usata in RaceCard, DeadlineBanner e RaceHeader cosi' la stessa gara ha lo stesso aspetto ovunque. Nessuna risorsa grafica aggiunta: solo colori e emoji di sistema.
 24. **Validazione pronostici server-side** (migration `0004_prediction_validation.sql`): il trigger `check_prediction_content` (security invoker, ricreato idempotente) replica `PredictionValidation` nel DB: tipi conosciuti, un tipo per pronostico, tipo attivo in `enabledTypes` (assente = tutti, non-array = degrada come client B22), numero piloti per tipo (1/2/3/0), driverId non vuoti e distinti, SPRINT_WINNER solo su gare sprint (colonna is_sprint), position/fasce interi 1..22 (MAX_DRIVERS 2026), DNF booleanValue, over/under threshold >= 0 + over. JSON null = campo assente (AppJson ha encodeDefaults=true). NON imposti: appartenenza piloti alla gara (catalogo solo client), submittedAtEpochMs vs clock server (skew legittimo), content.raceId (verita' = colonna race_id, B4), limite superiore soglia. Limiti tecnici: max 32 voci (client usa <= 12). Contratto client↔server testato in `PredictionContentContractTest` (valida il JSON prodotto da AppJson contro la stessa logica del SQL). Test SQL di integrazione predisposti in `supabase/tests/0004_prediction_validation_tests.sql` (self-rollback, richiedono progetto di test con 2 utenti).
 
+## Sincronizzazione F1 (prompt v2, Fase 1)
+
+25. **Mapping piloti via `code` FIA** (N1, verificato su risposta reale `f1/2026/drivers.json`): Jolpica usa il cognome (`norris`, `hamilton`, `sainz`, `hulkenberg`) con eccezioni nome+cognome (`max_verstappen`, `arvid_lindblad`); i vecchi id stile `lando_norris` NON esistono. `F1DriverMapping.toAppId(F1Driver)` usa per primo il campo `code` (VER, NOR... = id dell'app) con fallback su una tabella di `driverId` noti. Le fixture dei test sono le risposte reali salvate in `app/src/test/resources/jolpica_*.json`.
+26. **Pilota fuori catalogo blocca il risultato** (N2): `F1Mapper.toRaceResultData` restituisce `RaceMapping.UnknownDriver` invece di scartare il pilota e rinormalizzare le posizioni (una riserva 5ª non fa più salire tutti gli altri). La sync saltala con errore esplicito "Pilota sconosciuto: X" e la gara resta in attesa.
+27. **Safety car e pit stop totali nullable** (N3): `RaceResultData.safetyCars` e il nuovo campo serializzato `totalPitStops` sono nullable; null = "in attesa di conferma admin" e i tipi over/under collegati valgono 0 punti (`ScoringEngine.pendingDataNotes` genera l'avviso). Compatibilità: i dati vecchi hanno sempre `safetyCars` con un numero; per `totalPitStops` assente si usa la somma dei pit stop dei piloti (se almeno uno compilato). Il form admin evidenzia i campi mancanti come "da completare".
+28. **Deadline = primo evento utile del weekend** (N4): SprintQualifying → Sprint → Qualifying → gara. Nei weekend sprint la qualifica è DOPO lo sprint: usare la qualifica permetterebbe di pronosticare lo sprint sapendone l'esito.
+29. **Sync solo per admin** (N5): worker, pulsanti di LeagueScreen/CalendarScreen e `F1SyncScheduler.schedule` sono riservati agli admin; il worker riverifica `isAdmin` prima di ogni esecuzione e si ferma con `Result.failure()` (niente retry all'infinito su errori RLS). Le leghe schedulate su questo dispositivo sono ricordate su DataStore (`F1SyncPrefs`) per `cancelAll` al logout. "Uscita dalla lega" interpretata come abbandono definitivo (`leaveLeague`), non la semplice navigazione indietro: altrimenti la sync periodica smetterebbe di funzionare appena si lascia la schermata.
+30. **Stagione = anno corrente** (N6): nessun `2026` fisso; `F1ApiClient.currentSeason()` e `F1SyncRepository.season()` usano `LocalDate.now(UTC)`. `syncResults` interroga l'API solo per gare con deadline superata e senza risultato (niente richieste per le gare future); `SyncResult.Success.pastSkipped` comunica quante gare del calendario sono state saltate perché già disputate.
+31. **Migrazione "0003" del prompt = `0011_fixes.sql`**: nel repo esistono già le migrazioni 0001–0010, quindi le modifiche DB del prompt vanno nel numero successivo, sempre idempotente e senza toccare i file esistenti.
+
+## Piano: sincronizzazione lato server (N7)
+
+Oggi i risultati arrivano solo se il telefono di un admin esegue il worker (la RPC `save_race_result` richiede il ruolo admin). Per renderla indipendente dai dispositivi:
+
+1. **Edge Function Supabase** `sync-f1-results`: funzione Deno che:
+   - legge le gare con `status != 'completed'` e deadline passata di tutte le leghe (query con service role, bypass RLS);
+   - chiama Jolpica (`f1/{anno}/{round}/results.json`, qualifying, sprint, pitstops) con la stessa logica di `F1Mapper` (portare il mapping in un modulo condiviso o duplicarlo in TS — 200 righe, da tenere allineate con i test JVM);
+   - valida con le invariance (posizioni contigue 1..n, piloti tutti nel catalogo: id FIA = codici, quindi niente tabella di traduzione lato server);
+   - salva con `service_role` dentro `race_results` (bypassa RLS) e porta `races.status = 'completed'`.
+2. **`pg_cron`**: `cron.schedule('sync-results', '*/30 * * * *', $$select net.http_post(...)$$)` chiama la Edge Function ogni 30 minuti; serve l'extension `pg_cron` + `pg_net` nel progetto.
+3. **Punti da cambiare nel client**:
+   - `F1SyncWorker` diventa solo un fallback manuale (o viene rimosso); i pulsanti di sync restano come "forza aggiornamento" ma non servono per i risultati;
+   - la schermata risultati mostra l'avviso "In attesa di conferma admin" solo per i dati che nessuna fonte fornisce (safety car): l'import OpenF1 assistito resta il percorso di conferma;
+   - RLS di `race_results`: la scrittura client può restare admin-only, la Edge Function scrive con service role;
+   - `F1SyncPrefs` "Ultimo aggiornamento" va spostato su una tabella `sync_log` (lettura pubblica ai membri) così il telefono dell'admin non è più l'unica fonte.
+4. **Sicurezza**: la Edge Function non espone la service role (server-side only); rate-limit Jolpica gestito dentro la funzione; retry con backoff su 429/5xx.
+
+Nel frattempo (fatto in questa revisione): UI con "Ultimo aggiornamento risultati" in evidenza (`SyncBar`) e banner di allerta nelle gare finite da >12h senza risultato.
+

@@ -100,6 +100,12 @@ data class ResultUiState(
     val notes: String = "",
     val fieldErrors: List<String> = emptyList(),
     val saved: Boolean = false,
+    /**
+     * N3: campi che l'API non fornisce e che l'admin deve confermare a mano.
+     * Finche' restano null gli over/under collegati valgono 0 punti.
+     */
+    val safetyCarsUnknown: Boolean = false,
+    val pitStopsUnknown: Boolean = false,
     /** Importazione assistita SC/VSC da OpenF1 (mai salvata da sola). */
     val scImport: ScImportState = ScImportState.Idle,
 )
@@ -167,6 +173,8 @@ class ResultViewModel(
                         weather = result?.weather.orEmpty(),
                         notes = result?.notes.orEmpty(),
                         saved = result != null,
+                        safetyCarsUnknown = result != null && result.safetyCars == null,
+                        pitStopsUnknown = result != null && result.confirmedTotalPitStops() == null,
                     )
                 }
             }.onFailure { throwable ->
@@ -319,7 +327,9 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         val result = RaceResultData(
             raceId = raceId,
             drivers = usedDrivers,
-            safetyCars = state.safetyCars.toIntOrNull() ?: 0,
+            // Campo vuoto = dato non confermato (null, N3): mai uno zero
+            // inventato che falserebbe i pronostici over/under.
+            safetyCars = state.safetyCars.toIntOrNull(),
             redFlags = state.redFlags.toIntOrNull() ?: 0,
             laps = state.laps.toIntOrNull() ?: 0,
             weather = state.weather.trim().ifBlank { null },

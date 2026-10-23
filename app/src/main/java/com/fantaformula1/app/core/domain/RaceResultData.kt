@@ -26,16 +26,26 @@ data class DriverRaceResult(
 /**
  * Risultato completo della gara: il jsonb salvato nella colonna `race_results.result`.
  * Questa classe e' la sorgente di verita' del formato.
+ *
+ * `safetyCars` e `totalPitStops` sono nullable: null = "dato non confermato"
+ * (N3). Jolpica non fornisce le safety car e l'endpoint pit stop puo'
+ * fallire: salvare uno zero in questi casi falserebbe i pronostici
+ * over/under. I dati gia' salvati hanno sempre il numero (0 incluso), quindi
+ * restano invariati. Per i risultati vecchi senza `totalPitStops` esplicito
+ * si usa la somma dei pit stop dei piloti, se almeno uno e' compilato.
  */
 @Serializable
 data class RaceResultData(
     val raceId: String = "",
     val drivers: List<DriverRaceResult> = emptyList(),
-    val safetyCars: Int = 0,
+    /** Safety car (SC+VSC sommate); null = in attesa di conferma admin. */
+    val safetyCars: Int? = null,
     val redFlags: Int = 0,
     val laps: Int = 0,
     val weather: String? = null,
     val notes: String? = null,
+    /** Pit stop totali della griglia; null = in attesa di conferma admin. */
+    val totalPitStops: Int? = null,
 ) {
     fun driver(driverId: String): DriverRaceResult? =
         drivers.firstOrNull { it.driverId == driverId }
@@ -81,8 +91,14 @@ data class RaceResultData(
     fun fastestLapDriver(): DriverRaceResult? =
         drivers.firstOrNull { it.fastestLap }
 
-    /** Totale pit stop di tutti i piloti. */
-    val totalPitStops: Int get() = drivers.sumOf { it.pitStops }
+    /**
+     * Pit stop totali effettivi, usati dagli over/under: il valore esplicito
+     * se presente, altrimenti la somma dei pit stop dei piloti (risultati
+     * vecchi scritti prima del campo). Null se non c'e' nessuna fonte.
+     */
+    fun confirmedTotalPitStops(): Int? =
+        totalPitStops ?: drivers.takeIf { list -> list.any { it.pitStops > 0 } }
+            ?.sumOf { it.pitStops }
 
     /**
      * Punti campionato effettivi di un pilota, usati dagli over/under.
