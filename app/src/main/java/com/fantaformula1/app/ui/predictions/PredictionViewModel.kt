@@ -238,10 +238,32 @@ class PredictionViewModel(
     /**
      * Seleziona un pilota nello slot indicato del pronostico (menu a tendina).
      * La logica e' in [setDriverInSelection], testata con unit test JVM.
+     *
+     * Regola podio/vincitore: il 1º slot del podio coincide con il vincitore
+     * scelto nel pronostico Vincitore, quindi non e' modificabile da qui; e
+     * scegliere un vincitore riempie/aggiorna in automatico il 1º slot del
+     * podio. Il blocco vale solo quando il tipo Vincitore e' attivo.
      */
     fun setDriverAt(type: PredictionType, slot: Int, driverId: String) {
+        val winnerEnabled = PredictionType.WINNER in _uiState.value.rules.enabledTypes
+        if (type == PredictionType.PODIUM && winnerEnabled && slot == 0) {
+            // Slot bloccato: il 1º posto arriva solo dal pronostico Vincitore.
+            return
+        }
         updateDraft(type) { draft ->
             draft.copy(driverIds = setDriverInSelection(draft.driverIds, slot, driverId))
+        }
+        if (type == PredictionType.WINNER && winnerEnabled) {
+            // Sync automatico: il vincitore e' il 1º del podio, gli altri due
+            // slot restano invariati (rimuovendo l'eventuale duplicato sotto).
+            updateDraft(PredictionType.PODIUM) { draft ->
+                val rest = draft.driverIds.drop(1).filter { it != driverId }
+                if (draft.driverIds.firstOrNull() == driverId) {
+                    draft
+                } else {
+                    draft.copy(driverIds = listOf(driverId) + rest)
+                }
+            }
         }
     }
 

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -201,6 +202,11 @@ fun PredictionScreen(
                     items(state.visibleTypes, key = { it.name }) { type ->
                         val draft = state.drafts.firstOrNull { it.type == type }
                             ?: DraftEntry.of(type)
+                        // Regola podio/vincitore: il 1º slot del podio e' il
+                        // vincitore scelto nel pronostico Vincitore (se attivo).
+                        val winnerDraft = state.drafts.firstOrNull {
+                            it.type == PredictionType.WINNER
+                        }
                         PredictionCard(
                             type = type,
                             draft = draft,
@@ -210,6 +216,10 @@ fun PredictionScreen(
                             rules = state.rules,
                             seasonStats = state.seasonStats,
                             viewModel = viewModel,
+                            lockedWinnerEnabled = state.rules.enabledTypes.contains(
+                                PredictionType.WINNER,
+                            ),
+                            winnerDriverId = winnerDraft?.driverIds?.firstOrNull(),
                         )
                     }
 
@@ -338,6 +348,8 @@ private fun PredictionCard(
     rules: Rules,
     seasonStats: DriverSeasonStats,
     viewModel: PredictionViewModel,
+    lockedWinnerEnabled: Boolean = false,
+    winnerDriverId: String? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -367,22 +379,52 @@ private fun PredictionCard(
                 val required = PredictionValidation.requiredDrivers(type)
                 val pickerSlot = remember { mutableStateOf(0) }
                 val pickerOpen = remember { mutableStateOf(false) }
+                // Podio: il 1º slot e' il vincitore (non modificabile qui).
+                val podiumLocked = type == PredictionType.PODIUM && lockedWinnerEnabled
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     repeat(required) { slot ->
+                        val slotLocked = podiumLocked && slot == 0
                         DriverSlotTile(
                             label = if (required == 1) {
                                 stringResource(R.string.pronostico_pilota)
                             } else {
                                 stringResource(R.string.pronostico_slot_pilota, slot + 1)
                             },
-                            selectedDriverId = draft.driverIds.getOrNull(slot),
+                            selectedDriverId = if (slotLocked) {
+                                winnerDriverId ?: draft.driverIds.getOrNull(slot)
+                            } else {
+                                draft.driverIds.getOrNull(slot)
+                            },
                             enabled = enabled,
-                            onClick = {
-                                pickerSlot.value = slot
-                                pickerOpen.value = true
+                            locked = slotLocked,
+                            onClick = if (slotLocked) {
+                                null
+                            } else {
+                                {
+                                    pickerSlot.value = slot
+                                    pickerOpen.value = true
+                                }
                             },
                         )
                     }
+                }
+                if (podiumLocked) {
+                    // Avviso: se il vincitore non e' ancora stato inserito si
+                    // spiega che il 1º posto arriva da li', altrimenti si
+                    // informa che lo slot e' bloccato sul vincitore scelto.
+                    Text(
+                        text = if (winnerDriverId == null) {
+                            stringResource(R.string.podio_slot_bloccato_avviso)
+                        } else {
+                            stringResource(R.string.podio_slot_bloccato)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (winnerDriverId == null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
                 }
                 if (pickerOpen.value) {
                     DriverPickerBottomSheet(
@@ -647,13 +689,18 @@ private fun DriverSlotTile(
     label: String,
     selectedDriverId: String?,
     enabled: Boolean,
-    onClick: () -> Unit,
+    locked: Boolean = false,
+    onClick: (() -> Unit)?,
 ) {
     Column {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (locked) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
         Spacer(Modifier.height(4.dp))
         val driver = selectedDriverId?.let { DriversCatalog.byId(it) }
@@ -661,7 +708,7 @@ private fun DriverSlotTile(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (enabled) {
+                    if (enabled && onClick != null) {
                         Modifier.clickable(onClick = onClick)
                     } else {
                         Modifier
@@ -734,9 +781,21 @@ private fun DriverSlotTile(
                         )
                     }
                     Icon(
-                        imageVector = Icons.Outlined.Edit,
-                        contentDescription = stringResource(R.string.slot_cambia),
-                        tint = MaterialTheme.colorScheme.primary,
+                        imageVector = if (locked) {
+                            Icons.Outlined.Lock
+                        } else {
+                            Icons.Outlined.Edit
+                        },
+                        contentDescription = if (locked) {
+                            stringResource(R.string.podio_slot_bloccato_icona)
+                        } else {
+                            stringResource(R.string.slot_cambia)
+                        },
+                        tint = if (locked) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                         modifier = Modifier.size(18.dp),
                     )
                 } else {

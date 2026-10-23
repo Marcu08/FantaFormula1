@@ -189,6 +189,9 @@
     <string name="pronostico_pilota">Pilota</string>
     <string name="pronostico_slot_pilota">Pilota %1$d</string>
     <string name="pronostico_seleziona_pilota">Seleziona pilota</string>
+    <string name="podio_slot_bloccato_avviso">Seleziona prima il vincitore della gara: il 1º posto del podio viene impostato automaticamente.</string>
+    <string name="podio_slot_bloccato">Il 1º posto del podio è il vincitore selezionato e non può essere modificato.</string>
+    <string name="podio_slot_bloccato_icona">Bloccato: coincide con il vincitore</string>
     <string name="pronostico_ritira">Il pilota ritira</string>
     <string name="pronostico_soglia">Soglia</string>
     <string name="pronostico_sopra">Sopra</string>
