@@ -8,7 +8,9 @@
   - Scarica Android cmdline-tools da dl.google.com se assenti
   - Installa platform-tools, platforms;android-35, build-tools;35.0.0
   - Accetta le licenze Android SDK
-  - Scrive local.properties (sdk.dir) e gradle.properties (org.gradle.java.home)
+  - Scrive local.properties (sdk.dir); la JDK e' selezionata dal toolchain
+    Gradle (jvmToolchain(21) in app/build.gradle.kts), quindi NON serve
+    org.gradle.java.home in gradle.properties.
 
 .USAGE
   powershell -ExecutionPolicy Bypass -File .\scripts\setup-android-env.ps1
@@ -165,23 +167,14 @@ foreach ($p in $requiredPackages) {
 Write-Ok 'Piattaforma android-35 disponibile'
 
 # ------------------------------------------------- local.properties ---------
-Write-Step 'Scrittura local.properties + gradle.properties'
+Write-Step 'Scrittura local.properties'
 $localProps = "sdk.dir=$($SdkRoot.Replace('\', '\\'))`n"
 Set-Content -Path (Join-Path $ProjectRoot 'local.properties') -Value $localProps -Encoding ASCII
 
-$gradlePropsPath = Join-Path $ProjectRoot 'gradle.properties'
-$gradleProps = @"
-# Generato da scripts/setup-android-env.ps1
-# AGP 8.x richiede una JDK compatibile (21): il JDK 27 di sistema non va usato.
-org.gradle.java.home=$($Jdk21 -replace '\\', '/')
-org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-android.useAndroidX=true
-android.nonTransitiveRClass=true
-kotlin.code.style=official
-"@
-Set-Content -Path $gradlePropsPath -Value $gradleProps -Encoding UTF8
-
-Write-Ok "org.gradle.java.home=$Jdk21"
+# NOTA (R1): non si scrive piu' org.gradle.java.home in gradle.properties.
+# Il file e' portabile: la JDK 21 e' scelta dal toolchain Gradle
+# (jvmToolchain(21) in app/build.gradle.kts), che la trova o la scarica da
+# sola. JAVA_HOME resta esportato qui sotto per i tool esterni.
 Write-Ok "sdk.dir=$SdkRoot"
 
 Write-Host ''

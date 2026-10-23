@@ -130,6 +130,43 @@ class SupabaseLeagueRepository(
             }
     }
 
+    override suspend fun setMemberRole(leagueId: String, userId: String, role: MemberRole) {
+        val client = requireClient()
+        try {
+            client.postgrest.rpc(
+                function = "set_league_member_role",
+                parameters = buildJsonObject {
+                    put("p_league", leagueId)
+                    put("p_user", userId)
+                    // Il database usa 'admin'/'player': il nome dell'enum
+                    // coincide ignorando le maiuscole.
+                    put("p_role", role.name.lowercase())
+                },
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            throw UserException(mapMemberActionError(throwable, "cambiare il ruolo"))
+        }
+    }
+
+    override suspend fun removeMember(leagueId: String, userId: String) {
+        val client = requireClient()
+        try {
+            client.postgrest.rpc(
+                function = "remove_league_member",
+                parameters = buildJsonObject {
+                    put("p_league", leagueId)
+                    put("p_user", userId)
+                },
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            throw UserException(mapMemberActionError(throwable, "rimuovere il membro"))
+        }
+    }
+
     override suspend fun leaveLeague(leagueId: String) {
         val client = requireClient()
         val userId = authRepository.currentUserId()
@@ -193,6 +230,28 @@ class SupabaseLeagueRepository(
             throw UserException(mapFunctionError(null, emptyFallback))
         }
         return value
+    }
+
+    /**
+     * Errori delle RPC di gestione membri (R3): l'ultimo admin e i permessi
+     * arrivano come eccezioni Postgres con messaggi italiani già leggibili.
+     */
+    private fun mapMemberActionError(throwable: Throwable?, action: String): String {
+        val raw = throwable?.message?.lowercase().orEmpty()
+        return when {
+            raw.contains("retrocedere l'ultimo amministratore") ->
+                "Non puoi retrocedere l'ultimo amministratore"
+            raw.contains("rimuovere l'ultimo amministratore") ->
+                "Non puoi rimuovere l'ultimo amministratore"
+            raw.contains("ultimo amministratore") ->
+                "Non puoi $action l'ultimo amministratore"
+            raw.contains("solo un amministratore") || raw.contains("permission denied") ||
+                raw.contains("row-level security") ->
+                "Solo un amministratore può $action"
+            raw.contains("membro non trovato") ->
+                "Membro non trovato in questa lega"
+            else -> throwable?.message ?: "Si è verificato un errore"
+        }
     }
 
     private fun mapFunctionError(throwable: Throwable?, function: String): String {

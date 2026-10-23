@@ -3,11 +3,12 @@ package com.fantaformula1.app.data.repository
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.json.buildJsonObject
@@ -68,19 +69,38 @@ class SupabaseAuthRepository(
         }
     }
 
+    /** Job del collector sulla sessione: annullato al cambio client (N12). */
+    private var sessionJob: Job? = null
+
     /**
      * Osserva i cambi di sessione (login, logout, scadenza del refresh token)
      * e aggiorna lo stato in tempo reale (B8). Va avviato da [AppContainer]
      * dopo aver configurato il client.
+     *
+     * N12: idempotente — una seconda chiamata annulla il vecchio collector
+     * invece di lasciarne due. Inoltre segue [SupabaseHolder.clientState]:
+     * quando la configurazione cambia il collector sul vecchio client viene
+     * annullato e ne parte uno nuovo sul client nuovo.
      */
     override fun startSessionObserver(scope: CoroutineScope) {
-        val client = holder.get() ?: return
-        scope.launch {
-            client.auth.sessionStatus.collect { status ->
-                when (status) {
-                    is SessionStatus.Authenticated -> refresh()
-                    is SessionStatus.NotAuthenticated -> _state.value = AuthState.SignedOut
-                    else -> Unit
+        sessionJob?.cancel()
+        sessionJob = scope.launch {
+            var clientJob: Job? = null
+            holder.clientState.collect { client: SupabaseClient? ->
+                clientJob?.cancel()
+                clientJob = if (client == null) {
+                    _state.value = AuthState.SignedOut
+                    null
+                } else {
+                    launch {
+                        client.auth.sessionStatus.collect { status ->
+                            when (status) {
+                                is SessionStatus.Authenticated -> refresh()
+                                is SessionStatus.NotAuthenticated -> _state.value = AuthState.SignedOut
+                                else -> Unit
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -97,7 +117,7 @@ class SupabaseAuthRepository(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            throw UserException(mapAuthError(throwable))
+            throw UserException(mapAuthErrorMessage(throwable))
         }
         refresh()
     }
@@ -117,7 +137,7 @@ class SupabaseAuthRepository(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            throw UserException(mapAuthError(throwable))
+            throw UserException(mapAuthErrorMessage(throwable))
         }
 
         // B7: se dopo la registrazione non c'e' sessione, significa che su
@@ -141,64 +161,5 @@ class SupabaseAuthRepository(
 
     private fun requireClient() = holder.get()
         ?: throw UserException("Configurazione Supabase mancante: apri le impostazioni e inserisci URL e chiave.")
-
-    /** Traduce le eccezioni Supabase in messaggi comprensibili in italiano. */
-    private fun mapAuthError(throwable: Throwable): String {
-        val status = extractStatus(throwable)
-        val raw = throwable.message?.lowercase().orEmpty()
-
-        // B26: la rete ha la priorita'. Se il dispositivo non arriva a Supabase
-        // (URL errato, chiave errata, offline) non ha senso dire "password
-        // sbagliata": prima i problemi di connessione, poi il resto.
-        if (raw.contains("unable to resolve host") || raw.contains("connection") ||
-            raw.contains("network") || raw.contains("timeout") ||
-            raw.contains("no address associated") || raw.contains("unreachable")
-        ) {
-            return "Connessione assente: controlla la rete e la configurazione"
-        }
-        // URL/chiave di Supabase non validi: l'host non risolve o la richiesta
-        // viene respinta a monte dell'Auth. Non e' un problema di credenziali.
-        if (raw.contains("invalid url") || raw.contains("illegal character") ||
-            raw.contains("failed to execute request") || status == HttpStatusCode.BadRequest
-        ) {
-            return "Configurazione Supabase non valida: controlla URL e chiave"
-        }
-
-        return when {
-            status == HttpStatusCode.Conflict || raw.contains("already registered") ||
-                raw.contains("already been registered") || raw.contains("email_exists") ->
-                "Esiste gia' un account con questa email"
-
-            status == HttpStatusCode.Unauthorized || status == HttpStatusCode.Forbidden ||
-                raw.contains("invalid login credentials") || raw.contains("invalid_credentials") ->
-                "Email o password non corretti"
-
-            raw.contains("password should be at least") || raw.contains("password_limit") ->
-                "La password deve essere di almeno 6 caratteri"
-
-            raw.contains("email not confirmed") || raw.contains("email_not_confirmed") ->
-                "Email non confermata: controlla la tua casella"
-
-            status == HttpStatusCode.TooManyRequests || raw.contains("rate limit") ->
-                "Troppi tentativi: riprova tra qualche istante"
-
-            else -> throwable.message?.takeIf { it.isNotBlank() }
-                ?: "Si è verificato un errore durante l'accesso"
-        }
-    }
-
-    private fun extractStatus(throwable: Throwable): HttpStatusCode? {
-        var current: Throwable? = throwable
-        var depth = 0
-        while (current != null && depth < 6) {
-            val field = current.javaClass.methods
-                .firstOrNull { it.name == "getStatus" || it.name == "getStatusCode" }
-            val value = runCatching { field?.invoke(current) }.getOrNull()
-            if (value is HttpStatusCode) return value
-            current = current.cause
-            depth++
-        }
-        return null
-    }
 }
 

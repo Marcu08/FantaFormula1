@@ -56,7 +56,7 @@ private data class RaceInsertDto(
 )
 
 @Serializable
-private data class RaceUpdateDto(
+internal data class RaceUpdateDto(
     val round: Int,
     val name: String,
     val country: String? = null,
@@ -70,6 +70,40 @@ private data class RaceUpdateDto(
      */
     val deadline: String?,
 )
+
+/**
+ * Mappa gli errori di scrittura su gare in messaggi comprensibili (R5).
+ *
+ * Distingue i casi che prima finivano tutti in "Dati della gara non validi":
+ * ultimo amministratore, permessi, deadline obbligatoria, round duplicato,
+ * gara con dati collegati (foreign key) e check constraint.
+ */
+internal fun mapRaceWriteError(rawMessage: String?, action: String): String {
+    val raw = rawMessage?.lowercase().orEmpty()
+    return when {
+        raw.contains("ultimo amministratore") ->
+            "Non puoi rimuovere l'ultimo amministratore: promuovi prima un altro membro"
+
+        raw.contains("permission denied") || raw.contains("row-level security") ||
+            raw.contains("solo un amministratore") ->
+            "Solo un amministratore può $action"
+
+        raw.contains("deadline") && raw.contains("obbligatoria") ->
+            "La deadline è obbligatoria per le nuove gare"
+
+        // Foreign key (0011): la gara ha pronostici o risultati collegati.
+        raw.contains("foreign key") || raw.contains("_fk") ->
+            "La gara ha pronostici o risultati collegati: non puoi $action"
+
+        raw.contains("duplicate") || raw.contains("unique") || raw.contains("already exists") ->
+            "Esiste già una gara con lo stesso numero di round"
+
+        raw.contains("check constraint") || raw.contains("violates") ->
+            "Dati della gara non validi"
+
+        else -> rawMessage ?: "Impossibile $action"
+    }
+}
 
 /**
  * Implementazione Supabase di [RaceRepository].
@@ -266,16 +300,6 @@ class SupabaseRaceRepository(
     private fun requireClient() = holder.get()
         ?: throw UserException("Configurazione Supabase mancante: apri le impostazioni e inserisci URL e chiave.")
 
-    private fun mapWriteError(throwable: Throwable, action: String): String {
-        val raw = throwable.message?.lowercase().orEmpty()
-        return when {
-            raw.contains("permission denied") || raw.contains("row-level security") ->
-                "Solo un amministratore può $action"
-            raw.contains("duplicate") || raw.contains("unique") || raw.contains("already exists") ->
-                "Esiste già una gara con lo stesso numero di round"
-            raw.contains("check constraint") || raw.contains("violates") ->
-                "Dati della gara non validi"
-            else -> throwable.message ?: "Impossibile $action"
-        }
-    }
+    private fun mapWriteError(throwable: Throwable, action: String): String =
+        mapRaceWriteError(throwable.message, action)
 }

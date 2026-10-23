@@ -46,6 +46,18 @@ interface LeagueRepository {
     /** Membri della lega con il relativo nome pubblico. */
     suspend fun members(leagueId: String): List<LeagueMember>
 
+    /**
+     * Cambia il ruolo di un membro (RPC `set_league_member_role`, solo admin;
+     * l'ultimo admin non puo' essere retroceso — R3).
+     */
+    suspend fun setMemberRole(leagueId: String, userId: String, role: MemberRole)
+
+    /**
+     * Rimuove un membro dalla lega (RPC `remove_league_member` della Fase 2,
+     * solo admin; l'ultimo admin non puo' essere rimosso).
+     */
+    suspend fun removeMember(leagueId: String, userId: String)
+
     /** Abbandona la lega corrente. */
     suspend fun leaveLeague(leagueId: String)
 

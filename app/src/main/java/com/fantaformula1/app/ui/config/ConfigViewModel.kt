@@ -128,8 +128,10 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * Verifica reale della connessione: dopo aver applicato i valori prova a
-     * leggere le leghe dell'utente (tabella protetta da RLS, visibile agli autenticati).
+     * Verifica reale della connessione con i valori SCRITTI NEL FORM, senza
+     * salvarli e senza toccare il client globale (N10): usa un client
+     * temporaneo che viene chiuso a fine test, quindi un test fallito non
+     * lascia l'app su una configurazione sbagliata.
      */
     fun testConnection() {
         if (!validate()) return
@@ -139,11 +141,7 @@ class ConfigViewModel(private val container: AppContainer) : ViewModel() {
                 url = _uiState.value.url.trim(),
                 anonKey = _uiState.value.anonKey.trim(),
             )
-            val ok = runCatching {
-                container.supabaseHolder.configure(config)
-                container.leagueRepository.myLeagues()
-                true
-            }.getOrElse { false }
+            val ok = container.supabaseHolder.testConnection(config)
 
             _uiState.value = _uiState.value.copy(
                 isTesting = false,

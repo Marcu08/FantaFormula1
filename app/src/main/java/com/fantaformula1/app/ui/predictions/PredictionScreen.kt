@@ -185,6 +185,17 @@ fun PredictionScreen(
                 ) {
                     item { DeadlineBanner(state) }
 
+                    // R6: avviso non bloccante sui tipi non ancora compilati.
+                    state.warning?.let { warning ->
+                        item {
+                            Text(
+                                text = warning,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+
                     if (state.errors.isNotEmpty()) {
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Person
@@ -54,10 +56,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.LeagueMember
+import com.fantaformula1.app.data.repository.MemberRole
 import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
 import kotlinx.coroutines.launch
+
+/** Azione di gestione ruoli pending, in attesa di conferma (R3). */
+private sealed interface MemberAction {
+    data class ChangeRole(val member: LeagueMember, val newRole: MemberRole) : MemberAction
+    data class Remove(val member: LeagueMember) : MemberAction
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,11 +88,23 @@ fun LeagueMembersScreen(
     }
     val scope = rememberCoroutineScope()
     var confirmLeave by remember { mutableStateOf(false) }
+    var pendingAction by remember { mutableStateOf<MemberAction?>(null) }
 
     val copiedMessage = stringResource(R.string.azione_copied)
     val leftMessage = stringResource(R.string.lega_abbandonata)
+    val roleChangedMessage = stringResource(R.string.membri_ruolo_cambiato)
+    val memberRemovedMessage = stringResource(R.string.membri_rimosso)
 
     LaunchedEffect(leagueId) { viewModel.loadMembers(leagueId) }
+
+    // Errori delle azioni di gestione (promuovi/retrocedi/rimuovi).
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            if (event is LeaguesEvent.Failure) {
+                snackbarHostState.showSnackbar(event.message)
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -182,27 +203,59 @@ fun LeagueMembersScreen(
                         }
                     }
 
-                    items(state.members, key = { it.userId }) { member ->
-                        MemberRow(member = member)
+                    // R3: l'ultimo amministratore non puo' retrocedere se
+                    // stesso: invece del bottone mostra la spiegazione.
+                    val iAmLastAdmin = state.members
+                        .any { it.userId == state.myUserId && it.isAdmin } &&
+                        state.members.count { it.isAdmin } <= 1
+                    if (iAmLastAdmin) {
+                        item {
+                            Text(
+                                text = stringResource(R.string.membri_ultimo_admin),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
                     }
 
-                    item {
-                        TextButton(
-                            onClick = { confirmLeave = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 16.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.PersonRemove,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = stringResource(R.string.lega_abbandona),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                    items(state.members, key = { it.userId }) { member ->
+                        MemberRow(
+                            member = member,
+                            canManage = state.isAdmin && member.userId != state.myUserId,
+                            onPromote = {
+                                pendingAction = MemberAction.ChangeRole(member, MemberRole.ADMIN)
+                            },
+                            onDemote = {
+                                pendingAction = MemberAction.ChangeRole(member, MemberRole.PLAYER)
+                            },
+                            onRemove = {
+                                pendingAction = MemberAction.Remove(member)
+                            },
+                        )
+                    }
+
+                    // R3: l'ultimo amministratore non vede neppure "Abbandona"
+                    // (il database lo blocherebbe comunque): resta il messaggio.
+                    if (!iAmLastAdmin) {
+                        item {
+                            TextButton(
+                                onClick = { confirmLeave = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 16.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PersonRemove,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.lega_abbandona),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                     }
                 }
@@ -233,10 +286,83 @@ fun LeagueMembersScreen(
             },
         )
     }
+
+    // R3: conferma delle azioni di gestione ruoli/rimozione.
+    pendingAction?.let { action ->
+        val memberName = when (action) {
+            is MemberAction.ChangeRole -> action.member.displayName
+            is MemberAction.Remove -> action.member.displayName
+        }
+        val title: String
+        val message: String
+        val confirmLabel: String
+        when (action) {
+            is MemberAction.ChangeRole -> if (action.newRole == MemberRole.ADMIN) {
+                title = stringResource(R.string.membri_promuovi)
+                message = stringResource(R.string.membri_promuovi_conferma, memberName)
+                confirmLabel = stringResource(R.string.membri_promuovi)
+            } else {
+                title = stringResource(R.string.membri_retrocedi)
+                message = stringResource(R.string.membri_retrocedi_conferma, memberName)
+                confirmLabel = stringResource(R.string.membri_retrocedi)
+            }
+
+            is MemberAction.Remove -> {
+                title = stringResource(R.string.membri_rimuovi)
+                message = stringResource(R.string.membri_rimuovi_conferma, memberName)
+                confirmLabel = stringResource(R.string.azione_elimina)
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { pendingAction = null },
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val doneMessage = when (action) {
+                            is MemberAction.ChangeRole -> roleChangedMessage
+                            is MemberAction.Remove -> memberRemovedMessage
+                        }
+                        pendingAction = null
+                        val onDone: () -> Unit = {
+                            scope.launch { snackbarHostState.showSnackbar(doneMessage) }
+                            Unit
+                        }
+                        when (action) {
+                            is MemberAction.ChangeRole -> viewModel.setMemberRole(
+                                leagueId = leagueId,
+                                userId = action.member.userId,
+                                role = action.newRole,
+                                onDone = onDone,
+                            )
+
+                            is MemberAction.Remove -> viewModel.removeMember(
+                                leagueId = leagueId,
+                                userId = action.member.userId,
+                                onDone = onDone,
+                            )
+                        }
+                    },
+                ) { Text(confirmLabel) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingAction = null }) {
+                    Text(stringResource(R.string.azione_annulla))
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun MemberRow(member: LeagueMember) {
+private fun MemberRow(
+    member: LeagueMember,
+    canManage: Boolean,
+    onPromote: () -> Unit,
+    onDemote: () -> Unit,
+    onRemove: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -290,6 +416,35 @@ private fun MemberRow(member: LeagueMember) {
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
                 )
+            }
+            // R3: azioni di gestione, visibili solo agli admin e mai sulla
+            // propria riga (per l'ultimo admin il retrocedi non ha senso).
+            if (canManage) {
+                Spacer(Modifier.width(4.dp))
+                if (!member.isAdmin) {
+                    IconButton(onClick = onPromote) {
+                        Icon(
+                            imageVector = Icons.Outlined.ArrowUpward,
+                            contentDescription = stringResource(R.string.membri_promuovi),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onDemote) {
+                        Icon(
+                            imageVector = Icons.Outlined.ArrowDownward,
+                            contentDescription = stringResource(R.string.membri_retrocedi),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Outlined.PersonRemove,
+                        contentDescription = stringResource(R.string.membri_rimuovi),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }

@@ -10,6 +10,7 @@ import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RacePrediction
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.isSprintRelated
+import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.core.domain.withFrozenQuota
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueDataRepository
@@ -111,6 +112,8 @@ data class PredictionUiState(
     val saved: Boolean = false,
     val errors: List<String> = emptyList(),
     val error: String? = null,
+    /** Avviso non bloccante su cio' che resta da compilare (R6). */
+    val warning: String? = null,
 ) {
     /** Tipi di pronostico da mostrare nel form. */
     val visibleTypes: List<PredictionType>
@@ -328,6 +331,7 @@ class PredictionViewModel(
             state.copy(
                 drafts = state.drafts.map { if (it.type == type) transform(it) else it },
                 errors = emptyList(),
+                warning = null,
             )
         }
     }
@@ -346,10 +350,14 @@ class PredictionViewModel(
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
         if (entries.isEmpty()) {
-            _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO)) }
+            _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO), warning = null) }
             viewModelScope.launch { _events.emit(PredictionEvent.Failure(NIENTE_COMPILATO)) }
             return
         }
+
+        // R6: parziali ammesse, ma l'utente deve sapere cosa resta vuoto
+        // PRIMA di premere invia.
+        val warning = missingTypesMessage(state.drafts)
 
         val errors = PredictionValidation.validate(
             prediction = prediction,
@@ -357,7 +365,7 @@ class PredictionViewModel(
             isSprintRace = race.isSprint,
         )
         if (errors.isNotEmpty()) {
-            _uiState.update { it.copy(errors = errors) }
+            _uiState.update { it.copy(errors = errors, warning = warning) }
             viewModelScope.launch { _events.emit(PredictionEvent.Failure(errors.first())) }
             return
         }
@@ -365,7 +373,7 @@ class PredictionViewModel(
         // Guard sincrona prima del launch: un doppio tocco non avvia due
         // salvataggi in parallelo (l'upsert e' idempotente, ma evitiamo
         // comunque richieste duplicate in volo).
-        _uiState.update { it.copy(saving = true, errors = emptyList()) }
+        _uiState.update { it.copy(saving = true, errors = emptyList(), warning = warning) }
         viewModelScope.launch {
             try {
                 predictionRepository.savePrediction(raceId, race.leagueId, prediction)
@@ -419,6 +427,17 @@ internal fun setDriverInSelection(
         selected[at] = driverId
     }
     return selected
+}
+
+/**
+ * R6: elenca i tipi visibili ancora non compilati, per l'avviso non bloccante
+ * "Non hai compilato: …". Ritorna null se tutte le bozze sono complete.
+ */
+internal fun missingTypesMessage(drafts: List<DraftEntry>): String? {
+    val missing = drafts.filter { !it.complete }
+        .map { it.type.italianLabel }
+    if (missing.isEmpty()) return null
+    return "Non hai compilato: " + missing.joinToString(", ")
 }
 
 /** Tipi di pronostico da mostrare: attivi nella lega e compatibili con la gara. */

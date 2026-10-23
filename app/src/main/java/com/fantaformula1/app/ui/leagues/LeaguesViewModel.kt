@@ -7,6 +7,7 @@ import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueMember
 import com.fantaformula1.app.data.repository.LeagueRepository
+import com.fantaformula1.app.data.repository.MemberRole
 import com.fantaformula1.app.data.repository.UserException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,8 @@ data class MembersUiState(
     val isAdmin: Boolean = false,
     val league: League? = null,
     val error: String? = null,
+    /** Id dell'utente corrente: distingue la propria riga dalle altre (R3). */
+    val myUserId: String? = null,
 )
 
 class LeaguesViewModel(
@@ -130,6 +133,7 @@ class LeaguesViewModel(
                         loading = false,
                         members = members,
                         league = league,
+                        myUserId = me,
                         isAdmin = members.any { member -> member.userId == me && member.isAdmin },
                     )
                 }
@@ -154,6 +158,38 @@ class LeaguesViewModel(
                 .onFailure { throwable ->
                     _events.emit(
                         LeaguesEvent.Failure(throwable.message ?: "Impossibile abbandonare la lega"),
+                    )
+                }
+        }
+    }
+
+    /** Cambia il ruolo di un membro (solo admin, R3) e ricarica la lista. */
+    fun setMemberRole(leagueId: String, userId: String, role: MemberRole, onDone: () -> Unit) {
+        viewModelScope.launch {
+            runCatching { leagueRepository.setMemberRole(leagueId, userId, role) }
+                .onSuccess {
+                    loadMembers(leagueId)
+                    onDone()
+                }
+                .onFailure { throwable ->
+                    _events.emit(
+                        LeaguesEvent.Failure(throwable.message ?: "Impossibile cambiare il ruolo"),
+                    )
+                }
+        }
+    }
+
+    /** Rimuove un membro dalla lega (solo admin, R3) e ricarica la lista. */
+    fun removeMember(leagueId: String, userId: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            runCatching { leagueRepository.removeMember(leagueId, userId) }
+                .onSuccess {
+                    loadMembers(leagueId)
+                    onDone()
+                }
+                .onFailure { throwable ->
+                    _events.emit(
+                        LeaguesEvent.Failure(throwable.message ?: "Impossibile rimuovere il membro"),
                     )
                 }
         }

@@ -111,6 +111,12 @@ android {
 }
 
 kotlin {
+    // Toolchain 21: la compilazione Kotlin/Java usa sempre una JDK 21 anche se
+    // JAVA_HOME punta a una versione piu' recente (il JDK 27 di sistema non
+    // funziona con AGP 8.x). Il bytecode resta 17 (come compileOptions sotto):
+    // Kotlin e Java devono dichiarare lo stesso target altrimenti il build
+    // fallisce con "Inconsistent JVM-target compatibility".
+    jvmToolchain(21)
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }

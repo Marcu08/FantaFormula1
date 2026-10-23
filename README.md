@@ -28,7 +28,9 @@ client-side e testato con unit test JVM.
 Prerequisiti (una tantum):
 
 ```powershell
-# JDK 21 (obbligatorio: AGP non funziona con JDK più recenti)
+# JDK 21 (obbligatorio: AGP non funziona con JDK più recenti).
+# Il progetto usa kotlin { jvmToolchain(21) }: Gradle seleziona o scarica da
+# sola una JDK 21, senza bisogno di org.gradle.java.home in gradle.properties.
 # Android SDK: basta eseguire lo script che installa cmdline-tools, SDK 35/36 e scrive local.properties
 .\scripts\setup-android-env.ps1
 ```

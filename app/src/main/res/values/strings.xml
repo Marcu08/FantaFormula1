@@ -92,6 +92,15 @@
     <string name="lega_ancora_una">Crea o unisciti a una lega per iniziare a giocare.</string>
     <string name="membri_vuoto">Nessun membro presente</string>
     <string name="membri_conta">%d membri</string>
+    <string name="membri_promuovi">Promuovi ad amministratore</string>
+    <string name="membri_retrocedi">Retrocedi a giocatore</string>
+    <string name="membri_rimuovi">Rimuovi dalla lega</string>
+    <string name="membri_promuovi_conferma">Promuovere %s ad amministratore? potrà inserire risultati e modificare le regole.</string>
+    <string name="membri_retrocedi_conferma">Retrocedere %s a giocatore?</string>
+    <string name="membri_rimuovi_conferma">Rimuovere %s dalla lega? potrà rientrare solo con un nuovo codice invito.</string>
+    <string name="membri_ultimo_admin">Sei l\'unico amministratore: promuovi un altro membro prima di poterti retrocedere o rimuovere.</string>
+    <string name="membri_ruolo_cambiato">Ruolo aggiornato</string>
+    <string name="membri_rimosso">Membro rimosso</string>
 
     <!-- Nomi dei tipi di pronostico (usati da PredictionType) -->
     <string name="tipo_WINNER">Vincitore</string>

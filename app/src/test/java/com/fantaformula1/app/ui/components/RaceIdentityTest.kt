@@ -58,4 +58,30 @@ class RaceIdentityTest {
         assertEquals("🏁", visual.flag)
         assertEquals(RaceIdentity.visualFor(null, null, 1), visual)
     }
+
+    @Test
+    fun `la chiave uk non intercetta Turkey (parola intera)`() {
+        // N12: il vecchio confronto per sottostringa faceva corrispondere
+        // "uk" anche dentro "Turkey", dando la bandiera britannica.
+        val visual = RaceIdentity.visualFor("Turkish Grand Prix", "Turkey", 1)
+
+        assertEquals("🏁", visual.flag)
+    }
+
+    @Test
+    fun `la chiave emilia riconosce comunque Emilia-Romagna`() {
+        // Il confronto a parola intera non deve perdere i nomi reali:
+        // "emilia" e' delimitata dal trattino, che non e' una lettera.
+        val visual = RaceIdentity.visualFor("Emilia-Romagna Grand Prix", "Italy", 4)
+
+        assertEquals("🇮🇹", visual.flag)
+        assertEquals(0xFF2E4A1F, visual.startColor)
+    }
+
+    @Test
+    fun `la chiave uk riconosce comunque il Regno Unito`() {
+        val visual = RaceIdentity.visualFor("British Grand Prix", "UK", 1)
+
+        assertEquals("🇬🇧", visual.flag)
+    }
 }

@@ -82,6 +82,17 @@ object RaceIdentity {
     )
 
     /**
+     * Pattern a parola intera per ogni chiave (N12): il vecchio confronto per
+     * sottostringa faceva corrispondere "uk" anche dentro "Turkey".
+     * `(?<![a-z])` e `(?![a-z])` esigono un non-alfabetico prima/dopo.
+     */
+    private val byNamePatterns: List<Pair<Regex, RaceVisual>> =
+        byName.map { (key, visual) -> Regex("(?<![a-z])${Regex.escape(key)}(?![a-z])") to visual }
+
+    private val byCountryPatterns: List<Pair<Regex, RaceVisual>> =
+        byCountry.map { (key, visual) -> Regex("(?<![a-z])${Regex.escape(key)}(?![a-z])") to visual }
+
+    /**
      * Palette deterministica per le gare non riconosciute: cicla sul round,
      * cosi' ogni gara ha comunque un gradiente stabile e distintivo.
      */
@@ -100,11 +111,11 @@ object RaceIdentity {
     fun visualFor(raceName: String?, country: String?, round: Int): RaceVisual {
         val nameKey = raceName?.trim()?.lowercase().orEmpty()
         if (nameKey.isNotBlank()) {
-            byName.entries.firstOrNull { nameKey.contains(it.key) }?.let { return it.value }
+            byNamePatterns.firstOrNull { it.first.containsMatchIn(nameKey) }?.let { return it.second }
         }
         val countryKey = country?.trim()?.lowercase().orEmpty()
         if (countryKey.isNotBlank()) {
-            byCountry.entries.firstOrNull { countryKey.contains(it.key) }?.let { return it.value }
+            byCountryPatterns.firstOrNull { it.first.containsMatchIn(countryKey) }?.let { return it.second }
         }
         val index = if (round > 0) (round - 1) % fallback.size else 0
         return fallback[index]
