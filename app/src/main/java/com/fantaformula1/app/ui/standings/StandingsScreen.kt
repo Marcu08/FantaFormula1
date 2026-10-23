@@ -29,12 +29,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,6 +64,7 @@ fun StandingsScreen(
             leagueDataRepository = container.leagueDataRepository,
             leagueRepository = container.leagueRepository,
             raceRepository = container.raceRepository,
+            authRepository = container.authRepository,
             leagueId = leagueId,
         )
     }
@@ -80,18 +86,36 @@ fun StandingsScreen(
             )
         },
     ) { innerPadding ->
+        val pullRefreshState =
+            androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+        var refreshing by remember { mutableStateOf(false) }
         Box(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
-            when {
-                state.loading -> LoadingState()
-                state.error != null -> ErrorState(
-                    message = state.error.orEmpty(),
-                    onRetry = viewModel::load,
-                )
-                else -> Column(Modifier.fillMaxSize()) {
+            // U6: anche la classifica si aggiorna con il gesto di trascinamento.
+            androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                isRefreshing = refreshing,
+                state = pullRefreshState,
+                onRefresh = {
+                    refreshing = true
+                    viewModel.load()
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                // Il caricamento iniziale ha il suo stato dedicato; dopo il
+                // primo caricamento il refresh resta gestito dal gesto.
+                LaunchedEffect(state.loading) {
+                    if (!state.loading) refreshing = false
+                }
+                when {
+                    state.loading -> LoadingState()
+                    state.error != null -> ErrorState(
+                        message = state.error.orEmpty(),
+                        onRetry = viewModel::load,
+                    )
+                    else -> Column(Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -124,17 +148,18 @@ fun StandingsScreen(
                     }
 
                     when (state.tab) {
-                        StandingsTab.OVERALL -> OverallList(state)
+                        StandingsTab.OVERALL -> OverallList(state, viewModel)
                         StandingsTab.PER_RACE -> PerRaceList(state, viewModel)
                     }
                 }
             }
+            } // PullToRefreshBox
         }
     }
 }
 
 @Composable
-private fun OverallList(state: StandingsUiState) {
+private fun OverallList(state: StandingsUiState, viewModel: StandingsViewModel) {
     if (state.rows.isEmpty()) {
         EmptyState(
             title = stringResource(R.string.classifica_vuota),
@@ -156,6 +181,10 @@ private fun OverallList(state: StandingsUiState) {
                 2 -> Color(0xFFC07037) // bronzo
                 else -> null
             }
+            // U8: la mia riga e' evidenziata in modo non solo cromatico.
+            val isMe = row.userId == state.myUserId
+            // U8: tap sulla riga -> dettaglio punti gara per gara.
+            val expanded = row.userId == state.expandedUserId
             // Ultima gara con risultato: per mostrare i punti guadagnati.
             val lastRaceId = state.races
                 .filter { state.resultsByRace.containsKey(it.id) }
@@ -170,10 +199,16 @@ private fun OverallList(state: StandingsUiState) {
             val pointsScale = state.rows.maxOfOrNull { it.bestRacePoints }?.coerceAtLeast(1.0) ?: 1.0
 
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.toggleRow(row.userId) },
                 colors = CardDefaults.cardColors(
-                    containerColor = medal?.copy(alpha = 0.18f)
-                        ?: MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = if (isMe) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        medal?.copy(alpha = 0.18f)
+                            ?: MaterialTheme.colorScheme.surfaceVariant
+                    },
                 ),
             ) {
                 Row(
@@ -182,13 +217,19 @@ private fun OverallList(state: StandingsUiState) {
                         .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "${index + 1}°",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = medal ?: MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.width(36.dp),
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(40.dp),
+                    ) {
+                        Text(
+                            text = "${index + 1}°",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = medal ?: MaterialTheme.colorScheme.primary,
+                        )
+                        // U8: variazione di posizione dopo l'ultima gara.
+                        RankDeltaBadge(delta = state.rankDeltas[row.userId])
+                    }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(row.displayName, style = MaterialTheme.typography.titleMedium)
                         Text(
@@ -229,6 +270,14 @@ private fun OverallList(state: StandingsUiState) {
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                         )
+                        if (isMe) {
+                            Text(
+                                text = stringResource(R.string.classifica_tu),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         if (index > 0) {
                             val gap = state.rows[index - 1].totalPoints - row.totalPoints
                             if (gap > 0.0) {
@@ -244,9 +293,69 @@ private fun OverallList(state: StandingsUiState) {
                         }
                     }
                 }
+                // U8: dettaglio punti per gara al tap sulla riga.
+                if (expanded) {
+                    val completedRaces = state.races
+                        .filter { state.resultsByRace.containsKey(it.id) }
+                        .sortedBy { it.round }
+                    if (completedRaces.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.classifica_nessun_pronostico),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        )
+                    } else {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                            completedRaces.forEach { race ->
+                                val points = state.scoresByRace[race.id]
+                                    ?.find { it.userId == row.userId }?.points
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.gara_round_name,
+                                            race.round,
+                                            race.name,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = points?.let { formatPoints(it) } ?: "—",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+/**
+ * U8: freccia di variazione di posizione rispetto all'ultima gara conclusa.
+ * Il significato e' sempre esplicito anche per chi non distingue i colori
+ * (frecce + numero di posti).
+ */
+@Composable
+private fun RankDeltaBadge(delta: Int?) {
+    if (delta == null) return
+    Text(
+        text = if (delta > 0) "▲ $delta" else "▼ ${-delta}",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = if (delta > 0) Color(0xFF009150) else MaterialTheme.colorScheme.error,
+    )
 }
 
 @Composable

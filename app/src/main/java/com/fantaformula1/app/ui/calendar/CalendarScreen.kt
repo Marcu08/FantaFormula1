@@ -59,6 +59,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,7 +69,6 @@ import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RaceStatus
-import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaTextField
@@ -183,6 +184,8 @@ fun CalendarScreen(
             }
         },
     ) { innerPadding ->
+        val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+        var refreshing by remember { mutableStateOf(false) }
         Box(
             modifier = Modifier
                 .padding(innerPadding)
@@ -195,6 +198,20 @@ fun CalendarScreen(
             val past = state.races.filter { it.isPastRace() }
             var showCompleted by remember { mutableStateOf(false) }
 
+            androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                isRefreshing = refreshing,
+                state = pullRefreshState,
+                onRefresh = {
+                    refreshing = true
+                    viewModel.load()
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+            // Il caricamento iniziale ha il suo stato dedicato; dopo il
+            // primo caricamento il refresh resta gestito dal gesto.
+            LaunchedEffect(state.loading) {
+                if (!state.loading) refreshing = false
+            }
             when {
                 state.loading -> LoadingState()
                 state.error != null -> ErrorState(
@@ -306,10 +323,11 @@ fun CalendarScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-    }
+                } // LazyColumn
+            } // when
+        } // PullToRefreshBox
+    } // Box
+} // Scaffold content
 
     if (state.formOpen) {
         RaceFormDialog(state = state, viewModel = viewModel)
@@ -368,6 +386,10 @@ private fun RaceCard(
                 Text(
                     text = visual.flag,
                     style = MaterialTheme.typography.headlineSmall,
+                    // U11: l'emoji della bandiera non e' autoesplicativa.
+                    modifier = Modifier.semantics {
+                        contentDescription = "Bandiera ${visual.flag}"
+                    },
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -421,7 +443,8 @@ private fun RaceCard(
                         Text(
                             text = stringResource(
                                 R.string.gara_deadline,
-                                formatLocalDateTimeInput(deadline),
+                                // U12: locale e fuso del dispositivo.
+                                com.fantaformula1.app.core.util.Formats.deadline(deadline),
                             ),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -604,16 +627,26 @@ private fun RaceFormDialog(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                FantaTextField(
+                // U2: selettori data/ora Material 3 al posto del campo testo.
+                Text(
+                    text = stringResource(R.string.gara_deadline_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                DeadlinePickerField(
                     value = state.form.deadline,
                     onValueChange = viewModel::onDeadlineChange,
-                    label = stringResource(R.string.gara_deadline_label),
-                    hint = stringResource(R.string.gara_deadline_hint),
-                    error = state.formError?.takeIf {
-                        it.contains("deadline", ignoreCase = true)
-                    },
                     enabled = !state.submitting,
                 )
+                state.formError?.takeIf {
+                    it.contains("deadline", ignoreCase = true)
+                }?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,

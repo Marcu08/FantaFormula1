@@ -153,16 +153,33 @@ fun RulesScreen(
                     }
 
                     if (state.isAdmin) {
+                        // U9: avviso che modificare le regole ricalcola
+                        // retroattivamente tutta la classifica.
+                        item {
+                            Text(
+                                text = stringResource(R.string.regole_avviso_ricalcolo),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(
-                                    onClick = { viewModel.applyPreset(Rules.presetF1Official()) },
+                                PresetButton(
+                                    label = stringResource(R.string.regole_preset_f1),
+                                    maxPoints = Rules.presetF1Official().maxRacePoints(),
+                                    onClick = {
+                                        viewModel.applyPreset(Rules.presetF1Official())
+                                    },
                                     modifier = Modifier.weight(1f),
-                                ) { Text(stringResource(R.string.regole_preset_f1)) }
-                                TextButton(
-                                    onClick = { viewModel.applyPreset(Rules.presetArcade()) },
+                                )
+                                PresetButton(
+                                    label = stringResource(R.string.regole_preset_arcade),
+                                    maxPoints = Rules.presetArcade().maxRacePoints(),
+                                    onClick = {
+                                        viewModel.applyPreset(Rules.presetArcade())
+                                    },
                                     modifier = Modifier.weight(1f),
-                                ) { Text(stringResource(R.string.regole_preset_arcade)) }
+                                )
                             }
                         }
                     }
@@ -228,7 +245,9 @@ fun RulesScreen(
                         }
                     }
 
-                    item { SectionTitle(stringResource(R.string.regole_sezione_moltiplicatori)) }
+                    // U9: i parametri avanzati (moltiplicatori, spareggio,
+                    // opzioni) sono raccolti sotto una sola sezione.
+                    item { SectionTitle(stringResource(R.string.regole_sezione_avanzate)) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -241,6 +260,10 @@ fun RulesScreen(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
+                                Text(
+                                    text = stringResource(R.string.regole_sezione_moltiplicatori),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
                                 MultiplierRow(
                                     label = stringResource(R.string.regole_fattore_quasi),
                                     value = state.rules.exactPositionNearMissFactor,
@@ -275,43 +298,43 @@ fun RulesScreen(
                                         sprintWinnerEffective(state),
                                     ),
                                 )
-                            }
-                        }
-                    }
-
-                    item { SectionTitle(stringResource(R.string.regole_sezione_spareggio)) }
-                    item {
-                        @OptIn(ExperimentalLayoutApi::class)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TieBreaker.entries.forEach { tieBreaker ->
-                                FilterChip(
-                                    selected = state.rules.tieBreaker == tieBreaker,
-                                    onClick = {
-                                        if (state.isAdmin) viewModel.onTieBreakerChange(tieBreaker)
-                                    },
-                                    label = { Text(tieBreaker.italianLabel) },
+                                // U9: spareggio e opzioni vivono nella stessa
+                                // card "Avanzate", con un sotto-titolo ciascuno.
+                                Text(
+                                    text = stringResource(R.string.regole_sezione_spareggio),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TieBreaker.entries.forEach { tieBreaker ->
+                                        FilterChip(
+                                            selected = state.rules.tieBreaker == tieBreaker,
+                                            onClick = {
+                                                if (state.isAdmin) viewModel.onTieBreakerChange(tieBreaker)
+                                            },
+                                            label = { Text(tieBreaker.italianLabel) },
+                                            enabled = state.isAdmin,
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = stringResource(R.string.regole_sezione_opzioni),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                OptionRow(
+                                    label = stringResource(R.string.regole_reveal),
+                                    checked = state.rules.revealOthersAfterDeadline,
                                     enabled = state.isAdmin,
+                                    onChange = viewModel::onRevealOthersChange,
+                                )
+                                OptionRow(
+                                    label = stringResource(R.string.regole_allow_edit),
+                                    checked = state.rules.allowEditUntilDeadline,
+                                    enabled = state.isAdmin,
+                                    onChange = viewModel::onAllowEditChange,
                                 )
                             }
                         }
-                    }
-
-                    item { SectionTitle(stringResource(R.string.regole_sezione_opzioni)) }
-                    item {
-                        OptionRow(
-                            label = stringResource(R.string.regole_reveal),
-                            checked = state.rules.revealOthersAfterDeadline,
-                            enabled = state.isAdmin,
-                            onChange = viewModel::onRevealOthersChange,
-                        )
-                    }
-                    item {
-                        OptionRow(
-                            label = stringResource(R.string.regole_allow_edit),
-                            checked = state.rules.allowEditUntilDeadline,
-                            enabled = state.isAdmin,
-                            onChange = viewModel::onAllowEditChange,
-                        )
                     }
 
                     if (state.errors.isNotEmpty()) {
@@ -333,9 +356,31 @@ fun RulesScreen(
     }
 }
 
+/**
+ * U9: pulsante preset con anteprima del punteggio massimo ottenibile in
+ * una gara, per confrontare "Classico" e "Arcade" a colpo d'occhio.
+ */
 @Composable
-private fun TypeRow(
-    type: PredictionType,
+private fun PresetButton(
+    label: String,
+    maxPoints: Double,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TextButton(onClick = onClick, modifier = modifier) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = stringResource(R.string.regole_preset_max, format(maxPoints)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TypeRow(    type: PredictionType,
     points: Double,
     enabledType: Boolean,
     editable: Boolean,

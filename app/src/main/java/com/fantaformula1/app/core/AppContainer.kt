@@ -58,6 +58,10 @@ class AppContainer(
     val leagueDataRepository: LeagueDataRepository =
         SupabaseLeagueDataRepository(supabaseHolder)
 
+    /** U5: bozze locali dei pronostici (ripristino alla riapertura). */
+    val predictionDraftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore =
+        com.fantaformula1.app.data.prediction.PredictionDraftStore(applicationContext)
+
     /** Sincronizzazione calendario e risultati dal mondiale F1 reale. */
     val f1SyncRepository: F1SyncRepository = F1SyncRepository(
         f1ApiClient = f1ApiClient,

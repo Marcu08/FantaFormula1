@@ -62,6 +62,27 @@ data class Rules(
     fun pointsFor(type: PredictionType): Double = points[type] ?: 0.0
 
     /**
+     * U9: punteggio massimo ottenibile in una singola gara con tutti i
+     * pronostici indovinati. Serve all'editor regole per mostrare un'
+     * anteprima del peso complessivo di un preset.
+     */
+    fun maxRacePoints(): Double {
+        var total = 0.0
+        enabledTypes.forEach { type ->
+            total += when (type) {
+                // Il podio somma i tre valori (eventuale bonus senza ordine).
+                PredictionType.PODIUM ->
+                    podiumPoints.take(3).sumOf { it } + podiumNoOrderPoints
+                // Lo sprint paga col moltiplicatore applicato.
+                PredictionType.SPRINT_WINNER ->
+                    pointsFor(type) * sprintPointsMultiplier
+                else -> pointsFor(type)
+            }
+        }
+        return total
+    }
+
+    /**
      * Soglia ammessa per safety car / pit stop. Quote calcistiche: soglie
      * fisse dal realistico (niente 330.5); il payout varia con la soglia
      * (vedi [overUnderFactor]).

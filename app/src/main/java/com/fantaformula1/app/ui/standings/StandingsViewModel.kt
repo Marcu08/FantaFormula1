@@ -39,12 +39,23 @@ data class StandingsUiState(
     /** Pronostici/esiti non decodificabili, mostrati come avviso (B22). */
     val unreadablePredictions: Int = 0,
     val unreadableResults: Int = 0,
+    /** U8: userId dell'utente corrente, per evidenziare la sua riga. */
+    val myUserId: String? = null,
+    /**
+     * U8: variazione di posizione dopo l'ultima gara con risultato
+     * (userId -> posti guadagnati, positivo = risalito). Mappa vuota con
+     * meno di due gare completate.
+     */
+    val rankDeltas: Map<String, Int> = emptyMap(),
+    /** U8: riga espansa nel tab classifica (userId), per il dettaglio per gara. */
+    val expandedUserId: String? = null,
 )
 
 class StandingsViewModel(
     private val leagueDataRepository: LeagueDataRepository,
     private val leagueRepository: LeagueRepository,
     private val raceRepository: RaceRepository,
+    private val authRepository: com.fantaformula1.app.data.repository.AuthRepository,
     private val leagueId: String,
 ) : ViewModel() {
 
@@ -111,6 +122,17 @@ class StandingsViewModel(
                         scoresByRace = scoresByRace,
                         unreadablePredictions = inputs.data.unreadablePredictions,
                         unreadableResults = inputs.data.unreadableResults,
+                        myUserId = authRepository.currentUserId(),
+                        // U8: variazione di posizione rispetto a prima
+                        // dell'ultima gara con risultato.
+                        rankDeltas = computeRankDeltas(
+                            rules = rules,
+                            memberNames = inputs.memberNames,
+                            races = inputs.races,
+                            results = results,
+                            predictionsByUser = predictionsByUser,
+                            currentRows = snapshot.rows,
+                        ),
                     )
                 }
             }.onFailure { throwable ->
@@ -131,6 +153,13 @@ class StandingsViewModel(
     fun selectRace(raceId: String?) {
         _uiState.update { it.copy(selectedRaceId = raceId) }
     }
+
+    /** U8: apre/chiude il dettaglio per gara della riga toccata. */
+    fun toggleRow(userId: String) {
+        _uiState.update {
+            it.copy(expandedUserId = if (it.expandedUserId == userId) null else userId)
+        }
+    }
 }
 
 /** Dati grezzi calcolati in un colpo solo, poi passati al motore. */
@@ -140,3 +169,40 @@ private data class StandingInputs(
     val races: List<Race>,
     val data: com.fantaformula1.app.data.repository.LeagueDataSnapshot,
 )
+
+/**
+ * U8: variazione di posizione di ogni giocatore dopo l'ultima gara con
+ * risultato. Funzione pura (testata): ricalcola la classifica ESCLUDENDO
+ * l'ultima gara conclusa e confronta le posizioni con quelle correnti.
+ * Result: userId -> posti risaliti (positivo) o persi (negativo); i
+ * giocatori non presenti in una delle due classifiche non hanno delta.
+ */
+internal fun computeRankDeltas(
+    rules: Rules,
+    memberNames: Map<String, String>,
+    races: List<Race>,
+    results: Map<String, RaceResultData>,
+    predictionsByUser: Map<String, List<com.fantaformula1.app.core.domain.RacePrediction>>,
+    currentRows: List<ScoringEngine.StandingsRow>,
+): Map<String, Int> {
+    val completedRaceIds = races.sortedBy { it.round }
+        .map { it.id }
+        .filter { results.containsKey(it) }
+    // Servono almeno due gare concluse: con una sola non c'e' un "prima".
+    if (completedRaceIds.size < 2) return emptyMap()
+    val lastRaceId = completedRaceIds.last()
+    val previousResults = results - lastRaceId
+    val previousRows = ScoringEngine.computeStandings(
+        predictions = predictionsByUser,
+        results = previousResults,
+        rules = rules,
+        displayNames = memberNames,
+    )
+    val previousPosition = previousRows.mapIndexed { index, row -> row.userId to index }.toMap()
+    val currentPosition = currentRows.mapIndexed { index, row -> row.userId to index }.toMap()
+    return currentPosition.mapNotNull { (userId, index) ->
+        val before = previousPosition[userId] ?: return@mapNotNull null
+        val delta = before - index
+        if (delta == 0) null else userId to delta
+    }.toMap()
+}

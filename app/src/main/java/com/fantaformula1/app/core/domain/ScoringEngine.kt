@@ -23,11 +23,7 @@ object ScoringEngine {
         entry: PredictionEntry,
         result: RaceResultData,
         rules: Rules,
-    ): Double {
-        // Tipo disattivato dalle regole della lega: zero punti.
-        if (entry.type !in rules.enabledTypes) return 0.0
-        return baseScore(entry, result, rules).coerceAtLeast(0.0).roundTo2()
-    }
+    ): Double = explain(entry, result, rules).points
 
     /** Somma dei punteggi di tutte le voci di un pronostico per una gara. */
     fun score(
@@ -35,7 +31,47 @@ object ScoringEngine {
         result: RaceResultData,
         rules: Rules,
     ): Double =
-        prediction.entries.sumOf { score(it, result, rules) }.roundTo2()
+        explain(prediction, result, rules).sumOf { it.points }.roundTo2()
+
+    // ---------------------------------------------------------------------
+    // Spiegazione dei punti (U1)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Riga di spiegazione di una voce: punti assegnati e descrizione leggibile
+     * del riscontro ("Verstappen 1º ✓, Norris 3º ✗"). Il punteggio e la
+     * spiegazione derivano dalla stessa funzione, quindi non possono divergere
+     * ([score] somma esattamente queste righe).
+     */
+    data class ScoreLine(
+        val type: PredictionType,
+        val points: Double,
+        val detail: String,
+    )
+
+    /** Spiega tutte le voci di un pronostico, nell'ordine originale. */
+    fun explain(
+        prediction: RacePrediction,
+        result: RaceResultData,
+        rules: Rules,
+    ): List<ScoreLine> = prediction.entries.map { explain(it, result, rules) }
+
+    /**
+     * Spiega una singola voce: i punti sono quelli di [baseScore] (con gli
+     * stessi clamp), il testo descrive pronostico vs esito reale.
+     */
+    fun explain(
+        entry: PredictionEntry,
+        result: RaceResultData,
+        rules: Rules,
+    ): ScoreLine {
+        // Tipo disattivato dalle regole della lega: zero punti.
+        if (entry.type !in rules.enabledTypes) {
+            return ScoreLine(entry.type, 0.0, TYPE_DISABLED_LABEL)
+        }
+        val points = baseScore(entry, result, rules).coerceAtLeast(0.0).roundTo2()
+        return ScoreLine(entry.type, points, detailFor(entry, result))
+    }
 
     // ---------------------------------------------------------------------
     // Punteggio per tipo
@@ -288,6 +324,175 @@ object ScoringEngine {
     const val PENDING_DATA_LABEL = "in attesa di conferma admin"
     private const val SAFETY_CAR_LABEL = "Safety car"
     private const val PIT_STOPS_LABEL = "Pit stop"
+    private const val TYPE_DISABLED_LABEL = "tipo disattivato nelle regole"
+    private const val HIT = "✓"
+    private const val MISS = "✗"
+
+    /**
+     * Testo leggibile del riscontro di una voce (U1): pronostico vs esito
+     * reale, nella forma "Verstappen 1º ✓, Norris 3º ✗". Funzione pura,
+     * senza risorse Android (i nomi vengono da [DriversCatalog]).
+     */
+    private fun detailFor(entry: PredictionEntry, result: RaceResultData): String =
+        when (entry.type) {
+            PredictionType.WINNER -> {
+                val winner = result.winner()
+                if (winner == null) {
+                    NO_DATA_LABEL
+                } else {
+                    name(entry.driverIds.firstOrNull()) + " " + mark(
+                        entry.driverIds.firstOrNull() == winner.driverId,
+                    ) + winnerSuffix(winner)
+                }
+            }
+
+            PredictionType.PODIUM -> {
+                val order = result.classifiedOrder()
+                if (order.isEmpty()) {
+                    NO_DATA_LABEL
+                } else {
+                    entry.driverIds.take(3).mapIndexed { index, driverId ->
+                        val actualPosition = order.indexOfFirst { it.driverId == driverId }
+                        if (actualPosition in 0..2) {
+                            "${name(driverId)} ${actualPosition + 1}º $HIT"
+                        } else {
+                            "${name(driverId)} ${MISS}"
+                        }
+                    }.joinToString(", ")
+                }
+            }
+
+            PredictionType.POLE -> singleDriverCheck(
+                predicted = entry.driverIds.firstOrNull(),
+                actualId = result.poleDriver()?.driverId,
+                actualLabel = "pole",
+            )
+
+            PredictionType.FASTEST_LAP -> singleDriverCheck(
+                predicted = entry.driverIds.firstOrNull(),
+                actualId = result.fastestLapDriver()?.driverId,
+                actualLabel = "giro veloce",
+            )
+
+            PredictionType.SPRINT_WINNER -> singleDriverCheck(
+                predicted = entry.driverIds.firstOrNull(),
+                actualId = result.sprintWinner()?.driverId,
+                actualLabel = "vittoria sprint",
+            )
+
+            PredictionType.DRIVER_EXACT_POSITION -> {
+                val driverId = entry.driverIds.firstOrNull()
+                val target = entry.position
+                val actual = driverId?.let { result.positionOf(it) }
+                if (driverId == null || target == null || actual == null) {
+                    NO_DATA_LABEL
+                } else {
+                    "${name(driverId)} ${actual}º (atteso ${target}º) " +
+                        mark(actual == target)
+                }
+            }
+
+            PredictionType.DRIVER_POSITION_RANGE -> {
+                val driverId = entry.driverIds.firstOrNull()
+                val min = entry.rangeMin
+                val max = entry.rangeMax
+                val actual = driverId?.let { result.positionOf(it) }
+                if (driverId == null || min == null || max == null || actual == null) {
+                    NO_DATA_LABEL
+                } else {
+                    "${name(driverId)} ${actual}º (fascia $min-$max) " +
+                        mark(actual in min..max)
+                }
+            }
+
+            PredictionType.HEAD_TO_HEAD -> {
+                val first = entry.driverIds.getOrNull(0)
+                val second = entry.driverIds.getOrNull(1)
+                val posA = first?.let { result.positionOf(it) }
+                val posB = second?.let { result.positionOf(it) }
+                if (first == null || second == null || posA == null || posB == null) {
+                    NO_DATA_LABEL
+                } else {
+                    "${name(first)} ${posA}º vs ${name(second)} ${posB}º " + mark(posA < posB)
+                }
+            }
+
+            PredictionType.DRIVER_DNF -> {
+                val driverId = entry.driverIds.firstOrNull()
+                val expected = entry.booleanValue
+                val actual = driverId?.let { result.driver(it)?.dnf }
+                if (driverId == null || expected == null || actual == null) {
+                    NO_DATA_LABEL
+                } else {
+                    val predictedLabel = if (expected) "ritira" else "non ritira"
+                    val actualLabel = if (actual) "ritirato" else "concluso"
+                    "${name(driverId)}: $predictedLabel — $actualLabel " + mark(actual == expected)
+                }
+            }
+
+            PredictionType.DRIVER_POINTS_OVER_UNDER,
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
+            PredictionType.PIT_STOPS_OVER_UNDER,
+            -> overUnderDetail(entry, result)
+        }
+
+    private fun overUnderDetail(entry: PredictionEntry, result: RaceResultData): String {
+        val actual: Double? = when (entry.type) {
+            PredictionType.DRIVER_POINTS_OVER_UNDER ->
+                entry.driverIds.firstOrNull()?.let { id ->
+                    result.driver(id)?.let { result.effectivePoints(it) }
+                }
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -> result.safetyCars?.toDouble()
+            PredictionType.PIT_STOPS_OVER_UNDER -> result.confirmedTotalPitStops()?.toDouble()
+            else -> null
+        }
+        val threshold = entry.threshold
+        val over = entry.over
+        val bandLabel = bandText(entry)
+        return if (threshold == null || over == null || actual == null) {
+            NO_DATA_LABEL
+        } else {
+            val comparison = if (over) ">" else "<"
+            val subject = entry.driverIds.firstOrNull()?.let { name(it) } ?: labelOf(entry.type)
+            val band = bandText(entry).prependIfNotEmpty(" / fascia ")
+            "$subject $actual (soglia $comparison $threshold$band) " +
+                mark(isOver(actual, threshold) == over)
+        }
+    }
+
+    /** Fascia scelta nel pronostico a opzioni (safety car / pit stop), se presente. */
+    private fun bandText(entry: PredictionEntry): String {
+        val min = entry.rangeMin ?: return ""
+        val max = entry.rangeMax ?: return ""
+        return if (min == max) "$min" else if (max >= 99) "$min+" else "$min-$max"
+    }
+
+    private fun String.prependIfNotEmpty(prefix: String): String =
+        if (isEmpty()) "" else prefix + this
+
+    private fun singleDriverCheck(
+        predicted: String?,
+        actualId: String?,
+        actualLabel: String,
+    ): String = if (predicted == null || actualId == null) {
+        NO_DATA_LABEL
+    } else {
+        "${name(predicted)} $HIT $actualLabel" .takeIf { predicted == actualId }
+            ?: "${name(predicted)} $MISS $actualLabel"
+    }
+
+    private fun winnerSuffix(winner: DriverRaceResult?): String =
+        if (winner == null) "" else " (vincitore: ${name(winner.driverId)})"
+
+    private fun name(driverId: String?): String =
+        driverId?.let { DriversCatalog.nameOf(it) } ?: "—"
+
+    private fun labelOf(type: PredictionType): String = type.italianLabel
+
+    private fun mark(hit: Boolean): String = if (hit) HIT else MISS
+
+    const val NO_DATA_LABEL = "dati della gara non disponibili"
+
 
     /**
      * Over = "piu' di N"; Under = "N o meno". La partizione e' complementare

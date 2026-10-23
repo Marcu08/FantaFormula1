@@ -284,4 +284,45 @@
     <string name="pronostico_punti_quote">Sopra ×%1$s → %2$s punti · Sotto ×%3$s → %4$s punti</string>
     <string name="pronostico_quota">Quota ×%1$s → %2$s punti</string>
     <string name="pronostico_fascia_legacy">Fascia salvata: %1$d-%2$d. Le fasce sono diventate obbligatorie: scegli una delle nuove bande.</string>
+
+    <!-- U2: selettori data/ora deadline -->
+    <string name="gara_scegli_data">Scegli data</string>
+    <string name="gara_scegli_ora">Scegli ora</string>
+    <string name="gara_ora_selezionata">Ora: %1$s</string>
+
+    <!-- U3: countdown e banner di scadenza -->
+    <string name="pronostico_chiude_tra">Si chiude tra %1$s</string>
+    <string name="pronostico_scadenza_ravvicinata">Scadenza tra meno di 2 ore: Completa il pronostico!</string>
+
+    <!-- U1: spiegazione dei punti -->
+    <string name="pronostico_punti_dettaglio">Come hai vinto i punti</string>
+    <string name="pronostico_totale">Totale: %1$s punti</string>
+
+    <!-- U4: dashboard lega -->
+    <string name="dashboard_compilati">%1$d/%2$d pronostici compilati</string>
+    <string name="dashboard_posizione_classifica">Posizione in classifica: %1$dº</string>
+
+    <!-- U5: bozza automatica -->
+    <string name="pronostico_bozza_ripristinata">Bozza locale ripristinata</string>
+    <string name="pronostico_riepilogo_titolo">Riepilogo del pronostico</string>
+
+    <!-- U6: refresh e stati vuoti -->
+    <string name="classifica_svuota_sub">Gioca una gara con risultato per vedere la classifica qui.</string>
+
+    <!-- U8: riga propria -->
+    <string name="classifica_tu">Tu</string>
+
+    <!-- U10: invito -->
+    <string name="lega_condividi">Condividi</string>
+    <string name="lega_invito_testo">Unisciti alla mia lega su FantaFormula 1: codice %1$s</string>
+    <string name="lega_invito_copiato">Codice invito copiato</string>
+
+    <!-- U11: accessibilità -->
+    <string name="descrizione_bandiera">Bandiera %1$s</string>
+    <string name="decorativo_immagine_pilota">Immagine del pilota %1$s</string>
+
+    <!-- U9: editor regole semplificato -->
+    <string name="regole_avviso_ricalcolo">Modificare le regole ricalcola retroattivamente tutta la classifica della lega.</string>
+    <string name="regole_sezione_avanzate">Avanzate</string>
+    <string name="regole_preset_max">max %1$s punti/gara</string>
 </resources>

@@ -412,7 +412,8 @@ private fun MemberRow(
             if (member.isAdmin) {
                 Icon(
                     imageVector = Icons.Outlined.Groups,
-                    contentDescription = null,
+                    // U11: distintivo visivo, il ruolo va esplicitato.
+                    contentDescription = stringResource(R.string.lega_admin),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
                 )

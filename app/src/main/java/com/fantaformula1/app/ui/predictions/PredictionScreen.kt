@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,10 +72,11 @@ import com.fantaformula1.app.core.domain.DriverSeasonStats
 import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
 import com.fantaformula1.app.core.domain.Rules
+import com.fantaformula1.app.core.domain.ScoringEngine
 import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.OverUnderQuotes
 import com.fantaformula1.app.core.domain.italianLabel
-import com.fantaformula1.app.data.util.formatLocalDateTimeInput
+import com.fantaformula1.app.core.util.Formats
 import com.fantaformula1.app.ui.components.DriverAvatar
 import com.fantaformula1.app.ui.components.DriverImages
 import com.fantaformula1.app.ui.components.DriverPickerBottomSheet
@@ -102,12 +105,17 @@ fun PredictionScreen(
             leagueDataRepository = container.leagueDataRepository,
             seasonResultsStore = container.seasonResultsStore,
             raceId = raceId,
+            draftStore = container.predictionDraftStore,
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    // U3: "ora corrente" aggiornata ogni minuto per il countdown alla deadline.
+    var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
 
     val savedMessage = stringResource(R.string.pronostico_salvato)
+
+    val draftRestoredMessage = stringResource(R.string.pronostico_bozza_ripristinata)
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -118,12 +126,20 @@ fun PredictionScreen(
         }
     }
 
+    // U5: avviso quando una bozza locale è stata ripristinata.
+    LaunchedEffect(state.draftRestored) {
+        if (state.draftRestored) {
+            snackbarHostState.showSnackbar(draftRestoredMessage)
+        }
+    }
+
     // B10: ricalcola la deadline ogni minuto mentre la schermata è aperta,
     // così il FAB si disabilita e i pronostici altrui appaiono esattamente
     // allo scadere del tempo.
     LaunchedEffect(Unit) {
         while (true) {
             delay(60_000)
+            nowTick = java.time.Instant.now()
             viewModel.checkDeadline()
         }
     }
@@ -183,7 +199,54 @@ fun PredictionScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    item { DeadlineBanner(state) }
+                    item {
+                        DeadlineBanner(
+                            state = state,
+                            now = nowTick,
+                            incomplete = state.drafts.any { !it.complete },
+                        )
+                    }
+
+                    // U1: spiegazione dei punti del pronostico salvato, quando
+                    // il risultato della gara e' gia' disponibile.
+                    val minePrediction = state.mine
+                    val raceResult = state.result
+                    if (minePrediction != null && raceResult != null) {
+                        val lines = ScoringEngine.explain(
+                            prediction = minePrediction,
+                            result = raceResult,
+                            rules = state.rules,
+                        )
+                        item(key = "score_explain") {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                ),
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    SectionTitle(stringResource(R.string.pronostico_punti_dettaglio))
+                                    lines.forEach { line ->
+                                        Text(
+                                            text = "${line.type.italianLabel}: " +
+                                                "${Formats.points(line.points)} " +
+                                                "(${line.detail})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Text(
+                                        text = stringResource(
+                                            R.string.pronostico_totale,
+                                            Formats.points(lines.sumOf { it.points }),
+                                        ),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     // R6: avviso non bloccante sui tipi non ancora compilati.
                     state.warning?.let { warning ->
@@ -257,10 +320,23 @@ fun PredictionScreen(
 }
 
 @Composable
-private fun DeadlineBanner(state: PredictionUiState) {
+private fun DeadlineBanner(
+    state: PredictionUiState,
+    now: java.time.Instant,
+    incomplete: Boolean,
+) {
     val race = state.race ?: return
     // Stessa identita' visiva della card nel calendario: la gara e' riconoscibile.
     val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    // U3: countdown aggiornato ogni minuto dalla schermata.
+    val remaining = race.deadline?.let { java.time.Duration.between(now, it) }
+    val open = !state.deadlinePassed
+    val remainingText = remaining?.takeIf { open && !it.isNegative && !it.isZero }
+        ?.let { Formats.countdown(it) }
+    // U3: sotto le due ore un pronostico incompleto va evidenziato.
+    val urgent = open && incomplete && remaining != null &&
+        !remaining.isNegative && !remaining.isZero &&
+        remaining <= java.time.Duration.ofHours(2)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -282,6 +358,10 @@ private fun DeadlineBanner(state: PredictionUiState) {
                 Text(
                     text = visual.flag,
                     style = MaterialTheme.typography.headlineSmall,
+                    // U11: l'emoji della bandiera non e' autoesplicativa.
+                    modifier = Modifier.semantics {
+                        contentDescription = "Bandiera ${visual.flag}"
+                    },
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
@@ -298,15 +378,36 @@ private fun DeadlineBanner(state: PredictionUiState) {
                         stringResource(R.string.pronostico_chiuso)
                     } else {
                         race.deadline?.let {
+                            // U12: data/ora nel locale e fuso del dispositivo.
                             stringResource(
                                 R.string.pronostico_scadenza,
-                                formatLocalDateTimeInput(it),
+                                Formats.deadline(it),
                             )
                         } ?: stringResource(R.string.pronostico_sempre_aperta)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (remainingText != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.pronostico_chiude_tra, remainingText),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (urgent) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                    )
+                }
+                if (urgent) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.pronostico_scadenza_ravvicinata),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (state.saved) {
                     Spacer(Modifier.height(4.dp))
                     Text(

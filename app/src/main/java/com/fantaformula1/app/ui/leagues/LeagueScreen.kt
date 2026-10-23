@@ -36,13 +36,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +54,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,9 +63,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.Race
+import com.fantaformula1.app.core.domain.isSprintRelated
+import com.fantaformula1.app.core.util.Formats
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.notification.DeadlineReminderScheduler
-import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.CircuitOutline
 import com.fantaformula1.app.ui.components.CircuitTracks
 import com.fantaformula1.app.ui.components.ErrorState
@@ -67,6 +74,7 @@ import com.fantaformula1.app.ui.components.LoadingState
 import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SyncBar
 import com.fantaformula1.app.ui.components.raceHeaderBrush
+import kotlinx.coroutines.launch
 
 /**
  * Dettaglio di una lega: dashboard della prossima gara, anagrafica e accesso
@@ -92,6 +100,7 @@ fun LeagueScreen(
     val membersState by viewModel.membersState.collectAsStateWithLifecycle()
     // Stato di sincronizzazione F1 condiviso con il worker in background.
     val syncState by container.f1SyncStateHolder.state.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     var league by remember { mutableStateOf<League?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -101,6 +110,10 @@ fun LeagueScreen(
     var predictionSavedForNext by remember { mutableStateOf(false) }
     /** Contatore aggregato dei pronostici (dalla RPC prediction_count). */
     var predictionCountForNext by remember { mutableStateOf<Int?>(null) }
+    /** U4: quante voci del mio pronostico sono compilate su quante attive. */
+    var compiledForNext by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    /** U4: posizione corrente in classifica (null se non calcolabile). */
+    var standingsPosition by remember { mutableStateOf<Int?>(null) }
     // Aggiornata ogni minuto per il countdown (stesso pattern B10 dei pronostici).
     var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
     val context = LocalContext.current
@@ -139,7 +152,41 @@ fun LeagueScreen(
             val count = next?.let { race ->
                 runCatching { container.predictionRepository.predictionCount(race.id) }.getOrNull()
             }
-            Triple(next, mine, count)
+            // U4: voci compilate del MIO pronostico su quelle visibili.
+            val compiled = next?.let { race ->
+                val entries = mine[race.id]?.entries.orEmpty().size
+                val rules = league?.rules ?: com.fantaformula1.app.core.domain.Rules()
+                val visible = rules.enabledTypes.count {
+                    !it.isSprintRelated || race.isSprint
+                }
+                entries to visible
+            }
+            // U4: posizione in classifica, dallo stesso snapshot della
+            // schermata classifica (se non disponibile resta null).
+            val position = runCatching {
+                val snapshot = container.leagueDataRepository.raceData(leagueId)
+                val memberNames = container.leagueRepository.members(leagueId)
+                    .associate { it.userId to it.displayName }
+                val results = snapshot.races
+                    .mapNotNull { d -> d.result?.let { d.raceId to it } }.toMap()
+                val predictionsByUser = snapshot.races
+                    .flatMap { d -> d.predictions.map { (uid, p) -> uid to p } }
+                    .groupBy({ it.first }, { it.second })
+                val standings = com.fantaformula1.app.core.domain.LeagueStandings.build(
+                    rules = league?.rules ?: com.fantaformula1.app.core.domain.Rules(),
+                    memberNames = memberNames,
+                    races = races,
+                    results = results,
+                    predictionsByUser = predictionsByUser,
+                )
+                val myId = container.authRepository.currentUserId()
+                myId?.let { id -> standings.rows.indexOfFirst { it.userId == id } + 1 }
+                    ?.takeIf { it > 0 }
+            }.getOrNull()
+            Triple(next, mine, count).also {
+                compiledForNext = compiled
+                standingsPosition = position
+            }
         }.onSuccess { (race, mine, count) ->
             nextRace = race
             predictionSavedForNext = race?.id != null && race.id in mine
@@ -172,6 +219,7 @@ fun LeagueScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(league?.name ?: stringResource(R.string.lega_titolo_generico)) },
@@ -241,6 +289,8 @@ fun LeagueScreen(
                                 predictionSaved = predictionSavedForNext,
                                 predictionCount = predictionCountForNext,
                                 memberCount = membersState.members.size,
+                                compiled = compiledForNext,
+                                standingsPosition = standingsPosition,
                                 now = nowTick,
                                 onOpenPrediction = onOpenPrediction,
                             )
@@ -250,6 +300,7 @@ fun LeagueScreen(
                         LeagueSummaryCard(
                             league = league,
                             memberCount = membersState.members.size,
+                            snackbarHostState = snackbarHostState,
                         )
                     }
                     item {
@@ -297,6 +348,8 @@ private fun NextRaceCard(
     predictionSaved: Boolean,
     predictionCount: Int?,
     memberCount: Int,
+    compiled: Pair<Int, Int>?,
+    standingsPosition: Int?,
     now: java.time.Instant,
     onOpenPrediction: (String) -> Unit,
 ) {
@@ -317,6 +370,10 @@ private fun NextRaceCard(
                 Text(
                     text = visual.flag,
                     style = MaterialTheme.typography.headlineSmall,
+                    // U11: l'emoji della bandiera non e' autoesplicativa.
+                    modifier = Modifier.semantics {
+                        contentDescription = "Bandiera ${visual.flag}"
+                    },
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -365,6 +422,27 @@ private fun NextRaceCard(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                // U4: stato di compilazione del MIO pronostico e posizione.
+                compiled?.let { (done, total) ->
+                    if (total > 0) {
+                        Text(
+                            text = stringResource(R.string.dashboard_compilati, done, total),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (done < total) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                        )
+                    }
+                }
+                standingsPosition?.let { position ->
+                    Text(
+                        text = stringResource(R.string.dashboard_posizione_classifica, position),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 race.deadline?.let { deadline ->
                     // Urgenza: meno di un'ora alla chiusura. Evidenziata con
                     // colore E etichetta testuale, non solo colore.
@@ -377,12 +455,18 @@ private fun NextRaceCard(
                             append(
                                 stringResource(
                                     R.string.dashboard_chiusura,
-                                    formatLocalDateTimeInput(deadline),
+                                    // U12: locale e fuso del dispositivo.
+                                    Formats.deadline(deadline),
                                 ),
                             )
                             if (open && !remaining.isNegative && !remaining.isZero) {
                                 append(" · ")
-                                append(stringResource(R.string.dashboard_tra, countdownText(remaining)))
+                                append(
+                                    stringResource(
+                                        R.string.dashboard_tra,
+                                        Formats.countdown(remaining),
+                                    ),
+                                )
                             }
                             if (urgent) {
                                 append(" · ")
@@ -417,18 +501,6 @@ private fun NextRaceCard(
                 }
             }
         }
-    }
-}
-
-/** Countdown compatto: "3g 4h", "5h 20m" o "42m". */
-private fun countdownText(remaining: java.time.Duration): String {
-    val days = remaining.toDays()
-    val hours = remaining.toHours() % 24
-    val minutes = remaining.toMinutes() % 60
-    return when {
-        days > 0 -> "${days}g ${hours}h"
-        hours > 0 -> "${hours}h ${minutes}m"
-        else -> "${minutes}m"
     }
 }
 
@@ -487,7 +559,14 @@ private fun NavRow(
 }
 
 @Composable
-private fun LeagueSummaryCard(league: League?, memberCount: Int) {
+private fun LeagueSummaryCard(
+    league: League?,
+    memberCount: Int,
+    snackbarHostState: SnackbarHostState,
+) {
+    val context = LocalContext.current
+    val copiedMessage = stringResource(R.string.lega_invito_copiato)
+    val scope = rememberCoroutineScope()
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -505,7 +584,7 @@ private fun LeagueSummaryCard(league: League?, memberCount: Int) {
                 modifier = Modifier.size(32.dp),
             )
             Spacer(Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = league?.name.orEmpty(),
                     style = MaterialTheme.typography.titleLarge,
@@ -521,6 +600,37 @@ private fun LeagueSummaryCard(league: League?, memberCount: Int) {
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                league?.inviteCode?.takeIf { it.isNotBlank() }?.let { code ->
+                    val inviteText = stringResource(R.string.lega_invito_testo, code)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_TEXT, inviteText)
+                                    }
+                                context.startActivity(
+                                    android.content.Intent.createChooser(send, null),
+                                )
+                            },
+                        ) { Text(stringResource(R.string.lega_condividi)) }
+                        TextButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(
+                                    android.content.Context.CLIPBOARD_SERVICE,
+                                ) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    android.content.ClipData.newPlainText(
+                                        "FantaFormula1",
+                                        inviteText,
+                                    ),
+                                )
+                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                            },
+                        ) { Text(stringResource(R.string.lega_codice)) }
+                    }
+                }
             }
         }
     }

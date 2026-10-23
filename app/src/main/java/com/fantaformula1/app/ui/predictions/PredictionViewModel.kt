@@ -35,6 +35,7 @@ sealed interface PredictionEvent {
 }
 
 /** Bozza di un pronostico per tipo: campi numerici come stringhe. */
+@kotlinx.serialization.Serializable
 data class DraftEntry(
     val type: PredictionType,
     val driverIds: List<String> = emptyList(),
@@ -114,6 +115,10 @@ data class PredictionUiState(
     val error: String? = null,
     /** Avviso non bloccante su cio' che resta da compilare (R6). */
     val warning: String? = null,
+    /** Risultato della gara, se gia' disponibile (per la spiegazione U1). */
+    val result: com.fantaformula1.app.core.domain.RaceResultData? = null,
+    /** U5: true se alla riapertura è stata ripristinata una bozza locale. */
+    val draftRestored: Boolean = false,
 ) {
     /** Tipi di pronostico da mostrare nel form. */
     val visibleTypes: List<PredictionType>
@@ -129,6 +134,7 @@ class PredictionViewModel(
     private val leagueDataRepository: LeagueDataRepository,
     private val seasonResultsStore: SeasonResultsStore,
     private val raceId: String,
+    private val draftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore? = null,
 ) : ViewModel() {
 
     companion object {
@@ -172,6 +178,9 @@ class PredictionViewModel(
                         )
                     }
                 }
+                // U1: risultato della gara corrente, per spiegare i punti.
+                val raceResult = snapshot.races
+                    .firstOrNull { it.raceId == raceId }?.result
 
                 // Statistiche IMMEDIATE: cache stagione (ZERO rete) + lega.
                 // La schermata non aspetta mai la rete per le statistiche.
@@ -183,7 +192,7 @@ class PredictionViewModel(
 
                 RaceLoad(race, league, mine, others.map { (id, p) ->
                     OtherPrediction(id, names[id] ?: "Giocatore", p)
-                }, leagueResults, stats)
+                }, leagueResults, stats, raceResult)
             }.onSuccess { load ->
                 val race = load.race
                 val league = load.league
@@ -193,6 +202,21 @@ class PredictionViewModel(
                 // B9/B10: la decisione "gara aperta" viene da
                 // Race.isPredictionOpen, che considera deadline E status.
                 val open = race.isPredictionOpen()
+                // U5: la bozza locale riempie i tipi che sul server
+                // non risultano ancora compilati (l'invio e' l'ultimo passo).
+                val serverDrafts = buildDrafts(rules, race, mine)
+                val localDrafts = try {
+                    draftStore?.load(raceId)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                val mergedDrafts = serverDrafts.map { draft ->
+                    val local = localDrafts?.firstOrNull { it.type == draft.type }
+                    if (draft.driverIds.isEmpty() && local != null) local else draft
+                }
+                val restored = mergedDrafts != serverDrafts
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -202,8 +226,9 @@ class PredictionViewModel(
                         mine = mine,
                         // B14: le bozze seguono sempre i tipi attuali della
                         // lega e compatibili con la gara; i valori salvati
-                        // riempiono solo i tipi ancora attivi.
-                        drafts = buildDrafts(rules, race, mine),
+                        // riempiono solo i tipi ancora attivi. U5: la bozza
+                        // locale ha la precedenza sui tipi vuoti.
+                        drafts = mergedDrafts,
                         others = others,
                         seasonStats = load.stats,
                         canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
@@ -213,6 +238,8 @@ class PredictionViewModel(
                         // la deadline.
                         canRevealOthers = !rules.revealOthersAfterDeadline || !open,
                         saved = mine != null,
+                        result = load.result,
+                        draftRestored = restored,
                     )
                 }
                 // RINFRESCO IN BACKGROUND (incrementale, max 6h, timeout 10s
@@ -334,6 +361,19 @@ class PredictionViewModel(
                 warning = null,
             )
         }
+        // U5: la bozza viene persistita localmente a ogni modifica, cosi'
+        // chiudere l'app non perde il lavoro in corso.
+        val snapshot = _uiState.value.drafts
+        viewModelScope.launch {
+            try {
+                draftStore?.save(raceId, snapshot)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Bozza locale best-effort: un fallimento (disco pieno, ecc.)
+                // non deve interrompere la compilazione.
+            }
+        }
     }
 
     fun save() {
@@ -377,6 +417,16 @@ class PredictionViewModel(
         viewModelScope.launch {
             try {
                 predictionRepository.savePrediction(raceId, race.leagueId, prediction)
+                // U5: bozza inviata -> rimossa dal locale (il server e' ora
+                // la sorgente di verita').
+                try {
+                    draftStore?.clear(raceId)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Best-effort: una bozza residua viene sovrascritta al
+                    // prossimo salvataggio.
+                }
                 _uiState.update { it.copy(saving = false, saved = true, mine = prediction) }
                 _events.emit(PredictionEvent.Saved)
             } catch (e: UserException) {
@@ -399,6 +449,7 @@ private data class RaceLoad(
     val others: List<OtherPrediction>,
     val leagueResults: List<DriverSeasonStats.StampedResult>,
     val stats: DriverSeasonStats,
+    val result: com.fantaformula1.app.core.domain.RaceResultData?,
 )
 
 /**
