@@ -106,6 +106,20 @@ internal fun mapRaceWriteError(rawMessage: String?, action: String): String {
 }
 
 /**
+ * F2 — nome della stagione che viene creata dopo l'archiviazione: se
+ * [year] non e' gia' stato usato nella lega lo restituisce cosi', altrimenti
+ * lo suffissa con " (2)", " (3)", ... finche' non trova un nome libero.
+ *
+ * Funzione pura (testata su JVM).
+ */
+internal fun nextSeasonName(existing: Collection<String>, year: String): String {
+    if (year !in existing) return year
+    var suffix = 2
+    while ("$year ($suffix)" in existing) suffix++
+    return "$year ($suffix)"
+}
+
+/**
  * Implementazione Supabase di [RaceRepository].
  *
  * L'autorizzazione e' interamente nella RLS: gare e risultati possono essere
@@ -118,10 +132,16 @@ class SupabaseRaceRepository(
 
     override suspend fun races(leagueId: String): List<Race> {
         val client = requireClient()
+        // F2: le schermate correnti mostrano solo le gare della stagione in
+        // corso; quelle storiche restano nel DB ma escono dal calendario.
+        val seasonId = currentSeasonId(client, leagueId)
         val rows = client.from("races").select {
             filter { eq("league_id", leagueId) }
         }.decodeList<RaceDto>()
-        return rows.map { it.toDomain() }.sortedBy { it.round }
+        if (seasonId == null) return emptyList()
+        return rows.filter { it.seasonId == seasonId }
+            .map { it.toDomain() }
+            .sortedBy { it.round }
     }
 
     override suspend fun race(raceId: String): Race? {
@@ -261,20 +281,51 @@ class SupabaseRaceRepository(
     }
 
     /**
-     * Ritorna la stagione attiva della lega, creandola se non esiste.
-     * E' un dettaglio di implementazione dello schema: ogni gara deve
-     * appartenere a una stagione.
+     * F2 — Stagione le cui gare sono "correnti": quella attiva; in sua assenza
+     * la piu' recente per [SeasonDto.createdAt]. Se la stagione piu' recente e'
+     * gia' archiviata (snapshot esistente) la sua classifica e' congelata e le
+     * gare non devono tornare nelle schermate correnti: si ritorna null.
+     * Se la lega non ha stagioni: null (=> nessuna gara, lista vuota).
      */
-    private suspend fun ensureSeason(client: SupabaseClient, leagueId: String): String {
-        val existing = client.from("seasons").select {
+    private suspend fun currentSeasonId(client: SupabaseClient, leagueId: String): String? {
+        activeSeasonOrNull(client, leagueId)?.let { return it.id }
+        val seasons = client.from("seasons").select {
+            filter { eq("league_id", leagueId) }
+        }.decodeList<SeasonDto>()
+        val mostRecent = seasons.maxByOrNull { it.createdAt.orEmpty() } ?: return null
+        val snapshots = client.from("season_snapshots").select {
+            filter { eq("season_id", mostRecent.id) }
+        }.decodeList<SeasonSnapshotDto>()
+        return if (snapshots.isNotEmpty()) null else mostRecent.id
+    }
+
+    /**
+     * Stagione attiva della lega, oppure null. La legge soltanto: la creazione
+     * resta in [ensureSeason], chiamata solo quando serve una nuova gara.
+     */
+    private suspend fun activeSeasonOrNull(client: SupabaseClient, leagueId: String): SeasonDto? =
+        client.from("seasons").select {
             filter {
                 eq("league_id", leagueId)
                 eq("is_active", true)
             }
         }.decodeList<SeasonDto>().firstOrNull { it.isActive }
+
+    /**
+     * Ritorna la stagione attiva della lega, creandola se non esiste.
+     * E' un dettaglio di implementazione dello schema: ogni gara deve
+     * appartenere a una stagione.
+     */
+    private suspend fun ensureSeason(client: SupabaseClient, leagueId: String): String {
+        val existing = activeSeasonOrNull(client, leagueId)
         if (existing != null) return existing.id
 
-        val name = java.time.Year.now().toString()
+        // F2: il nome della nuova stagione non deve collidere con quelli gia'
+        // usati nella lega (la stagione archiviata si chiama ancora "2026").
+        val existingNames = client.from("seasons").select {
+            filter { eq("league_id", leagueId) }
+        }.decodeList<SeasonDto>().map { it.name }
+        val name = nextSeasonName(existingNames, java.time.Year.now().toString())
         val raw = try {
             client.postgrest.rpc(
                 "create_default_season",

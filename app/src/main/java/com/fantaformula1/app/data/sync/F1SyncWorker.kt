@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.fantaformula1.app.FantaApplication
+import com.fantaformula1.app.data.notification.DeadlineNotifications
 import java.util.concurrent.TimeUnit
 
 /**
@@ -47,6 +48,13 @@ class F1SyncWorker(
         }
         val results = container.f1SyncStateHolder.syncResults(leagueId)
         return if (results?.isSuccess == true) {
+            // F1: se la sincronizzazione ha davvero salvato dei risultati,
+            // l'utente locale riceve l'avviso "risultati disponibili"
+            // (solo se non ha spento le notifiche dall'impostazione).
+            val completed = (results as? SyncResult.Success)?.completed ?: 0
+            if (completed > 0) {
+                DeadlineNotifications.showResultsAvailable(applicationContext, completed)
+            }
             Result.success()
         } else {
             Result.retry()

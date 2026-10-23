@@ -3,6 +3,7 @@ package com.fantaformula1.app.ui.calendar
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fantaformula1.app.core.domain.Race
+import com.fantaformula1.app.data.offline.OfflineCacheStore
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
@@ -36,6 +37,10 @@ data class CalendarUiState(
     val formOpen: Boolean = false,
     val form: RaceForm = RaceForm(),
     val formError: String? = null,
+    /** F3: true se i dati mostrati arrivano dalla cache (rete non disponibile). */
+    val offline: Boolean = false,
+    /** F3: quando e' stato aggiornato l'ultimo dato di rete mostrato. */
+    val lastUpdatedEpochMs: Long? = null,
 )
 
 /** Dati grezzi del form gara: la conversione in ISO avviene nel ViewModel. */
@@ -77,6 +82,8 @@ class CalendarViewModel(
     private val authRepository: AuthRepository,
     private val predictionRepository: PredictionRepository,
     private val leagueId: String,
+    /** F3: cache offline "stale-while-error" di gare e pronostici. */
+    private val offlineCache: OfflineCacheStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CalendarUiState())
@@ -97,7 +104,7 @@ class CalendarViewModel(
                 val members = leagueRepository.members(leagueId)
                 val me = authRepository.currentUserId()
                 val admin = members.any { it.userId == me && it.isAdmin }
-                val mine = predictionRepository.myPredictions(leagueId).keys
+                val mine = predictionRepository.myPredictions(leagueId)
                 Triple(races, admin, mine)
             }.onSuccess { (races, admin, mine) ->
                 _uiState.update {
@@ -105,12 +112,34 @@ class CalendarViewModel(
                         loading = false,
                         races = races,
                         isAdmin = admin,
-                        myPredictionRaceIds = mine,
+                        myPredictionRaceIds = mine.keys,
+                        offline = false,
+                        lastUpdatedEpochMs = null,
                     )
                 }
+                // F3: la rete funziona -> la cache viene SEMPRE aggiornata.
+                offlineCache.saveRaces(leagueId, races)
+                offlineCache.savePredictions(leagueId, mine)
             }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(loading = false, error = throwable.message ?: "Si è verificato un errore")
+                // F3: rete fallita -> gare e pronostici dalla cache locale;
+                // solo senza cache l'errore resta bloccante.
+                val cachedRaces = offlineCache.races(leagueId)
+                if (cachedRaces != null) {
+                    val cachedPredictions = offlineCache.predictions(leagueId)
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            races = cachedRaces.value,
+                            myPredictionRaceIds = cachedPredictions?.value?.keys.orEmpty(),
+                            error = null,
+                            offline = true,
+                            lastUpdatedEpochMs = cachedRaces.cachedAtEpochMs,
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(loading = false, error = throwable.message ?: "Si è verificato un errore")
+                    }
                 }
             }
         }

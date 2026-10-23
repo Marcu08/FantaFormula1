@@ -21,6 +21,11 @@ class FantaApplication : Application() {
         super.onCreate()
         container = AppContainer(this, applicationScope)
 
+        // F3: worker periodico che riprova i pronostici salvati offline
+        // (operazione locale, non bloccante; il caricamento dati resta
+        // nell'applicationScope qui sotto).
+        com.fantaformula1.app.data.offline.PendingWritesScheduler.schedule(this)
+
         // Applica la configurazione Supabase salvata e ripristina la sessione.
         // Se mancano URL/chiavi l'app resta utilizzabile: mostra la schermata
         // di configurazione invece di andare in crash.

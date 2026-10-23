@@ -16,7 +16,11 @@ sealed interface AuthState {
 }
 
 /** Errore utente comprensibile, gia' tradotto in italiano. */
-data class UserException(override val message: String) : Exception(message)
+data class UserException(
+    override val message: String,
+    /** F3: causa originale (es. IOException di rete) per `isOfflineError`. */
+    override val cause: Throwable? = null,
+) : Exception(message, cause)
 
 /**
  * Interfaccia del repository auth: permette di testare i ViewModel su JVM

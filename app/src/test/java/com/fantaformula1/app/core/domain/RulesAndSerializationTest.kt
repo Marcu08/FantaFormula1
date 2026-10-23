@@ -105,6 +105,25 @@ class RulesAndSerializationTest {
     }
 
     @Test
+    fun `F6 safety car e pit stop disattivati nei preset nuovi`() {
+        // Jolpica non fornisce questi dati: nei preset nuovi restano spenti
+        // (completamento manuale N3 o import OpenF1 parziale) e l'admin puo'
+        // attivarli dall'editor regole.
+        val defaults = Rules.defaultEnabledTypes()
+        assertFalse(defaults.contains(PredictionType.SAFETY_CAR_COUNT_OVER_UNDER))
+        assertFalse(defaults.contains(PredictionType.PIT_STOPS_OVER_UNDER))
+        // Attivabili dall'editor e validabili come tutti gli altri:
+        val withOverUnder = Rules.default().copy(
+            enabledTypes = defaults +
+                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER +
+                PredictionType.PIT_STOPS_OVER_UNDER,
+        )
+        assertEquals(emptyList<String>(), withOverUnder.validate())
+        // I default completi restano validi (nessun tipo a 0 punti mancante).
+        assertEquals(emptyList<String>(), Rules.default().validate())
+    }
+
+    @Test
     fun `json con campi ignoti non rompe il parsing`() {
         val raw = """{"version":1,"name":"Legacy","campoSconosciuto":true}"""
         val decoded = json.decodeFromString(Rules.serializer(), raw)

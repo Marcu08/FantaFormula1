@@ -12,6 +12,10 @@ import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.isSprintRelated
 import com.fantaformula1.app.core.domain.italianLabel
 import com.fantaformula1.app.core.domain.withFrozenQuota
+import com.fantaformula1.app.data.offline.OfflineCacheStore
+import com.fantaformula1.app.data.offline.PendingPredictionWrite
+import com.fantaformula1.app.data.offline.PendingWritesStore
+import com.fantaformula1.app.data.offline.isOfflineError
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
@@ -32,6 +36,8 @@ import java.time.Instant
 sealed interface PredictionEvent {
     data object Saved : PredictionEvent
     data class Failure(val message: String) : PredictionEvent
+    /** F3: salvataggio messo in coda perche' la rete non era disponibile. */
+    data object Queued : PredictionEvent
 }
 
 /** Bozza di un pronostico per tipo: campi numerici come stringhe. */
@@ -119,6 +125,10 @@ data class PredictionUiState(
     val result: com.fantaformula1.app.core.domain.RaceResultData? = null,
     /** U5: true se alla riapertura è stata ripristinata una bozza locale. */
     val draftRestored: Boolean = false,
+    /** F3: true se i dati mostrati arrivano dalla cache (rete non disponibile). */
+    val offline: Boolean = false,
+    /** F3: quando e' stato aggiornato l'ultimo dato di rete mostrato. */
+    val lastUpdatedEpochMs: Long? = null,
 ) {
     /** Tipi di pronostico da mostrare nel form. */
     val visibleTypes: List<PredictionType>
@@ -135,6 +145,10 @@ class PredictionViewModel(
     private val seasonResultsStore: SeasonResultsStore,
     private val raceId: String,
     private val draftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore? = null,
+    /** F3: cache offline del "mio pronostico" (opzionale per i test). */
+    private val offlineCache: OfflineCacheStore? = null,
+    /** F3: coda salvataggi offline (opzionale per i test). */
+    private val pendingWritesStore: PendingWritesStore? = null,
 ) : ViewModel() {
 
     companion object {
@@ -240,8 +254,13 @@ class PredictionViewModel(
                         saved = mine != null,
                         result = load.result,
                         draftRestored = restored,
+                        offline = false,
+                        lastUpdatedEpochMs = null,
                     )
                 }
+                // F3: la rete funziona -> il pronostico viene SEMPRE
+                // salvato in cache per il ripristino offline.
+                mine?.let { saved -> rememberPrediction(race.leagueId, saved) }
                 // RINFRESCO IN BACKGROUND (incrementale, max 6h, timeout 10s
                 // a richiesta): non blocca la schermata e nessun errore
                 // visibile se fallisce. Quando arriva aggiorna le statistiche.
@@ -258,8 +277,16 @@ class PredictionViewModel(
                     }
                 }
             }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(loading = false, error = throwable.message ?: "Si è verificato un errore")
+                // F3: rete fallita -> si prova a ripristinare gara, lega e
+                // pronostico dalla cache; solo senza cache l'errore resta
+                // bloccante come prima.
+                if (!restoreFromCache()) {
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = throwable.message ?: "Si è verificato un errore",
+                        )
+                    }
                 }
             }
         }
@@ -427,13 +454,109 @@ class PredictionViewModel(
                     // Best-effort: una bozza residua viene sovrascritta al
                     // prossimo salvataggio.
                 }
+                // F3: il pronostico appena salvato alimenta la cache offline.
+                rememberPrediction(race.leagueId, prediction)
                 _uiState.update { it.copy(saving = false, saved = true, mine = prediction) }
                 _events.emit(PredictionEvent.Saved)
             } catch (e: UserException) {
-                _uiState.update { it.copy(saving = false, errors = listOf(e.message)) }
-                _events.emit(PredictionEvent.Failure(e.message))
+                if (isOfflineError(e)) {
+                    // F3: rete assente -> in coda, niente errore rosso.
+                    queueOfflineSave(prediction)
+                } else {
+                    _uiState.update { it.copy(saving = false, errors = listOf(e.message)) }
+                    _events.emit(PredictionEvent.Failure(e.message))
+                }
             } catch (e: Exception) {
-                val message = e.message ?: "Impossibile salvare il pronostico"
+                if (isOfflineError(e)) {
+                    // F3: rete assente -> in coda, niente errore rosso.
+                    queueOfflineSave(prediction)
+                } else {
+                    val message = e.message ?: "Impossibile salvare il pronostico"
+                    _uiState.update { it.copy(saving = false, errors = listOf(message)) }
+                    _events.emit(PredictionEvent.Failure(message))
+                }
+            }
+        }
+    }
+
+    /**
+     * F3 — "stale-while-error": se la rete non risponde, gara, lega e
+     * pronostico proprio vengono ripristinati dalla cache locale e la
+     * schermata mostra il banner Offline invece dell'errore bloccante.
+     *
+     * @return true se la cache ha potuto ripristinare la schermata.
+     */
+    private suspend fun restoreFromCache(): Boolean {
+        val cache = offlineCache ?: return false
+        val cachedRace = cache.race(raceId) ?: return false
+        val race = cachedRace.value
+        val league = cache.leagues()?.value?.firstOrNull { it.id == race.leagueId }
+        val cachedPredictions = cache.predictions(race.leagueId)
+        val mine = cachedPredictions?.value?.get(raceId)
+        val rules = league?.rules ?: Rules()
+        // B9/B10: la decisione "gara aperta" vale anche offline (sul clock).
+        val open = race.isPredictionOpen()
+        _uiState.update {
+            it.copy(
+                loading = false,
+                race = race,
+                league = league,
+                rules = rules,
+                mine = mine,
+                drafts = buildDrafts(rules, race, mine),
+                canSubmit = open && (mine == null || rules.allowEditUntilDeadline),
+                deadlinePassed = !open,
+                canRevealOthers = !rules.revealOthersAfterDeadline || !open,
+                saved = mine != null,
+                offline = true,
+                lastUpdatedEpochMs = maxOf(
+                    cachedRace.cachedAtEpochMs,
+                    cachedPredictions?.cachedAtEpochMs ?: 0L,
+                ),
+            )
+        }
+        return true
+    }
+
+    /** F3: aggiorna la cache locale del "mio pronostico" (best-effort). */
+    private suspend fun rememberPrediction(leagueId: String, prediction: RacePrediction) {
+        val cache = offlineCache ?: return
+        val existing = cache.predictions(leagueId)?.value.orEmpty()
+        cache.savePredictions(leagueId, existing + (raceId to prediction))
+    }
+
+    /**
+     * F3 — la rete non ha fatto arrivare il salvataggio: il pronostico va
+     * nella coda ([PendingWritesStore]) e il worker periodico riprovera'.
+     */
+    private fun queueOfflineSave(prediction: RacePrediction) {
+        viewModelScope.launch {
+            val store = pendingWritesStore
+            val queued = if (store == null) {
+                false
+            } else {
+                try {
+                    store.enqueue(
+                        PendingPredictionWrite(
+                            raceId = raceId,
+                            prediction = prediction,
+                            queuedAtEpochMs = Instant.now().toEpochMilli(),
+                        ),
+                    )
+                    true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (queued) {
+                // La bozza resta locale: il worker riprovera' appena torna
+                // la rete, e lo snackbar lo comunica senza errore rosso.
+                _uiState.update { it.copy(saving = false) }
+                _events.emit(PredictionEvent.Queued)
+            } else {
+                val message = "Impossibile salvare il pronostico"
                 _uiState.update { it.copy(saving = false, errors = listOf(message)) }
                 _events.emit(PredictionEvent.Failure(message))
             }

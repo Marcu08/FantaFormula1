@@ -50,6 +50,8 @@ data class SeasonDto(
     @SerialName("league_id") val leagueId: String,
     val name: String,
     @SerialName("is_active") val isActive: Boolean = true,
+    /** F2: serve a pescare la stagione piu' recente quando non ce n'e' una attiva. */
+    @SerialName("created_at") val createdAt: String? = null,
 )
 
 @Serializable

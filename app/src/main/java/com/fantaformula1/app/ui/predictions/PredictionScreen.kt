@@ -85,6 +85,7 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaNumberField
 import com.fantaformula1.app.ui.components.FantaTextField
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.raceHeaderBrush
@@ -106,6 +107,8 @@ fun PredictionScreen(
             seasonResultsStore = container.seasonResultsStore,
             raceId = raceId,
             draftStore = container.predictionDraftStore,
+            offlineCache = container.offlineCacheStore,
+            pendingWritesStore = container.pendingWritesStore,
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -117,10 +120,14 @@ fun PredictionScreen(
 
     val draftRestoredMessage = stringResource(R.string.pronostico_bozza_ripristinata)
 
+    // F3: messaggio quando il salvataggio e' andato in coda offline.
+    val queuedMessage = stringResource(R.string.pronostico_in_coda)
+
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
                 PredictionEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
+                PredictionEvent.Queued -> snackbarHostState.showSnackbar(queuedMessage)
                 is PredictionEvent.Failure -> snackbarHostState.showSnackbar(event.message)
             }
         }
@@ -178,11 +185,20 @@ fun PredictionScreen(
             }
         },
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
+            // F3: avviso "Offline" quando gara e pronostico arrivano dalla
+            // cache perche' la rete non ha risposto.
+            if (state.offline) {
+                OfflineBanner(
+                    lastUpdatedEpochMs = state.lastUpdatedEpochMs,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
             when {
                 state.loading -> LoadingState()
                 state.error != null -> ErrorState(
@@ -314,8 +330,9 @@ fun PredictionScreen(
                         }
                     }
                 }
-            }
-        }
+            } // when
+            } // Box contenuto
+        } // Column
     }
 }
 

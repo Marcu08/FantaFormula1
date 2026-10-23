@@ -155,7 +155,9 @@ class SupabasePredictionRepository(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            throw UserException(writeErrorMessage(throwable, raceId))
+            // F3: la causa (es. IOException) resta leggibile dalla UI per
+            // distinguere "errore di rete" da errore definitivo.
+            throw UserException(writeErrorMessage(throwable, raceId), throwable)
         }
     }
 

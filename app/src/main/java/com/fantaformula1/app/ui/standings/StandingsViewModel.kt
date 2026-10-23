@@ -7,12 +7,26 @@ import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RaceResultData
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.ScoringEngine
+import com.fantaformula1.app.core.domain.SeasonStandingsSnapshot
+import com.fantaformula1.app.core.domain.toCached
+import com.fantaformula1.app.core.domain.toDomainRow
+import com.fantaformula1.app.data.offline.OfflineCacheStore
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.RaceRepository
+import com.fantaformula1.app.data.supabase.SupabaseHolder
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -49,6 +63,10 @@ data class StandingsUiState(
     val rankDeltas: Map<String, Int> = emptyMap(),
     /** U8: riga espansa nel tab classifica (userId), per il dettaglio per gara. */
     val expandedUserId: String? = null,
+    /** F3: true se la classifica mostrata viene dalla cache (rete assente). */
+    val offline: Boolean = false,
+    /** F3: quando e' stato aggiornato l'ultimo dato di rete mostrato. */
+    val lastUpdatedEpochMs: Long? = null,
 )
 
 class StandingsViewModel(
@@ -56,14 +74,75 @@ class StandingsViewModel(
     private val leagueRepository: LeagueRepository,
     private val raceRepository: RaceRepository,
     private val authRepository: com.fantaformula1.app.data.repository.AuthRepository,
+    private val supabaseHolder: SupabaseHolder,
     private val leagueId: String,
+    /** F3: cache offline della classifica ("stale-while-error"). */
+    private val offlineCache: OfflineCacheStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StandingsUiState())
     val uiState: StateFlow<StandingsUiState> = _uiState
 
+    /**
+     * F4: canale Realtime sulla tabella `race_results` della lega: quando un
+     * risultato viene inserito o aggiornato (da chiunque, il push passa
+     * dalla RLS) la classifica viene ricaricata. Se Realtime non e'
+     * disponibile (progetto senza estensione, errore di socket) la
+     * schermata resta comunque funzionante col caricamento manuale.
+     */
+    private var liveChannel: RealtimeChannel? = null
+
     init {
         load()
+        startLiveUpdates()
+    }
+
+    private fun startLiveUpdates() {
+        viewModelScope.launch {
+            try {
+                val client = supabaseHolder.get() ?: return@launch
+                // I change si registrano sul canale prima del subscribe; i due
+                // collector (insert e update) vivono nello scope del ViewModel.
+                val channel = client.channel("standings_$leagueId")
+                channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                    table = "race_results"
+                    filter("league_id", FilterOperator.EQ, leagueId)
+                }.onEach {
+                    // Evento dal server: la classifica si aggiorna da sola
+                    // (caricamento silenzioso, senza spinner).
+                    load()
+                }.launchIn(viewModelScope)
+                channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+                    table = "race_results"
+                    filter("league_id", FilterOperator.EQ, leagueId)
+                }.onEach {
+                    load()
+                }.launchIn(viewModelScope)
+                channel.subscribe()
+                liveChannel = channel
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                // Nessun Realtime: la classifica resta a caricamento manuale.
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        val channel = liveChannel ?: return
+        liveChannel = null
+        // Rimozione del canale fuori dallo scope del ViewModel (gia'
+        // cancellato): niente runCatching su suspend, eccezioni gestite a mano.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                supabaseHolder.get()?.realtime?.removeChannel(channel)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                // Il canale resta sul socket: il client viene chiuso al logout.
+            }
+        }
     }
 
     fun load() {
@@ -133,14 +212,39 @@ class StandingsViewModel(
                             predictionsByUser = predictionsByUser,
                             currentRows = snapshot.rows,
                         ),
+                        offline = false,
+                        lastUpdatedEpochMs = null,
                     )
                 }
+                // F3: la rete funziona -> la classifica viene SEMPRE
+                // salvata in cache per il ripristino offline.
+                offlineCache.saveStandings(
+                    leagueId,
+                    SeasonStandingsSnapshot(
+                        snapshot.rows.mapIndexed { index, row -> row.toCached(index + 1) },
+                    ),
+                )
             }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(
-                        loading = false,
-                        error = throwable.message ?: "Si è verificato un errore",
-                    )
+                // F3: rete fallita -> ripristina la classifica dalla cache;
+                // solo senza cache l'errore resta bloccante.
+                val cached = offlineCache.standings(leagueId)
+                if (cached != null) {
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            rows = cached.value.rows.map { row -> row.toDomainRow() },
+                            error = null,
+                            offline = true,
+                            lastUpdatedEpochMs = cached.cachedAtEpochMs,
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = throwable.message ?: "Si è verificato un errore",
+                        )
+                    }
                 }
             }
         }

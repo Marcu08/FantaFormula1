@@ -78,6 +78,7 @@ import com.fantaformula1.app.ui.components.CircuitOutline
 import com.fantaformula1.app.ui.components.CircuitTracks
 import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.SyncBar
+import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.raceHeaderBrush
 import kotlinx.coroutines.launch
 
@@ -99,6 +100,7 @@ fun CalendarScreen(
             authRepository = container.authRepository,
             predictionRepository = container.predictionRepository,
             leagueId = leagueId,
+            offlineCache = container.offlineCacheStore,
         )
     }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -186,11 +188,20 @@ fun CalendarScreen(
     ) { innerPadding ->
         val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         var refreshing by remember { mutableStateOf(false) }
-        Box(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
+            // F3: avviso "Offline" quando calendario e pronostici arrivano
+            // dalla cache perche' la rete non ha risposto.
+            if (state.offline) {
+                OfflineBanner(
+                    lastUpdatedEpochMs = state.lastUpdatedEpochMs,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
             // Dal calendario si vedono solo le gare a venire: le gare passate
             // (deadline superata o gia' completate) restano nella sezione
             // richiudibile in fondo, per consultare i risultati.
@@ -326,7 +337,8 @@ fun CalendarScreen(
                 } // LazyColumn
             } // when
         } // PullToRefreshBox
-    } // Box
+        } // Box contenuto
+    } // Column
 } // Scaffold content
 
     if (state.formOpen) {

@@ -1,0 +1,36 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Test e lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JDK 21 (Temurin): coincide col jvmToolchain(21) del progetto.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Cache di Gradle + validazione del wrapper (supply-chain).
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit test e lint
+        run: ./gradlew testDebugUnitTest lintDebug
+
+      # Il report di lint resta accessibile anche quando il job fallisce.
+      - name: Upload report lint
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore

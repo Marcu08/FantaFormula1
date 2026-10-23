@@ -36,6 +36,10 @@
     <string name="config_mancante_testo">Inserisci l\'URL del progetto e la chiave anon per collegare la lega al cloud.</string>
     <string name="config_reset">Ripristina valori predefiniti</string>
     <string name="config_reset_done">Ripristinati i valori predefiniti</string>
+    <!-- F1: notifiche locali -->
+    <string name="config_notifiche">Notifiche</string>
+    <string name="config_notifiche_sub">Promemoria 24 ore e 1 ora prima della scadenza dei pronostici (solo se incompleti) e avviso quando arrivano i risultati.</string>
+    <string name="config_notifiche_permesso_negato">Permesso notifiche negato: le notifiche restano spente. Puoi attivarlo dalle impostazioni di Android.</string>
     <string name="config_valori_default">Valori predefiniti da build</string>
     <string name="config_override_attivo">Valori personalizzati attivi</string>
     <string name="config_url_invalido">L\'URL deve iniziare con https://</string>
@@ -325,4 +329,25 @@
     <string name="regole_avviso_ricalcolo">Modificare le regole ricalcola retroattivamente tutta la classifica della lega.</string>
     <string name="regole_sezione_avanzate">Avanzate</string>
     <string name="regole_preset_max">max %1$s punti/gara</string>
+
+    <!-- F2: storico stagioni -->
+    <string name="lega_stagioni_passate">Stagioni passate</string>
+    <string name="lega_stagioni_vuote">Nessuna stagione archiviata: quando chiudi una stagione, la classifica finale resta qui.</string>
+    <string name="lega_stagione_archiviata_il">Archiviata il %1$s</string>
+    <string name="lega_archivia_stagione">Archivia stagione</string>
+    <string name="lega_archivia_conferma_titolo">Archiviare la stagione corrente?</string>
+    <string name="lega_archivia_conferma_testo">La classifica finale viene congelata e consultabile da qui; una nuova stagione partirà da zero.</string>
+    <string name="lega_archivia_fatto">Stagione archiviata</string>
+    <string name="lega_archivia_errore">Impossibile archiviare la stagione</string>
+    <string name="lega_classifica_finale">Classifica finale</string>
+    <string name="lega_stagione_non_leggibile">Classifica non leggibile</string>
+    <string name="azione_stagioni_passate">Stagioni passate</string>
+
+    <!-- F3: cache offline + coda salvataggi -->
+    <string name="offline_banner">Offline — ultimo aggiornamento: %1$s</string>
+    <string name="offline_banner_senza_data">Offline — dati non disponibili</string>
+    <string name="pronostico_in_coda">Salvataggio in coda: verrà riprovato appena torna la rete</string>
+    <string name="coda_titolo">Pronostico non salvato</string>
+    <string name="coda_deadline_passata">Il pronostico di %1$s non è stato salvato: la deadline è passata.</string>
+    <string name="coda_salvataggio_fallito">Il pronostico non è stato salvato: %1$s</string>
 </resources>

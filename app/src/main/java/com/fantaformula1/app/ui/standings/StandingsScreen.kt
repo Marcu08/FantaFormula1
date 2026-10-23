@@ -48,6 +48,7 @@ import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.PointsSparkline
 import java.util.Locale
 
@@ -65,7 +66,9 @@ fun StandingsScreen(
             leagueRepository = container.leagueRepository,
             raceRepository = container.raceRepository,
             authRepository = container.authRepository,
+            supabaseHolder = container.supabaseHolder,
             leagueId = leagueId,
+            offlineCache = container.offlineCacheStore,
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -89,11 +92,19 @@ fun StandingsScreen(
         val pullRefreshState =
             androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         var refreshing by remember { mutableStateOf(false) }
-        Box(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
         ) {
+            // F3: avviso "Offline" quando la classifica arriva dalla cache.
+            if (state.offline) {
+                OfflineBanner(
+                    lastUpdatedEpochMs = state.lastUpdatedEpochMs,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
             // U6: anche la classifica si aggiorna con il gesto di trascinamento.
             androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                 isRefreshing = refreshing,
@@ -154,7 +165,8 @@ fun StandingsScreen(
                 }
             }
             } // PullToRefreshBox
-        }
+            } // Box contenuto
+        } // Column
     }
 }
 

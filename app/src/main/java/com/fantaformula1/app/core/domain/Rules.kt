@@ -220,15 +220,25 @@ data class Rules(
         )
 
         /**
-         * Tipi attivi di default per le NUOVE leghe. DRIVER_EXACT_POSITION e'
-         * escluso (scelta dell'utente: probabilita' di indovinare ~1/22 lo
-         * rende poco giocabile); resta attivabile dall'editor regole.
+         * Tipi attivi di default per le NUOVE leghe.
+         *
+         * - DRIVER_EXACT_POSITION e' escluso (scelta dell'utente: probabilita'
+         *   di indovinare ~1/22 lo rende poco giocabile); resta attivabile
+         *   dall'editor regole.
+         * - F6: SAFETY_CAR_COUNT_OVER_UNDER e PIT_STOPS_OVER_UNDER sono
+         *   esclusi perche' Jolpica non li fornisce: si completano a mano
+         *   (N3) o via import OpenF1 parziale, quindi nei preset nuovi
+         *   restano spenti e l'admin li attiva se li vuole.
+         *
          * ATTENZIONE: e' anche il default di decodifica per un jsonb regole
          * SENZA "enabledTypes" — le leghe esistenti lo scrivono sempre
          * (encodeDefaults = true) e non sono interessate.
          */
         fun defaultEnabledTypes(): Set<PredictionType> =
-            PredictionType.entries.toSet() - PredictionType.DRIVER_EXACT_POSITION
+            PredictionType.entries.toSet() -
+                PredictionType.DRIVER_EXACT_POSITION -
+                PredictionType.SAFETY_CAR_COUNT_OVER_UNDER -
+                PredictionType.PIT_STOPS_OVER_UNDER
 
         /**
          * Regole iniziali di una nuova lega: tipi default, punteggi F1.

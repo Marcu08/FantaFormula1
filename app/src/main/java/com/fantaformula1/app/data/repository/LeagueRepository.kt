@@ -1,11 +1,13 @@
 package com.fantaformula1.app.data.repository
 
 import com.fantaformula1.app.core.domain.Rules
+import kotlinx.serialization.Serializable
 
 /** Ruolo di un membro nella lega. */
 enum class MemberRole { ADMIN, PLAYER }
 
 /** Lega con le sue regole decodificate. */
+@Serializable
 data class League(
     val id: String,
     val name: String,

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Card
@@ -104,6 +105,8 @@ fun LeagueScreen(
     var league by remember { mutableStateOf<League?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    /** F2: apertura della scheda "Stagioni passate". */
+    var showHistory by remember { mutableStateOf(false) }
 
     // Dashboard: prossima gara pronosticabile + stato del mio pronostico.
     var nextRace by remember { mutableStateOf<Race?>(null) }
@@ -232,6 +235,14 @@ fun LeagueScreen(
                     }
                 },
                 actions = {
+                    // F2: storico delle stagioni archiviate (visibile a tutti
+                    // i membri; l'azione di archiviazione e' solo per gli admin).
+                    IconButton(onClick = { showHistory = true }) {
+                        Icon(
+                            imageVector = Icons.Outlined.History,
+                            contentDescription = stringResource(R.string.azione_stagioni_passate),
+                        )
+                    }
                     // N5: la sincronizzazione e' riservata agli admin, per gli
                     // altri membri la scrittura del risultato e' vietata (RLS).
                     if (isAdmin) {
@@ -334,6 +345,31 @@ fun LeagueScreen(
                 }
             }
         }
+    }
+
+    // F2: storico stagioni. Il ViewModel nasce solo quando la scheda viene
+    // aperta: così il caricamento (più query) non avviene a ogni ingresso.
+    if (showHistory) {
+        val historyViewModel: SeasonHistoryViewModel = viewModel {
+            SeasonHistoryViewModel(
+                leagueRepository = container.leagueRepository,
+                raceRepository = container.raceRepository,
+                leagueDataRepository = container.leagueDataRepository,
+                seasonHistoryRepository = container.seasonHistoryRepository,
+                leagueId = leagueId,
+            )
+        }
+        val historyState by historyViewModel.uiState.collectAsStateWithLifecycle()
+        // Ogni apertura ricalcola: lo storico puo' aver cambiato nel frattempo
+        // (e un errore precedente va riprovato). load() e' protetto dai
+        // refresh concorrenti, quindi il primo avvio non viene duplicato.
+        LaunchedEffect(leagueId) { historyViewModel.load() }
+        PastSeasonsSheet(
+            state = historyState,
+            onArchive = historyViewModel::archive,
+            onArchiveEventShown = historyViewModel::acknowledgeArchivedEvent,
+            onDismiss = { showHistory = false },
+        )
     }
 }
 

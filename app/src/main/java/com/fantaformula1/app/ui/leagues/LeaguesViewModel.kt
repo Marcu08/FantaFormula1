@@ -3,6 +3,7 @@ package com.fantaformula1.app.ui.leagues
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fantaformula1.app.core.domain.Rules
+import com.fantaformula1.app.data.offline.OfflineCacheStore
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueMember
@@ -29,6 +30,10 @@ data class LeaguesUiState(
     val refreshing: Boolean = false,
     val error: String? = null,
     val submitting: Boolean = false,
+    /** F3: true se i dati mostrati arrivano dalla cache (rete non disponibile). */
+    val offline: Boolean = false,
+    /** F3: quando e' stato aggiornato l'ultimo dato di rete mostrato. */
+    val lastUpdatedEpochMs: Long? = null,
 )
 
 data class MembersUiState(
@@ -44,6 +49,8 @@ data class MembersUiState(
 class LeaguesViewModel(
     private val leagueRepository: LeagueRepository,
     private val authRepository: AuthRepository,
+    /** F3: cache offline "stale-while-error" (opzionale per i test). */
+    private val offlineCache: OfflineCacheStore? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LeaguesUiState())
@@ -64,15 +71,41 @@ class LeaguesViewModel(
             _uiState.update { it.copy(loading = it.leagues.isEmpty(), error = null) }
             runCatching { leagueRepository.myLeagues() }
                 .onSuccess { leagues ->
-                    _uiState.update { it.copy(loading = false, refreshing = false, leagues = leagues) }
-                }
-                .onFailure { throwable ->
                     _uiState.update {
                         it.copy(
                             loading = false,
                             refreshing = false,
-                            error = throwable.message ?: "Si è verificato un errore",
+                            leagues = leagues,
+                            offline = false,
+                            lastUpdatedEpochMs = null,
                         )
+                    }
+                    // F3: la rete funziona -> la cache viene SEMPRE aggiornata.
+                    offlineCache?.saveLeagues(leagues)
+                }
+                .onFailure { throwable ->
+                    // F3: rete fallita -> si prova la cache locale; solo se
+                    // anche quella manca l'errore resta bloccante.
+                    val cached = offlineCache?.leagues()
+                    if (cached != null) {
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                refreshing = false,
+                                leagues = cached.value,
+                                error = null,
+                                offline = true,
+                                lastUpdatedEpochMs = cached.cachedAtEpochMs,
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                refreshing = false,
+                                error = throwable.message ?: "Si è verificato un errore",
+                            )
+                        }
                     }
                 }
         }

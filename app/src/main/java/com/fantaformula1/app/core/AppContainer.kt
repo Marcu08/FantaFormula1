@@ -2,16 +2,20 @@ package com.fantaformula1.app.core
 
 import android.content.Context
 import com.fantaformula1.app.data.config.SupabaseConfigStore
+import com.fantaformula1.app.data.offline.OfflineCacheStore
+import com.fantaformula1.app.data.offline.PendingWritesStore
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
 import com.fantaformula1.app.data.repository.RaceRepository
+import com.fantaformula1.app.data.repository.SeasonHistoryRepository
 import com.fantaformula1.app.data.repository.SupabaseAuthRepository
 import com.fantaformula1.app.data.repository.SupabaseLeagueDataRepository
 import com.fantaformula1.app.data.repository.SupabaseLeagueRepository
 import com.fantaformula1.app.data.repository.SupabasePredictionRepository
 import com.fantaformula1.app.data.repository.SupabaseRaceRepository
+import com.fantaformula1.app.data.repository.SupabaseSeasonHistoryRepository
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import com.fantaformula1.app.data.sync.F1SyncPrefs
 import com.fantaformula1.app.data.sync.F1SyncRepository
@@ -58,9 +62,19 @@ class AppContainer(
     val leagueDataRepository: LeagueDataRepository =
         SupabaseLeagueDataRepository(supabaseHolder)
 
+    /** F2: storico stagioni (snapshot immutabili della classifica finale). */
+    val seasonHistoryRepository: SeasonHistoryRepository =
+        SupabaseSeasonHistoryRepository(supabaseHolder, authRepository)
+
     /** U5: bozze locali dei pronostici (ripristino alla riapertura). */
     val predictionDraftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore =
         com.fantaformula1.app.data.prediction.PredictionDraftStore(applicationContext)
+
+    /** F3: cache di sola lettura (banner "Ultimo aggiornamento" a rete assente). */
+    val offlineCacheStore = OfflineCacheStore(applicationContext)
+
+    /** F3: coda dei pronostici salvati offline, riprovati dal worker periodico. */
+    val pendingWritesStore = PendingWritesStore(applicationContext)
 
     /** Sincronizzazione calendario e risultati dal mondiale F1 reale. */
     val f1SyncRepository: F1SyncRepository = F1SyncRepository(
