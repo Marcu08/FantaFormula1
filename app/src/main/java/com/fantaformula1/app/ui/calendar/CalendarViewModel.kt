@@ -47,6 +47,30 @@ data class RaceForm(
     val deadline: String = "",
 )
 
+/**
+ * Validazione pura del form gara (R4): nome e round piu' la deadline, che e'
+ * obbligatoria sia in creazione sia in modifica (il DB la richiede per le
+ * nuove gare con il trigger di 0011_fixes.sql: senza deadline la gara
+ * resterebbe aperta per sempre e gli altri pronostici non verrebbero mai
+ * rivelati).
+ *
+ * @return messaggio d'errore in italiano oppure null se il form e' valido.
+ */
+internal fun validateRaceForm(form: RaceForm): String? {
+    val round = form.round.toIntOrNull()
+    return when {
+        form.name.trim().length < 2 ->
+            "Il nome della gara deve essere lungo almeno 2 caratteri"
+        round == null || round < 1 ->
+            "Inserisci un numero di round valido (almeno 1)"
+        form.deadline.isBlank() ->
+            "La deadline è obbligatoria"
+        parseLocalDateTimeInput(form.deadline) == null ->
+            "La deadline deve essere nel formato 2026-03-15 14:00"
+        else -> null
+    }
+}
+
 class CalendarViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
@@ -143,13 +167,7 @@ class CalendarViewModel(
         val form = state.form
 
         val round = form.round.toIntOrNull()
-        val validationError = when {
-            form.name.trim().length < 2 -> "Il nome della gara deve essere lungo almeno 2 caratteri"
-            round == null || round < 1 -> "Inserisci un numero di round valido (almeno 1)"
-            form.deadline.isNotBlank() && parseLocalDateTimeInput(form.deadline) == null ->
-                "La deadline deve essere nel formato 2026-03-15 14:00"
-            else -> null
-        }
+        val validationError = validateRaceForm(form)
         if (validationError != null) {
             _uiState.update { it.copy(formError = validationError) }
             return

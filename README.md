@@ -60,10 +60,14 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`0004_prediction_validation.sql`](supabase/migrations/0004_prediction_validation.sql) →
    [`0005_prediction_count.sql`](supabase/migrations/0005_prediction_count.sql) →
    [`0006_prediction_bands.sql`](supabase/migrations/0006_prediction_bands.sql) →
-   [`0007_over_under_soglie.sql`](supabase/migrations/0007_over_under_soglie.sql) →
+   [`0007_over_under_thresholds.sql`](supabase/migrations/0007_over_under_thresholds.sql) →
    [`0008_safety_pit_bands.sql`](supabase/migrations/0008_safety_pit_bands.sql) →
    [`0009_quota.sql`](supabase/migrations/0009_quota.sql) →
-   [`0010_quota_dnf.sql`](supabase/migrations/0010_quota_dnf.sql).
+   [`0010_quota_dnf.sql`](supabase/migrations/0010_quota_dnf.sql) →
+   [`0011_fixes.sql`](supabase/migrations/0011_fixes.sql)
+   (FK con cascade per eliminare gare, trigger "ultimo admin" compatibile con
+   la cancellazione a cascata, deadline obbligatoria per le nuove gare, RPC
+   `remove_league_member`).
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
    `races`, `race_results`, `predictions`), le policy **RLS**, le funzioni di
    business e il trigger di validazione server-side del contenuto dei
