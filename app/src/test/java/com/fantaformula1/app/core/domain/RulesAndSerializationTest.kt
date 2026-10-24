@@ -354,4 +354,37 @@ class RulesAndSerializationTest {
         }
         assertFalse(arcade.points.keys.any { it !in arcade.enabledTypes })
     }
+
+    // -- U9: punteggio massimo per gara --------------------------------------
+
+    @Test
+    fun `U9 maxRacePoints del preset di default e' 132`() {
+        // 25 (winner) + 58 (podio 25+18+15) + 10 (pole) + 8 (fastest lap) +
+        // 6 (fascia) + 8 (h2h) + 5 (dnf) + 7 (punti) + 5 (sprint 10 x 0.5);
+        // esclusi i tre tipi spenti nei preset nuovi (B/F6).
+        assertEquals(132.0, Rules.default().maxRacePoints(), 0.001)
+    }
+
+    @Test
+    fun `U9 maxRacePoints con tutti i tipi attivi e' 154`() {
+        // 132 + posizione esatta 12 + safety car 5 + pit stop 5.
+        val allTypes = Rules.default().copy(enabledTypes = PredictionType.entries.toSet())
+        assertEquals(154.0, allTypes.maxRacePoints(), 0.001)
+    }
+
+    @Test
+    fun `U9 maxRacePoints somma il bonus podio senza ordine`() {
+        val withBonus = Rules.default().copy(podiumNoOrderPoints = 10.0)
+        assertEquals(142.0, withBonus.maxRacePoints(), 0.001)
+    }
+
+    @Test
+    fun `U9 maxRacePoints applica il moltiplicatore sprint`() {
+        // SprintMultiplier 1.0: lo sprint paga 10 invece di 5 -> 137.
+        val fullSprint = Rules.default().copy(sprintPointsMultiplier = 1.0)
+        assertEquals(137.0, fullSprint.maxRacePoints(), 0.001)
+        // Preset arcade: 10 (winner) + 24 (podio 10+8+6) + 5 (sprint x1) +
+        // 4 (h2h) + 4 (pole) = 47.
+        assertEquals(47.0, Rules.presetArcade().maxRacePoints(), 0.001)
+    }
 }
