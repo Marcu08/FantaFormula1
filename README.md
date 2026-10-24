@@ -69,7 +69,20 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`0011_fixes.sql`](supabase/migrations/0011_fixes.sql)
    (FK con cascade per eliminare gare, trigger "ultimo admin" compatibile con
    la cancellazione a cascata, deadline obbligatoria per le nuove gare, RPC
-   `remove_league_member`).
+   `remove_league_member`) →
+   [`0012_season_history.sql`](supabase/migrations/0012_season_history.sql)
+   (tabella `season_snapshots` per lo storico stagioni: solo SELECT membri e
+   INSERT admin, nessuna policy di modifica — gli snapshot sono immutabili).
+
+   Verifica delle migrazioni: tutte (0001→0012) e i test SQL passano il
+   parse del parser Postgres reale (libpg_query via `pglast`), 18/18 file.
+   L'applicazione su un **progetto Supabase di prova dedicato** non e' stata
+   eseguita: sull'organizzazione e' raggiunto il limite di 2 progetti free
+   attivi (FantaFormula1 e FantaCalcio365), quindi per una prova isolata
+   serve prima liberare un posto o usare un piano a pagamento. Prima di
+   applicare `0012` al progetto reale, eseguire le migrazioni in ordine
+   nell'SQL Editor come sopra (tutte le nuove sono idempotenti).
+
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
    `races`, `race_results`, `predictions`), le policy **RLS**, le funzioni di
    business e il trigger di validazione server-side del contenuto dei
