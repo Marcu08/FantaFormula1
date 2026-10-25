@@ -314,15 +314,28 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                         val edited = _uiState.value.edited
                         if (result.completed > 0 && !edited) load()
                         val gare = if (result.completed == 1) "gara aggiornata" else "gare aggiornate"
+                        val race = _uiState.value.race
                         val message = when {
                             result.completed > 0 && edited ->
                                 "Risultati sincronizzati da Jolpica: " +
                                     "${result.completed} $gare. I dati già inseriti sono stati conservati"
                             result.completed > 0 ->
                                 "Risultati sincronizzati da Jolpica: ${result.completed} $gare"
+                            // Perche' completed == 0: la gara attuale non e'
+                            // stata nemmeno interrogata, oppure Jolpica non ha
+                            // nulla per quel round. Il round nel messaggio fa
+                            // da controllo diretto col calendario reale.
+                            race == null -> "Jolpica non ha ancora il risultato di questa gara"
+                            race.deadline == null ->
+                                "La gara non ha una deadline: la sincronizzazione " +
+                                    "salta le gare senza deadline (impostala dal calendario)"
+                            !race.isDeadlinePassed() ->
+                                "La gara non è ancora disputata: Jolpica pubblica " +
+                                    "i risultati solo dopo la gara"
                             else ->
-                                "Jolpica non ha ancora il risultato di questa gara: " +
-                                    "riprova più tardi o inserisci i dati a mano"
+                                "Jolpica non ha risultati per il round ${race.round} " +
+                                    "(${race.name}): riprova più tardi o controlla " +
+                                    "il numero del round"
                         }
                         _events.emit(ResultEvent.Notice(message))
                     }
