@@ -16,6 +16,8 @@ import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
 import com.fantaformula1.app.data.openf1.OpenF1SessionMatcher
 import com.fantaformula1.app.data.openf1.OpenF1Source
 import com.fantaformula1.app.data.openf1.openF1FailureMessage
+import com.fantaformula1.app.data.sync.F1SyncStateHolder
+import com.fantaformula1.app.data.sync.SyncResult
 import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +31,8 @@ import kotlinx.coroutines.launch
 sealed interface ResultEvent {
     data object Saved : ResultEvent
     data class Failure(val message: String) : ResultEvent
+    /** Messaggio informativo (snackbar neutra, non un errore). */
+    data class Notice(val message: String) : ResultEvent
 }
 
 /** Riga del form risultati: tutto in stringhe, conversione al salvataggio. */
@@ -111,6 +115,13 @@ data class ResultUiState(
     val pitStopsUnknown: Boolean = false,
     /** Importazione assistita SC/VSC da OpenF1 (mai salvata da sola). */
     val scImport: ScImportState = ScImportState.Idle,
+    /** Sincronizzazione Jolpica dei risultati piloti in corso. */
+    val resultsSyncing: Boolean = false,
+    /**
+     * True se l'admin ha gia' modificato qualcosa in questa sessione: la
+     * sincronizzazione non ricarica il form per non perdere i suoi dati.
+     */
+    val edited: Boolean = false,
 )
 
 /**
@@ -132,6 +143,8 @@ class ResultViewModel(
     private val leagueRepository: LeagueRepository,
     private val authRepository: AuthRepository,
     private val openF1: OpenF1Source? = null,
+    /** Sync Jolpica dei risultati piloti (stesso holder della sync periodica). */
+    private val f1Sync: F1SyncStateHolder? = null,
     private val raceId: String,
 ) : ViewModel() {
 
@@ -140,6 +153,9 @@ class ResultViewModel(
 
     private val _events = MutableSharedFlow<ResultEvent>()
     val events: SharedFlow<ResultEvent> = _events.asSharedFlow()
+
+    /** Auto-sync Jolpica: una sola volta per istanza (apertura schermata). */
+    private var autoSyncAttempted = false
 
     init {
         load()
@@ -180,6 +196,14 @@ class ResultViewModel(
                         pitStopsUnknown = result != null && result.confirmedTotalPitStops() == null,
                     )
                 }
+                // Auto-sync: aperta la schermata di una gara gia' disputata
+                // ancora senza risultato, i dati piloti arrivano da soli da
+                // Jolpica (una volta per apertura; la sync periodica fa il
+                // resto in background). Solo admin, niente se ha gia' digitato.
+                if (!autoSyncAttempted && admin && result == null && race.isDeadlinePassed()) {
+                    autoSyncAttempted = true
+                    syncResultsFromApi()
+                }
             }.onFailure { throwable ->
                 _uiState.update {
                     it.copy(
@@ -208,6 +232,7 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         _uiState.update { state ->
             state.copy(
                 drivers = state.drivers.map { if (it.driverId == driverId) transform(it) else it },
+                edited = true,
             )
         }
     }
@@ -225,6 +250,7 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         // il giro veloce e' unico: accendendolo su un pilota si spegne sugli altri
         _uiState.update { state ->
             state.copy(
+                edited = true,
                 drivers = state.drivers.map {
                     when {
                         it.driverId != driverId -> if (value) it.copy(fastestLap = false) else it
@@ -251,19 +277,68 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         updateDriver(driverId) { it.copy(pointsScored = value.filter { c -> c.isDigit() || c == ',' || c == '.' }.take(6)) }
 
     fun onSafetyCarsChange(value: String) =
-        _uiState.update { it.copy(safetyCars = value.filter(Char::isDigit).take(2)) }
+        _uiState.update { it.copy(safetyCars = value.filter(Char::isDigit).take(2), edited = true) }
 
     fun onRedFlagsChange(value: String) =
-        _uiState.update { it.copy(redFlags = value.filter(Char::isDigit).take(2)) }
+        _uiState.update { it.copy(redFlags = value.filter(Char::isDigit).take(2), edited = true) }
 
     fun onLapsChange(value: String) =
-        _uiState.update { it.copy(laps = value.filter(Char::isDigit).take(3)) }
+        _uiState.update { it.copy(laps = value.filter(Char::isDigit).take(3), edited = true) }
 
     fun onWeatherChange(value: String) =
-        _uiState.update { it.copy(weather = value.take(40)) }
+        _uiState.update { it.copy(weather = value.take(40), edited = true) }
 
     fun onNotesChange(value: String) =
-        _uiState.update { it.copy(notes = value.take(200)) }
+        _uiState.update { it.copy(notes = value.take(200), edited = true) }
+
+    /**
+     * Sincronizzazione Jolpica dei risultati piloti (pulsante nella
+     * schermata + auto-sync all'apertura): stesso percorso della sync
+     * periodica, salva tutte le gare passate della lega che l'API conosce.
+     * Il form viene ricaricato SOLO se l'admin non ha gia' digitato qualcosa:
+     * mai sovrascrivere i dati inseriti a mano.
+     */
+    fun syncResultsFromApi() {
+        val sync = f1Sync ?: return
+        val leagueId = _uiState.value.race?.leagueId ?: return
+        if (!_uiState.value.isAdmin || _uiState.value.resultsSyncing) return
+        _uiState.update { it.copy(resultsSyncing = true) }
+        viewModelScope.launch {
+            try {
+                when (val result = sync.syncResults(leagueId)) {
+                    null -> _events.emit(
+                        ResultEvent.Notice("Sincronizzazione già in corso: riprova tra un attimo"),
+                    )
+                    is SyncResult.Failure -> _events.emit(ResultEvent.Failure(result.message))
+                    is SyncResult.Success -> {
+                        val edited = _uiState.value.edited
+                        if (result.completed > 0 && !edited) load()
+                        val gare = if (result.completed == 1) "gara aggiornata" else "gare aggiornate"
+                        val message = when {
+                            result.completed > 0 && edited ->
+                                "Risultati sincronizzati da Jolpica: " +
+                                    "${result.completed} $gare. I dati già inseriti sono stati conservati"
+                            result.completed > 0 ->
+                                "Risultati sincronizzati da Jolpica: ${result.completed} $gare"
+                            else ->
+                                "Jolpica non ha ancora il risultato di questa gara: " +
+                                    "riprova più tardi o inserisci i dati a mano"
+                        }
+                        _events.emit(ResultEvent.Notice(message))
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                // Regola 6: il cancel del viewModelScope non va mangiato.
+                throw cancellation
+            } catch (e: Exception) {
+                _events.emit(
+                    ResultEvent.Failure(e.message ?: "Impossibile sincronizzare i risultati"),
+                )
+            } finally {
+                _uiState.update { it.copy(resultsSyncing = false) }
+            }
+        }
+    }
 
     /**
      * Importazione ASSISTITA delle neutralizzazioni da OpenF1: cerca la

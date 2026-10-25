@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -87,6 +88,7 @@ fun RaceResultScreen(
             leagueRepository = container.leagueRepository,
             authRepository = container.authRepository,
             openF1 = openF1Client,
+            f1Sync = container.f1SyncStateHolder,
             raceId = raceId,
         )
     }
@@ -101,6 +103,7 @@ fun RaceResultScreen(
             when (event) {
                 ResultEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
                 is ResultEvent.Failure -> snackbarHostState.showSnackbar(event.message)
+                is ResultEvent.Notice -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }
@@ -181,6 +184,7 @@ fun RaceResultScreen(
                         item { ReadOnlyNotice() }
                     } else {
                         item { SectionTitle(stringResource(R.string.sezione_gara)) }
+                        item { ResultsSyncRow(state, viewModel) }
                         item { OpenF1ImportButton(state, viewModel) }
                         item { RaceFields(state, viewModel) }
 
@@ -295,6 +299,44 @@ private fun ReadOnlyNotice() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp),
     )
+}
+
+/**
+ * Sincronizzazione Jolpica dei risultati piloti: riempie il form con posizioni,
+ * DNF, giro veloce e punti senza scriverne nessuno a mano. Solo per gli admin;
+ * con la gara passata senza risultato e' l'azione da provare PRIMA di
+ * inserire i dati a mano (l'auto-sync all'apertura la gia' eseguita).
+ */
+@Composable
+private fun ResultsSyncRow(state: ResultUiState, viewModel: ResultViewModel) {
+    if (!state.isAdmin) return
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = viewModel::syncResultsFromApi,
+            enabled = !state.resultsSyncing,
+        ) {
+            if (state.resultsSyncing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+            } else {
+                Icon(Icons.Outlined.Sync, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(stringResource(R.string.results_sync_button))
+        }
+        Text(
+            text = stringResource(R.string.results_sync_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable

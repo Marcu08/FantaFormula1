@@ -165,6 +165,8 @@
     <string name="openf1_import_button">Importa SC/VSC (OpenF1)</string>
     <string name="openf1_import_hint">Proposta da OpenF1: revisiona e conferma, niente salvataggi automatici</string>
     <string name="openf1_import_failed">Importazione fallita: %1$s — inserisci a mano i valori noti</string>
+    <string name="results_sync_button">Sincronizza risultati</string>
+    <string name="results_sync_hint">Posizioni, DNF e punti da Jolpica (API ufficiale F1)</string>
     <string name="openf1_dialog_title">Neutralizzazione da OpenF1</string>
     <string name="openf1_sc_proposta">Safety car: %1$d</string>
     <string name="openf1_vsc_proposta">Virtual: %1$d</string>
