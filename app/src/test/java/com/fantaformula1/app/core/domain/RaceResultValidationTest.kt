@@ -143,6 +143,25 @@ class RaceResultValidationTest {
     }
 
     @Test
+    fun `gara sprint senza posizioni sprint e' valida (sprint non disponibile)`() {
+        // Caso della sync: la gara della lega e' marcata sprint ma Jolpica
+        // non ha pubblicato lo sprint per quel round (404 sull'endpoint):
+        // il risultato si salva comunque senza posizioni sprint, che restano
+        // da completare a mano. Senza questa tolleranza la gara intera
+        // veniva bloccata dall'assenza di UN endpoint.
+        val result = RaceResultData(
+            drivers = listOf(
+                driver("A", position = 1),
+                driver("B", position = 2),
+            ),
+        )
+        assertEquals(
+            emptyList<String>(),
+            RaceResultValidation.validate(result, isSprintRace = true),
+        )
+    }
+
+    @Test
     fun `almeno un pilota classificato e' obbligatorio`() {
         val result = RaceResultData(
             drivers = listOf(

@@ -91,9 +91,16 @@ class F1SyncRepository(
                     skipped++
                     return@forEach
                 }
-                val qualifying = f1ApiClient.qualifyingResults(season, race.round)
+                // Endpoint SECONDARI: se Jolpica non ha il dato per questo
+                // round (404 — sprint non previsto o non ancora pubblicato)
+                // si prosegue SENZA, come i pit stop: la griglia cade su
+                // result.grid e lo sprint resta "da completare". Senza questo
+                // la mancanza di UN endpoint bloccava l'intera gara.
+                val qualifying = optionalOn404 {
+                    f1ApiClient.qualifyingResults(season, race.round)
+                }
                 val sprint = if (race.isSprint) {
-                    f1ApiClient.sprintResults(season, race.round)
+                    optionalOn404 { f1ApiClient.sprintResults(season, race.round) }
                 } else {
                     emptyList()
                 }
@@ -111,9 +118,13 @@ class F1SyncRepository(
                 // sui pit stop giocherebbero su valori sempre a 0. Un fallimento
                 // dell'endpoint non blocca la sincronizzazione della gara, ma il
                 // totale resta null ("da confermare", N3).
-                val pitStops = runCatching {
+                val pitStops = try {
                     f1ApiClient.pitStops(season, race.round)
-                }.getOrNull()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
                 val pitStopsByDriver = pitStops?.let { F1Mapper.pitStopsByDriver(it) }.orEmpty()
                 val totalLaps = F1Mapper.raceLaps(results)
 
@@ -165,6 +176,21 @@ class F1SyncRepository(
         val status = (failure as? ResponseException)?.response?.status?.value
         return f1FailureMessage(status, failure.message)
     }
+
+    /**
+     * Endpoint secondario: 404 = Jolpica non ha quel dato per questo round
+     * (es. la gara della lega e' marcata sprint ma il round non prevede lo
+     * sprint reale) -> lista vuota e si continua. Gli altri errori (5xx,
+     * rate-limit, rete) si propagano: non e' la mancanza del dato.
+     */
+    private suspend fun <T> optionalOn404(call: suspend () -> List<T>): List<T> =
+        try {
+            call()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: ResponseException) {
+            if (e.response.status.value == 404) emptyList() else throw e
+        }
 
     /**
      * Stagione di riferimento: l'anno corrente (le leghe seguono il
