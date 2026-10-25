@@ -5,10 +5,13 @@ import com.fantaformula1.app.core.domain.RaceStatus
 import com.fantaformula1.app.data.f1api.F1ApiClient
 import com.fantaformula1.app.data.f1api.F1Mapper
 import com.fantaformula1.app.data.f1api.RaceMapping
+import com.fantaformula1.app.data.f1api.f1FailureMessage
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
+import io.ktor.client.plugins.ResponseException
 import java.time.LocalDate
 import java.time.ZoneOffset
+import kotlinx.coroutines.CancellationException
 
 /**
  * Sincronizza il calendario e i risultati dal mondiale reale (Jolpica/Ergast)
@@ -25,7 +28,7 @@ class F1SyncRepository(
      * cosi' l'admin puo' averle modificate a mano.
      */
     suspend fun syncCalendar(leagueId: String): SyncResult {
-        return runCatching {
+        return try {
             val calendar = f1ApiClient.seasonCalendar(season())
             val existingRounds = raceRepository.races(leagueId).map { it.round }.toSet()
             var created = 0
@@ -58,8 +61,11 @@ class F1SyncRepository(
                 created++
             }
             SyncResult.Success(created = created, skipped = skipped, pastSkipped = pastSkipped)
-        }.getOrElse { failure ->
-            SyncResult.Failure(failure.message ?: "Impossibile sincronizzare il calendario")
+        } catch (cancellation: CancellationException) {
+            // Regola 6: il cancel del chiamante non va mangiato.
+            throw cancellation
+        } catch (failure: Exception) {
+            SyncResult.Failure(syncFailureMessage(failure))
         }
     }
 
@@ -71,7 +77,7 @@ class F1SyncRepository(
      * saltata senza errori.
      */
     suspend fun syncResults(leagueId: String): SyncResult {
-        return runCatching {
+        return try {
             val season = season()
             val races = raceRepository.races(leagueId)
                 .filter { it.status != RaceStatus.COMPLETED && it.isDeadlinePassed() }
@@ -139,12 +145,25 @@ class F1SyncRepository(
             } else {
                 SyncResult.Success(completed = completed, skipped = skipped)
             }
-        }.getOrElse { failure ->
-            when (failure) {
-                is UserException -> SyncResult.Failure(failure.message)
-                else -> SyncResult.Failure(failure.message ?: "Impossibile sincronizzare i risultati")
-            }
+        } catch (cancellation: CancellationException) {
+            // Regola 6: il cancel del chiamante non va mangiato.
+            throw cancellation
+        } catch (failure: Exception) {
+            SyncResult.Failure(syncFailureMessage(failure))
         }
+    }
+
+    /**
+     * Messaggio per [SyncResult.Failure]: un [UserException] di dominio
+     * conserva il proprio testo, le risposte HTTP vengono tradotte dallo
+     * status (404/429/5xx) e il resto passa com'e'.
+     */
+    private fun syncFailureMessage(failure: Exception): String {
+        if (failure is UserException) {
+            return failure.message ?: "Operazione non riuscita"
+        }
+        val status = (failure as? ResponseException)?.response?.status?.value
+        return f1FailureMessage(status, failure.message)
     }
 
     /**

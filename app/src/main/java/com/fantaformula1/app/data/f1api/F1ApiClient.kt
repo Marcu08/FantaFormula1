@@ -54,6 +54,10 @@ class F1ApiClient {
             retryIf { _, response -> response.status.value == 429 }
             exponentialDelay()
         }
+        // Le 4xx/5xx diventano ResponseException con lo status leggibile:
+        // senza, il body di errore HTML (es. 404 da rete interferente) esplode
+        // come NoTransformationFoundException e il motivo va perso.
+        expectSuccess = true
     }
 
     /**
@@ -133,3 +137,25 @@ class F1ApiClient {
         fun currentSeason(): Int = java.time.LocalDate.now(java.time.ZoneOffset.UTC).year
     }
 }
+
+/**
+ * Messaggio amichevole per un fallimento della sync Jolpica (funzione pura,
+ * testata): niente tracce di ktor e un consiglio per ogni caso.
+ *
+ * Il 404 con body HTML non e' una risposta di Jolpica (l'API risponde quasi
+ * sempre 200 JSON, anche con round inesistenti): arriva di solito da rete
+ * locale interferente, quindi il consiglio e' "riprova / controlla il round".
+ */
+internal fun f1FailureMessage(statusCode: Int?, rawMessage: String?): String =
+    when (statusCode) {
+        404 -> "Jolpica non ha il risultato di questa gara: " +
+            "riprova più tardi o controlla il round della gara"
+        429 -> "Troppe richieste a Jolpica: riprova tra qualche minuto"
+        null -> rawMessage ?: "Impossibile contattare Jolpica: controlla la connessione"
+        else ->
+            if (statusCode >= 500) {
+                "Jolpica è temporaneamente indisponibile: riprova più tardi"
+            } else {
+                rawMessage ?: "Errore dal server Jolpica (HTTP $statusCode)"
+            }
+    }
