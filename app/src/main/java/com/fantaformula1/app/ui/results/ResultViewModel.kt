@@ -15,6 +15,9 @@ import com.fantaformula1.app.data.openf1.OpenF1Client
 import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
 import com.fantaformula1.app.data.openf1.OpenF1SessionMatcher
 import com.fantaformula1.app.data.openf1.OpenF1Source
+import com.fantaformula1.app.data.openf1.openF1FailureMessage
+import io.ktor.client.plugins.ResponseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -274,7 +277,7 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         if (_uiState.value.scImport is ScImportState.Loading) return
         _uiState.update { it.copy(scImport = ScImportState.Loading) }
         viewModelScope.launch {
-            runCatching {
+            try {
                 val sessions = client.sessions(OpenF1Client.SEASON)
                 val match = OpenF1SessionMatcher.match(
                     raceSeason = OpenF1Client.SEASON,
@@ -283,7 +286,7 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                     deadline = race.deadline,
                     sessions = sessions,
                 )
-                when (match) {
+                val imported = when (match) {
                     is OpenF1SessionMatcher.Match.Failed ->
                         throw UserException(match.reason)
                     is OpenF1SessionMatcher.Match.Ok -> {
@@ -291,10 +294,15 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                         OpenF1SafetyCarParser.parse(events)
                     }
                 }
-            }.onSuccess { import ->
-                _uiState.update { it.copy(scImport = ScImportState.Success(import)) }
-            }.onFailure { throwable ->
-                val message = throwable.message ?: "Impossibile importare da OpenF1"
+                _uiState.update { it.copy(scImport = ScImportState.Success(imported)) }
+            } catch (cancellation: CancellationException) {
+                // Regola 6: il cancel del viewModelScope non va mangiato.
+                throw cancellation
+            } catch (e: Exception) {
+                // 401 = sessione live OpenF1 (caso piu' comune): il messaggio
+                // spiega la causa invece di mostrare il trace di ktor.
+                val status = (e as? ResponseException)?.response?.status?.value
+                val message = openF1FailureMessage(status, e.message)
                 _uiState.update { it.copy(scImport = ScImportState.Failed(message)) }
                 _events.emit(ResultEvent.Failure(message))
             }

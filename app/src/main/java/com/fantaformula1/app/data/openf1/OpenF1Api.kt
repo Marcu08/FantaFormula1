@@ -68,6 +68,10 @@ class OpenF1Client : OpenF1Source {
             connectTimeoutMillis = CONNECT_TIMEOUT_MS
             socketTimeoutMillis = REQUEST_TIMEOUT_MS
         }
+        // Le 4xx/5xx diventano ResponseException: senza, il body di errore
+        // (con content-type ambiguo nelle risposte di OpenF1) esplode come
+        // NoTransformationFoundException con il trace di ktor.
+        expectSuccess = true
     }
 
     override suspend fun sessions(year: Int): List<OpenF1Session> =
@@ -102,3 +106,20 @@ internal fun openF1DateOrNull(raw: String?): java.time.Instant? {
         }
     }
 }
+
+/**
+ * Messaggio amichevole per un fallimento dell'import SC/VSC (funzione pura,
+ * testata): l'utente deve capire la causa senza leggere il trace di ktor.
+ *
+ * Il caso 401 e' la norma, non un bug: quando una sessione F1 e' in corso
+ * OpenF1 limita l'API pubblica (anche per i dati storici) agli utenti
+ * autenticati, finche' la sessione non finisce. Il suffisso "inserisci a
+ * mano i valori noti" lo aggiunge la stringa della UI.
+ */
+internal fun openF1FailureMessage(statusCode: Int?, rawMessage: String?): String =
+    when (statusCode) {
+        401, 403 -> "OpenF1 limita l'accesso pubblico durante le sessioni F1 " +
+            "live: riprova quando la sessione è terminata"
+        429 -> "Troppe richieste a OpenF1: riprova tra qualche minuto"
+        else -> rawMessage ?: "Impossibile importare da OpenF1"
+    }
