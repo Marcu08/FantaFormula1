@@ -1,6 +1,7 @@
 package com.fantaformula1.app.core.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,6 +109,46 @@ class ScoringEngineExplainTest {
         val line = ScoringEngine.explain(entry, empty, rules)
         assertEquals(0.0, line.points, 0.001)
         assertTrue(line.detail.contains(ScoringEngine.NO_DATA_LABEL))
+    }
+
+    @Test
+    fun `pilota non classificato - spiega il vero motivo e non i dati non disponibili`() {
+        // PER ritirato (position null): lo score da' 0 DEFINITIVO, quindi
+        // anche la spiegazione deve dire "non classificato": dire "dati
+        // della gara non disponibili" faceva credere a un punteggio provvisorio.
+        val withDnf = sampleResult().copy(
+            drivers = sampleResult().drivers + driver("PER", dnf = true),
+        )
+
+        val exact = PredictionEntry(
+            type = PredictionType.DRIVER_EXACT_POSITION,
+            driverIds = listOf("PER"),
+            position = 5,
+        )
+        val exactLine = ScoringEngine.explain(exact, withDnf, rules)
+        assertEquals(0.0, exactLine.points, 0.001)
+        assertTrue(exactLine.detail.contains("non classificato"))
+        assertFalse(exactLine.detail.contains(ScoringEngine.NO_DATA_LABEL))
+
+        val range = PredictionEntry(
+            type = PredictionType.DRIVER_POSITION_RANGE,
+            driverIds = listOf("PER"),
+            rangeMin = 4,
+            rangeMax = 6,
+        )
+        val rangeLine = ScoringEngine.explain(range, withDnf, rules)
+        assertEquals(0.0, rangeLine.points, 0.001)
+        assertTrue(rangeLine.detail.contains("non classificato"))
+        assertFalse(rangeLine.detail.contains(ScoringEngine.NO_DATA_LABEL))
+
+        val h2h = PredictionEntry(
+            type = PredictionType.HEAD_TO_HEAD,
+            driverIds = listOf("VER", "PER"),
+        )
+        val h2hLine = ScoringEngine.explain(h2h, withDnf, rules)
+        assertEquals(0.0, h2hLine.points, 0.001)
+        assertTrue(h2hLine.detail.contains("non classificato"))
+        assertFalse(h2hLine.detail.contains(ScoringEngine.NO_DATA_LABEL))
     }
 
     @Test

@@ -384,11 +384,16 @@ object ScoringEngine {
                 val driverId = entry.driverIds.firstOrNull()
                 val target = entry.position
                 val actual = driverId?.let { result.positionOf(it) }
-                if (driverId == null || target == null || actual == null) {
-                    NO_DATA_LABEL
-                } else {
-                    "${name(driverId)} ${actual}º (atteso ${target}º) " +
-                        mark(actual == target)
+                when {
+                    driverId == null || target == null -> NO_DATA_LABEL
+                    // Pilota non classificato (DNF/squalifica): lo score da'
+                    // 0 DEFINITIVO, quindi la spiegazione dice il vero motivo
+                    // invece dei "dati della gara non disponibili".
+                    actual == null ->
+                        "${name(driverId)}: non classificato " + mark(false)
+                    else ->
+                        "${name(driverId)} ${actual}º (atteso ${target}º) " +
+                            mark(actual == target)
                 }
             }
 
@@ -397,11 +402,13 @@ object ScoringEngine {
                 val min = entry.rangeMin
                 val max = entry.rangeMax
                 val actual = driverId?.let { result.positionOf(it) }
-                if (driverId == null || min == null || max == null || actual == null) {
-                    NO_DATA_LABEL
-                } else {
-                    "${name(driverId)} ${actual}º (fascia $min-$max) " +
-                        mark(actual in min..max)
+                when {
+                    driverId == null || min == null || max == null -> NO_DATA_LABEL
+                    actual == null ->
+                        "${name(driverId)}: non classificato " + mark(false)
+                    else ->
+                        "${name(driverId)} ${actual}º (fascia $min-$max) " +
+                            mark(actual in min..max)
                 }
             }
 
@@ -410,10 +417,17 @@ object ScoringEngine {
                 val second = entry.driverIds.getOrNull(1)
                 val posA = first?.let { result.positionOf(it) }
                 val posB = second?.let { result.positionOf(it) }
-                if (first == null || second == null || posA == null || posB == null) {
-                    NO_DATA_LABEL
-                } else {
-                    "${name(first)} ${posA}º vs ${name(second)} ${posB}º " + mark(posA < posB)
+                when {
+                    first == null || second == null -> NO_DATA_LABEL
+                    // Regola dello score: se uno dei due non e' classificato
+                    // il testa a testa vale 0 — qui si spiega chi manca.
+                    posA == null || posB == null -> listOfNotNull(
+                        first.takeIf { posA == null }?.let { name(it) },
+                        second.takeIf { posB == null }?.let { name(it) },
+                    ).joinToString(" e ") { "$it: non classificato" } + " " + mark(false)
+                    else ->
+                        "${name(first)} ${posA}º vs ${name(second)} ${posB}º " +
+                            mark(posA < posB)
                 }
             }
 
