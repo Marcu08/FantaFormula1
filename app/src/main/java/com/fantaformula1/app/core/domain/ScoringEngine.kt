@@ -460,16 +460,29 @@ object ScoringEngine {
             PredictionType.PIT_STOPS_OVER_UNDER -> result.confirmedTotalPitStops()?.toDouble()
             else -> null
         }
+        val subject = entry.driverIds.firstOrNull()?.let { name(it) } ?: labelOf(entry.type)
+        // Formato ATTUALE (0008+): opzione a fascia (safety car = numero
+        // esatto, pit stop = totale della griglia). Prima questo ramo non
+        // esisteva e il dettaglio diceva "dati non disponibili" anche con
+        // il dato e il punteggio calcolati.
+        val min = entry.rangeMin
+        val max = entry.rangeMax
+        if (min != null && max != null) {
+            return if (actual == null) {
+                NO_DATA_LABEL
+            } else {
+                "$subject $actual (fascia ${bandText(entry)}) " +
+                    mark(actual >= min && actual <= max)
+            }
+        }
+        // Formato storico: soglia sopra/sotto.
         val threshold = entry.threshold
         val over = entry.over
-        val bandLabel = bandText(entry)
         return if (threshold == null || over == null || actual == null) {
             NO_DATA_LABEL
         } else {
             val comparison = if (over) ">" else "<"
-            val subject = entry.driverIds.firstOrNull()?.let { name(it) } ?: labelOf(entry.type)
-            val band = bandText(entry).prependIfNotEmpty(" / fascia ")
-            "$subject $actual (soglia $comparison $threshold$band) " +
+            "$subject $actual (soglia $comparison $threshold) " +
                 mark(isOver(actual, threshold) == over)
         }
     }

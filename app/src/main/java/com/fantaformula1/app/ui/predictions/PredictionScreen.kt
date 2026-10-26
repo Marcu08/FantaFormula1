@@ -1027,8 +1027,17 @@ private fun summary(type: PredictionType, entry: com.fantaformula1.app.core.doma
         PredictionType.DRIVER_POINTS_OVER_UNDER,
         PredictionType.SAFETY_CAR_COUNT_OVER_UNDER,
         PredictionType.PIT_STOPS_OVER_UNDER,
-        -> "${type.italianLabel}: " +
-            (if (entry.over == true) "> " else "< ") + (entry.threshold ?: "")
+        -> {
+            // Fasce (formato attuale): "2", "36-45" o "6+"; il vecchio
+            // sopra/sotto resta per i pronostici storici.
+            val min = entry.rangeMin
+            val max = entry.rangeMax
+            "${type.italianLabel}: " + if (min != null && max != null) {
+                if (min == max) "$min" else if (max >= 99) "$min+" else "$min-$max"
+            } else {
+                (if (entry.over == true) "> " else "< ") + (entry.threshold ?: "")
+            }
+        }
         else -> "${type.italianLabel}: $drivers"
     }
 }
