@@ -140,10 +140,45 @@ class F1JsonTest {
         """.trimIndent()
 
         val response = F1Json.decodeFromString(F1PitStopResponse.serializer(), payload)
-        val counts = F1Mapper.pitStopsByDriver(response.mrData.pitStopTable.pitStops)
+        val counts = F1Mapper.pitStopsByDriver(response.mrData.pitStops())
 
         assertEquals(2, counts["VER"])
         assertEquals(1, counts["NOR"])
+    }
+
+    @Test
+    fun `pitstops formato Jolpica reale (PitStops dentro RaceTable)`() {
+        // Formato effettivo restituito da api.jolpi.ca oggi (verificato a
+        // mano sul round 18): NON ha PitStopTable, le righe stanno dentro
+        // RaceTable.Races[0].PitStops. Con il vecchio DTO il parse falliva
+        // e la sync degradava in silenzio a "totale non disponibile".
+        val payload = """
+            {"MRData":{"xmlns":"","series":"f1",
+            "url":"https://api.jolpi.ca/ergast/f1/2026/18/pitstops.json",
+            "limit":"100","offset":"0","total":"32",
+            "RaceTable":{"season":"2026","round":"18","Races":[
+              {"season":"2026","round":"18","raceName":"United States Grand Prix",
+               "PitStops":[
+                 {"driverId":"max_verstappen","lap":"13","stop":"1","time":"15:25:50","duration":"23.960"},
+                 {"driverId":"norris","lap":"21","stop":"1","time":"15:33:41","duration":"24.512"}
+               ]}]}}}
+        """.trimIndent()
+
+        val response = F1Json.decodeFromString(F1PitStopResponse.serializer(), payload)
+        val stops = response.mrData.pitStops()
+        val counts = F1Mapper.pitStopsByDriver(stops)
+
+        assertEquals(2, stops.size)
+        assertEquals(1, counts["VER"])
+        assertEquals(1, counts["NOR"])
+    }
+
+    @Test
+    fun `pitstops in nessun formato conosciuto dà lista vuota`() {
+        // Nessuna delle due chiavi: lista vuota, mai un'eccezione.
+        val payload = """{"MRData":{"series":"f1","RaceTable":{"season":"2026","round":"18","Races":[]}}}"""
+        val response = F1Json.decodeFromString(F1PitStopResponse.serializer(), payload)
+        assertEquals(emptyList<com.fantaformula1.app.data.f1api.model.F1PitStop>(), response.mrData.pitStops())
     }
 
     @Test

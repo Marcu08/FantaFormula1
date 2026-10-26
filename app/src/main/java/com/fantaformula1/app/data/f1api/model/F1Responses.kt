@@ -125,8 +125,13 @@ data class F1FastestLap(
 )
 
 /**
- * Risposta dell'endpoint `f1/{season}/{round}/pitstops.json`: la struttura
- * MRData contiene PitStopTable (non RaceTable come gli altri endpoint).
+ * Risposta dell'endpoint `f1/{season}/{round}/pitstops.json`.
+ *
+ * Due formati a seconda del backend: Jolpica oggi restituisce `PitStops`
+ * dentro `RaceTable.Races[0]` (come gli altri endpoint), mentre il mirror
+ * Ergast classico usa `PitStopTable`. Si leggono entrambi: un DTO troppo
+ * rigido faceva fallire il parse e la sync degradava in silenzio a
+ * "totale pit stop non disponibile".
  */
 @Serializable
 data class F1PitStopResponse(
@@ -135,7 +140,23 @@ data class F1PitStopResponse(
 
 @Serializable
 data class F1PitStopMRData(
-    @SerialName("PitStopTable") val pitStopTable: F1PitStopTable,
+    @SerialName("RaceTable") val raceTable: F1PitStopRaceTable? = null,
+    @SerialName("PitStopTable") val pitStopTable: F1PitStopTable? = null,
+) {
+    /** Pit stop della gara, in qualunque formato sia arrivata la risposta. */
+    fun pitStops(): List<F1PitStop> =
+        pitStopTable?.pitStops
+            ?: raceTable?.races?.firstOrNull()?.pitStops.orEmpty()
+}
+
+@Serializable
+data class F1PitStopRaceTable(
+    @SerialName("Races") val races: List<F1PitStopRace> = emptyList(),
+)
+
+@Serializable
+data class F1PitStopRace(
+    @SerialName("PitStops") val pitStops: List<F1PitStop>? = null,
 )
 
 @Serializable

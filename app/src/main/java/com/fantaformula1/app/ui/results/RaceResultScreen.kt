@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -483,8 +484,54 @@ private fun eventsLabel(events: List<OpenF1SafetyCarParser.ScEvent>): String {
  * fornisce (safety car, pit stop): finche' non li conferma l'admin i
  * pronostici collegati valgono 0 punti.
  */
+/**
+ * Dati non forniti da nessuna fonte (safety car, pit stop): per i MEMBRI
+ * resta l'avviso "in attesa di conferma admin"; per l'ADMIN e' un'azione con
+ * istruzioni precise: cosa completare e DOVE, dentro questa stessa schermata.
+ */
 @Composable
 private fun PendingDataNotice(state: ResultUiState) {
+    if (state.isAdmin) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.pending_admin_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    if (state.safetyCarsUnknown) {
+                        Text(
+                            text = stringResource(R.string.pending_admin_sc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    if (state.pitStopsUnknown) {
+                        Text(
+                            text = stringResource(R.string.pending_admin_pit),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
     val pending = buildList {
         if (state.safetyCarsUnknown) add(stringResource(R.string.campo_safety_car))
         if (state.pitStopsUnknown) add(stringResource(R.string.campo_pit_stop))
@@ -524,6 +571,12 @@ private fun RaceFields(state: ResultUiState, viewModel: ResultViewModel) {
                     onValueChange = { viewModel.onSafetyCarsChange(it?.toString().orEmpty()) },
                     label = stringResource(R.string.campo_safety_car),
                     modifier = Modifier.weight(1f),
+                    // N3: finche' il dato manca il campo spiega cosa scrivere.
+                    hint = if (state.saved && state.safetyCarsUnknown) {
+                        stringResource(R.string.campo_safety_car_hint)
+                    } else {
+                        ""
+                    },
                 )
                 FantaNumberField(
                     value = state.redFlags.toIntOrNull(),
@@ -538,18 +591,17 @@ private fun RaceFields(state: ResultUiState, viewModel: ResultViewModel) {
                     modifier = Modifier.weight(1f),
                 )
             }
-            // N3: evidenza i campi che l'API non fornisce e che vanno
-            // completati a mano dall'admin.
+            // N3: i campi che nessuna fonte fornisce, con l'azione esatta.
             if (state.saved && state.safetyCarsUnknown) {
                 Text(
-                    text = stringResource(R.string.campo_da_completare, "Safety car"),
+                    text = stringResource(R.string.campo_safety_car_todo),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
             if (state.saved && state.pitStopsUnknown) {
                 Text(
-                    text = stringResource(R.string.campo_da_completare, "Pit stop"),
+                    text = stringResource(R.string.campo_pit_stop_todo),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                 )

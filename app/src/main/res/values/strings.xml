@@ -159,7 +159,12 @@
     <string name="sezione_piloti">Piloti</string>
     <string name="piloti_istruzioni">Compila almeno i piloti classificati: griglia, posizione, DNF, penalità e pit stop.</string>
     <string name="campo_safety_car">Safety car + Virtual (totale SC+VSC)</string>
-    <string name="campo_da_completare">%1$s: da completare dall\'amministratore</string>
+    <string name="pending_admin_title">Completa questi dati mancanti</string>
+    <string name="pending_admin_sc">• Safety car: nel campo qui sotto indica quante volte è entrata la safety car (VSC comprese)</string>
+    <string name="pending_admin_pit">• Pit stop: nella sezione Piloti qui sotto compila le fermate per ogni pilota — il totale si calcola da solo</string>
+    <string name="campo_safety_car_hint">SC+VSC</string>
+    <string name="campo_safety_car_todo">Safety car: inserisci qui sopra il totale SC+VSC viste in gara</string>
+    <string name="campo_pit_stop_todo">Pit stop: nella sezione Piloti qui sotto compila le fermate per pilota — il totale si calcola da solo</string>
     <string name="risultato_in_attesa_conferma">In attesa di conferma admin: %1$s. Fino alla conferma i pronostici collegati valgono 0 punti.</string>
     <string name="risultati_in_attesa">Attenzione: %1$d gare finite da più di 12 ore senza risultato. Ultimo aggiornamento qui sopra: se non appare, tocca il pulsante di sincronizzazione (solo admin).</string>
     <string name="openf1_import_button">Importa SC/VSC (OpenF1)</string>

@@ -122,7 +122,7 @@ class F1ApiClient {
                 parameter("limit", PIT_STOPS_LIMIT)
             }
             .body()
-        response.mrData.pitStopTable.pitStops
+        response.mrData.pitStops()
     }
 
     companion object {
