@@ -1,5 +1,6 @@
 package com.fantaformula1.app.data.sync
 
+import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RaceResultValidation
 import com.fantaformula1.app.core.domain.RaceStatus
 import com.fantaformula1.app.data.f1api.F1ApiClient
@@ -70,22 +71,37 @@ class F1SyncRepository(
     }
 
     /**
-     * Scarica i risultati per le gare della lega gia' disputate e non ancora
-     * completate. Solo le gare con deadline superata vengono interrogate
-     * (N6): per le gare future l'API non ha ancora nulla e ogni richiesta e'
-     * sprecata. Se i risultati non sono ancora disponibili, la gara viene
-     * saltata senza errori.
+     * Scarica i risultati per le gare della lega gia' disputate. Solo le
+     * gare con deadline superata vengono interrogate (N6): per le gare
+     * future l'API non ha ancora nulla e ogni richiesta e' sprecata. Se i
+     * risultati non sono ancora disponibili, la gara viene saltata senza
+     * errori.
+     *
+     * Le gare GIA' completate rientrano solo se manca il totale pit stop:
+     * in quel caso [completeMissingPitStops] completa quel solo campo,
+     * senza mai rigenerare il resto del risultato.
      */
     suspend fun syncResults(leagueId: String): SyncResult {
         return try {
             val season = season()
             val races = raceRepository.races(leagueId)
-                .filter { it.status != RaceStatus.COMPLETED && it.isDeadlinePassed() }
+                .filter { it.isDeadlinePassed() }
+                .filter { race ->
+                    race.status != RaceStatus.COMPLETED ||
+                        raceRepository.result(race.id)?.confirmedTotalPitStops() == null
+                }
             var completed = 0
             var skipped = 0
             val unknownDrivers = mutableListOf<String>()
 
             races.forEach { race ->
+                // Gara gia' completata: completo SOLO il pit stop mancante
+                // (mai rigenerare il risultato: si perderebbero meteo, note,
+                // safety car e ogni altro campo dell'admin).
+                if (race.status == RaceStatus.COMPLETED) {
+                    if (completeMissingPitStops(season, race)) completed++
+                    return@forEach
+                }
                 val results = f1ApiClient.raceResults(season, race.round)
                 if (results.isEmpty()) {
                     skipped++
@@ -162,6 +178,45 @@ class F1SyncRepository(
         } catch (failure: Exception) {
             SyncResult.Failure(syncFailureMessage(failure))
         }
+    }
+
+    /**
+     * Gara gia' completata con totale pit stop non confermato: completa SOLO
+     * quel totale (e le fermate per pilota, solo se l'admin non le ha mai
+     * compilate a mano — tutte a 0 = mai toccate). Nessun altro campo viene
+     * toccato: posizioni, safety car, meteo e note restano come li ha
+     * lasciati l'admin. Ritorna true se ha aggiornato qualcosa.
+     */
+    private suspend fun completeMissingPitStops(season: Int, race: Race): Boolean {
+        val existing = raceRepository.result(race.id) ?: return false
+        // Già confermato (totale esplicito o somma delle fermate a mano).
+        if (existing.confirmedTotalPitStops() != null) return false
+        val stops = try {
+            f1ApiClient.pitStops(season, race.round)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Nessun dato: la gara resta come e' e si riprovera' alla sync
+            // successiva (l'errore rete non deve abortire le altre gare).
+            return false
+        }
+        if (stops.isEmpty()) return false
+        val byDriver = F1Mapper.pitStopsByDriver(stops)
+        val total = byDriver.values.sum()
+        if (total <= 0) return false
+        val untouched = existing.drivers.all { it.pitStops == 0 }
+        val updated = existing.copy(
+            totalPitStops = total,
+            drivers = if (untouched) {
+                existing.drivers.map { driver ->
+                    driver.copy(pitStops = byDriver[driver.driverId] ?: driver.pitStops)
+                }
+            } else {
+                existing.drivers
+            },
+        )
+        raceRepository.saveResult(race.id, race.leagueId, updated)
+        return true
     }
 
     /**

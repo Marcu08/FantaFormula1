@@ -7,6 +7,7 @@ import com.fantaformula1.app.core.domain.DriversCatalog
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RaceResultData
 import com.fantaformula1.app.core.domain.RaceResultValidation
+import com.fantaformula1.app.core.domain.RaceStatus
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.RaceRepository
@@ -326,6 +327,13 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                             // nulla per quel round. Il round nel messaggio fa
                             // da controllo diretto col calendario reale.
                             race == null -> "Jolpica non ha ancora il risultato di questa gara"
+                            // Gara gia' salvata: se arriva qui, il dato che
+                            // manca e' solo quello "da completare" qui sotto.
+                            race.status == RaceStatus.COMPLETED ->
+                                "La gara ha già un risultato salvato: se mancano pit " +
+                                    "stop o safety car complitali qui sotto (i pit stop " +
+                                    "mancanti arrivano da Jolpica alla prossima " +
+                                    "sincronizzazione)"
                             race.deadline == null ->
                                 "La gara non ha una deadline: la sincronizzazione " +
                                     "salta le gare senza deadline (impostala dal calendario)"
