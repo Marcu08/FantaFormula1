@@ -327,13 +327,11 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                             // nulla per quel round. Il round nel messaggio fa
                             // da controllo diretto col calendario reale.
                             race == null -> "Jolpica non ha ancora il risultato di questa gara"
-                            // Gara gia' salvata: se arriva qui, il dato che
-                            // manca e' solo quello "da completare" qui sotto.
+                            // Gara gia' salvata: il messaggio rilegge lo stato
+                            // REALE appena scritto, per dire cosa manca davvero
+                            // (safety car e pit stop hanno fonti diverse).
                             race.status == RaceStatus.COMPLETED ->
-                                "La gara ha già un risultato salvato: se mancano pit " +
-                                    "stop o safety car complitali qui sotto (i pit stop " +
-                                    "mancanti arrivano da Jolpica alla prossima " +
-                                    "sincronizzazione)"
+                                completedResultMessage(race)
                             race.deadline == null ->
                                 "La gara non ha una deadline: la sincronizzazione " +
                                     "salta le gare senza deadline (impostala dal calendario)"
@@ -358,6 +356,37 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
             } finally {
                 _uiState.update { it.copy(resultsSyncing = false) }
             }
+        }
+    }
+
+    /**
+     * Stato REALE di una gara gia' completata, riletto dopo la sync: il
+     * messaggio deve dire cosa manca davvero (e non un generico "riprova"),
+     * perche' safety car e pit stop hanno fonti completamente diverse.
+     */
+    private suspend fun completedResultMessage(race: Race): String {
+        val saved = try {
+            raceRepository.result(race.id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        val pitDone = saved?.confirmedTotalPitStops() != null
+        val safetyDone = saved?.safetyCars != null
+        return when {
+            pitDone && safetyDone ->
+                "Gara completa: pit stop e safety car confermati ✓"
+            pitDone ->
+                "Pit stop confermati ✓ — manca la safety car: scrivila qui " +
+                    "sotto oppure usa \"Importa SC/VSC (OpenF1)\""
+            safetyDone ->
+                "Safety car confermata ✓ — i pit stop non sono ancora arrivati " +
+                    "da Jolpica: riprova più tardi"
+            else ->
+                "Mancano pit stop e safety car: i pit stop arrivano da Jolpica " +
+                    "con la sincronizzazione, la safety car va inserita qui " +
+                    "sotto (o da OpenF1)"
         }
     }
 
