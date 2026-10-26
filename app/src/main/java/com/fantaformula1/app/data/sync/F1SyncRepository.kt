@@ -220,6 +220,73 @@ class F1SyncRepository(
     }
 
     /**
+     * Rigenera il risultato di UNA gara da Jolpica su richiesta esplicita
+     * dell'admin (gara gia' completata): aggiorna tutto cio' che l'API
+     * fornisce (posizioni, griglia, sprint, punti, giri, pit stop) e
+     * CONSERVA i campi che arrivano solo dall'admin: safety car, bandiere
+     * rosse, meteo e note. Le correzioni manuali su posizioni/DNF vengono
+     * sostituite — il dialogo della UI lo dichiara prima di partire.
+     */
+    suspend fun refreshRaceResult(race: Race): SyncResult {
+        return try {
+            val season = season()
+            val results = f1ApiClient.raceResults(season, race.round)
+            if (results.isEmpty()) {
+                return SyncResult.Failure(
+                    "Jolpica non ha il risultato per il round ${race.round}",
+                )
+            }
+            val qualifying = optionalOn404 {
+                f1ApiClient.qualifyingResults(season, race.round)
+            }
+            val sprint = if (race.isSprint) {
+                optionalOn404 { f1ApiClient.sprintResults(season, race.round) }
+            } else {
+                emptyList()
+            }
+            val mapping = F1Mapper.toRaceResultData(results, qualifying, sprint)
+            if (mapping is RaceMapping.UnknownDriver) {
+                return SyncResult.Failure("Pilota sconosciuto: ${mapping.driverId}")
+            }
+            val base = (mapping as RaceMapping.Success).data
+            val existing = raceRepository.result(race.id)
+            val pitStops = try {
+                f1ApiClient.pitStops(season, race.round)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
+            }
+            val byDriver = pitStops?.let { F1Mapper.pitStopsByDriver(it) }.orEmpty()
+            val refreshed = base.copy(
+                drivers = base.drivers.map { driver ->
+                    driver.copy(pitStops = byDriver[driver.driverId] ?: driver.pitStops)
+                },
+                laps = F1Mapper.raceLaps(results) ?: base.laps,
+                totalPitStops = pitStops?.let {
+                    F1Mapper.pitStopsByDriver(it).values.sum()
+                },
+                // Campi dell'admin: mai toccati dal refresh.
+                safetyCars = existing?.safetyCars,
+                redFlags = existing?.redFlags ?: base.redFlags,
+                weather = existing?.weather ?: base.weather,
+                notes = existing?.notes ?: base.notes,
+            )
+            val errors = RaceResultValidation.validate(refreshed, race.isSprint)
+            if (errors.isNotEmpty()) {
+                SyncResult.Failure(errors.first())
+            } else {
+                raceRepository.saveResult(race.id, race.leagueId, refreshed)
+                SyncResult.Success(completed = 1)
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            SyncResult.Failure(syncFailureMessage(failure))
+        }
+    }
+
+    /**
      * Messaggio per [SyncResult.Failure]: un [UserException] di dominio
      * conserva il proprio testo, le risposte HTTP vengono tradotte dallo
      * status (404/429/5xx) e il resto passa com'e'.

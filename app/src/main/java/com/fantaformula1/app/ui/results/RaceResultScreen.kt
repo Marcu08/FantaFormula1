@@ -63,6 +63,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.RaceResultValidation
+import com.fantaformula1.app.core.domain.RaceStatus
 import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
 import com.fantaformula1.app.data.util.formatLocalDateTimeInput
 import com.fantaformula1.app.ui.components.DriverAvatar
@@ -114,6 +115,25 @@ fun RaceResultScreen(
         if (expanded.isEmpty()) {
             expanded = state.drivers.filter { it.hasData }.map { it.driverId }.toSet()
         }
+    }
+
+    // Conferma del refresh: rigenera da Jolpica un risultato gia' salvato.
+    if (state.confirmRefresh) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRefreshConfirm,
+            title = { Text(stringResource(R.string.refresh_title)) },
+            text = { Text(stringResource(R.string.refresh_body)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmRefreshResult) {
+                    Text(stringResource(R.string.refresh_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissRefreshConfirm) {
+                    Text(stringResource(R.string.refresh_cancel))
+                }
+            },
+        )
     }
 
     Scaffold(
@@ -330,7 +350,15 @@ private fun ResultsSyncRow(state: ResultUiState, viewModel: ResultViewModel) {
                 Icon(Icons.Outlined.Sync, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
             }
-            Text(stringResource(R.string.results_sync_button))
+            Text(
+                text = stringResource(
+                    if (state.race?.status == RaceStatus.COMPLETED) {
+                        R.string.results_refresh_button
+                    } else {
+                        R.string.results_sync_button
+                    },
+                ),
+            )
         }
         Text(
             text = stringResource(R.string.results_sync_hint),

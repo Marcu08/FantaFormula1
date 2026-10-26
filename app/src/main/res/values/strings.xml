@@ -165,12 +165,17 @@
     <string name="campo_safety_car_hint">SC+VSC</string>
     <string name="campo_safety_car_todo">Safety car: inserisci qui sopra il totale SC+VSC viste in gara</string>
     <string name="campo_pit_stop_todo">Pit stop: nella sezione Piloti qui sotto compila le fermate per pilota — il totale si calcola da solo</string>
+    <string name="refresh_title">Aggiorna il risultato da Jolpica?</string>
+    <string name="refresh_body">Rigenera posizioni, griglia, giri e pit stop dal dato ufficiale della F1. Safety car, bandiere, meteo e note vengono conservati. Eventuali correzioni manuali su posizioni o DNF verranno sostituite.</string>
+    <string name="refresh_confirm">Aggiorna</string>
+    <string name="refresh_cancel">Annulla</string>
     <string name="risultato_in_attesa_conferma">In attesa di conferma admin: %1$s. Fino alla conferma i pronostici collegati valgono 0 punti.</string>
     <string name="risultati_in_attesa">Attenzione: %1$d gare finite da più di 12 ore senza risultato. Ultimo aggiornamento qui sopra: se non appare, tocca il pulsante di sincronizzazione (solo admin).</string>
     <string name="openf1_import_button">Importa SC/VSC (OpenF1)</string>
     <string name="openf1_import_hint">Proposta da OpenF1: revisiona e conferma, niente salvataggi automatici</string>
     <string name="openf1_import_failed">Importazione fallita: %1$s — inserisci a mano i valori noti</string>
     <string name="results_sync_button">Sincronizza risultati</string>
+    <string name="results_refresh_button">Aggiorna da Jolpica</string>
     <string name="results_sync_hint">Posizioni, DNF e punti da Jolpica (API ufficiale F1)</string>
     <string name="openf1_dialog_title">Neutralizzazione da OpenF1</string>
     <string name="openf1_sc_proposta">Safety car: %1$d</string>

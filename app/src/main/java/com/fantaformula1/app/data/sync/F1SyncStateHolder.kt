@@ -1,5 +1,6 @@
 package com.fantaformula1.app.data.sync
 
+import com.fantaformula1.app.core.domain.Race
 import java.time.Instant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +68,27 @@ class F1SyncStateHolder(
         try {
             _state.update { it.copy(isSyncing = true) }
             val result = repository.syncResults(leagueId)
+            if (result is SyncResult.Success) {
+                prefs.markResultsSynced()
+                _state.update { it.copy(lastResultsSync = Instant.now()) }
+            }
+            return result
+        } finally {
+            _state.update { it.copy(isSyncing = false) }
+            syncMutex.unlock()
+        }
+    }
+
+    /**
+     * Rigenera il risultato di UNA gara da Jolpica (azione esplicita
+     * dell'admin su una gara gia' completata). Null se una sincronizzazione
+     * era gia' in corso.
+     */
+    suspend fun refreshResult(race: Race): SyncResult? {
+        if (!syncMutex.tryLock()) return null
+        try {
+            _state.update { it.copy(isSyncing = true) }
+            val result = repository.refreshRaceResult(race)
             if (result is SyncResult.Success) {
                 prefs.markResultsSynced()
                 _state.update { it.copy(lastResultsSync = Instant.now()) }

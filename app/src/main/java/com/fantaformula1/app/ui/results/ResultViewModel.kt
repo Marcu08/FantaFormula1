@@ -123,6 +123,8 @@ data class ResultUiState(
      * sincronizzazione non ricarica il form per non perdere i suoi dati.
      */
     val edited: Boolean = false,
+    /** Conferma aperta: rigenera da Jolpica il risultato gia' salvato. */
+    val confirmRefresh: Boolean = false,
 )
 
 /**
@@ -301,8 +303,17 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
      */
     fun syncResultsFromApi() {
         val sync = f1Sync ?: return
-        val leagueId = _uiState.value.race?.leagueId ?: return
-        if (!_uiState.value.isAdmin || _uiState.value.resultsSyncing) return
+        val state = _uiState.value
+        val race = state.race ?: return
+        if (!state.isAdmin || state.resultsSyncing) return
+        // Gara GIA' completata: la sync non la rigenera (sovrascriverebbe
+        // le correzioni dell'admin senza chiederlo). Si passa per la
+        // conferma del refresh, che dichiara cosa aggiorna e cosa conserva.
+        if (race.status == RaceStatus.COMPLETED) {
+            _uiState.update { it.copy(confirmRefresh = true) }
+            return
+        }
+        val leagueId = race.leagueId
         _uiState.update { it.copy(resultsSyncing = true) }
         viewModelScope.launch {
             try {
@@ -357,6 +368,52 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                 _uiState.update { it.copy(resultsSyncing = false) }
             }
         }
+    }
+
+    /** Conferma del refresh: rigenera il risultato salvato da Jolpica. */
+    fun confirmRefreshResult() {
+        val sync = f1Sync ?: return
+        val race = _uiState.value.race ?: return
+        if (_uiState.value.resultsSyncing) return
+        _uiState.update { it.copy(confirmRefresh = false, resultsSyncing = true) }
+        viewModelScope.launch {
+            try {
+                when (val result = sync.refreshResult(race)) {
+                    null -> _events.emit(
+                        ResultEvent.Notice("Sincronizzazione già in corso: riprova tra un attimo"),
+                    )
+                    is SyncResult.Failure -> _events.emit(ResultEvent.Failure(result.message))
+                    is SyncResult.Success -> {
+                        val edited = _uiState.value.edited
+                        if (!edited) load()
+                        _events.emit(
+                            ResultEvent.Notice(
+                                if (edited) {
+                                    "Risultato aggiornato da Jolpica (i tuoi campi " +
+                                        "inseriti sono stati conservati nel form)"
+                                } else {
+                                    "Risultato aggiornato da Jolpica: posizioni, giri e " +
+                                        "pit stop rigenerati — safety car, meteo e note " +
+                                        "conservati"
+                                },
+                            ),
+                        )
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                // Regola 6: il cancel del viewModelScope non va mangiato.
+                throw cancellation
+            } catch (e: Exception) {
+                _events.emit(ResultEvent.Failure(e.message ?: "Impossibile aggiornare il risultato"))
+            } finally {
+                _uiState.update { it.copy(resultsSyncing = false) }
+            }
+        }
+    }
+
+    /** Chiude il dialogo di conferma del refresh senza fare nulla. */
+    fun dismissRefreshConfirm() {
+        _uiState.update { it.copy(confirmRefresh = false) }
     }
 
     /**
