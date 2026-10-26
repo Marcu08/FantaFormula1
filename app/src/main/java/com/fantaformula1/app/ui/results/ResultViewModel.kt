@@ -160,6 +160,9 @@ class ResultViewModel(
     /** Auto-sync Jolpica: una sola volta per istanza (apertura schermata). */
     private var autoSyncAttempted = false
 
+    /** Auto-repair dati mancanti: una sola volta per istanza. */
+    private var autoRepairAttempted = false
+
     init {
         load()
     }
@@ -206,6 +209,24 @@ class ResultViewModel(
                 if (!autoSyncAttempted && admin && result == null && race.isDeadlinePassed()) {
                     autoSyncAttempted = true
                     syncResultsFromApi()
+                }
+                // Auto-repair: gara salvata ma con dati mancanti → li completa
+                // da sola all'apertura, senza azioni manuali: pit stop da
+                // Jolpica (solo gara completata, conserva i campi admin) e
+                // proposta safety car da OpenF1 (il dialogo resta il
+                // conferma dell'admin, per design). Una volta per apertura.
+                if (!autoRepairAttempted && admin && result != null && race.isDeadlinePassed()) {
+                    val needsPit = result.confirmedTotalPitStops() == null
+                    val needsSafety = result.safetyCars == null
+                    if (needsPit || needsSafety) {
+                        autoRepairAttempted = true
+                        if (needsPit && race.status == RaceStatus.COMPLETED) {
+                            runRefresh(silent = true)
+                        }
+                        if (needsSafety) {
+                            importSafetyCars(silent = true)
+                        }
+                    }
                 }
             }.onFailure { throwable ->
                 _uiState.update {
@@ -384,29 +405,41 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
 
     /** Conferma del refresh: rigenera il risultato salvato da Jolpica. */
     fun confirmRefreshResult() {
+        _uiState.update { it.copy(confirmRefresh = false) }
+        runRefresh(silent = false)
+    }
+
+    /**
+     * Refresh da Jolpica senza dialogo (il dialogo e' solo per l'azione
+     * esplicita del pulsante; l'auto-repair all'apertura entra da qui).
+     */
+    private fun runRefresh(silent: Boolean) {
         val sync = f1Sync ?: return
         val race = _uiState.value.race ?: return
         if (_uiState.value.resultsSyncing) return
-        _uiState.update { it.copy(confirmRefresh = false, resultsSyncing = true) }
+        _uiState.update { it.copy(resultsSyncing = true) }
         viewModelScope.launch {
             try {
                 when (val result = sync.refreshResult(race)) {
-                    null -> _events.emit(
-                        ResultEvent.Notice("Sincronizzazione già in corso: riprova tra un attimo"),
-                    )
-                    is SyncResult.Failure -> _events.emit(ResultEvent.Failure(result.message))
+                    null -> if (!silent) {
+                        _events.emit(
+                            ResultEvent.Notice("Sincronizzazione già in corso: riprova tra un attimo"),
+                        )
+                    }
+                    is SyncResult.Failure -> if (!silent) {
+                        _events.emit(ResultEvent.Failure(result.message))
+                    }
                     is SyncResult.Success -> {
-                        val edited = _uiState.value.edited
-                        if (!edited) load()
+                        if (!_uiState.value.edited) load()
                         _events.emit(
                             ResultEvent.Notice(
-                                if (edited) {
-                                    "Risultato aggiornato da Jolpica (i tuoi campi " +
+                                if (_uiState.value.edited) {
+                                    "Risultati aggiornati da Jolpica (i tuoi campi " +
                                         "inseriti sono stati conservati nel form)"
                                 } else {
-                                    "Risultato aggiornato da Jolpica: posizioni, giri e " +
-                                        "pit stop rigenerati — safety car, meteo e note " +
-                                        "conservati"
+                                    "Pit stop e risultato aggiornati da Jolpica: " +
+                                        "posizioni, giri e fermate rigenerati — safety " +
+                                        "car, meteo e note conservati"
                                 },
                             ),
                         )
@@ -416,7 +449,9 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                 // Regola 6: il cancel del viewModelScope non va mangiato.
                 throw cancellation
             } catch (e: Exception) {
-                _events.emit(ResultEvent.Failure(e.message ?: "Impossibile aggiornare il risultato"))
+                if (!silent) {
+                    _events.emit(ResultEvent.Failure(e.message ?: "Impossibile aggiornare il risultato"))
+                }
             } finally {
                 _uiState.update { it.copy(resultsSyncing = false) }
             }
@@ -464,8 +499,12 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
      * sessione Race della stagione (niente "latest"), scarica i messaggi
      * FIA e propone SC/VSC. NON tocca accredita i campi: solo dati con
      * review dell'amministratore. Fallita = messaggio, il manual resta.
+     *
+     * [silent] = auto-repair all'apertura: se fallisce non mostra errori
+     * (la card "Dati mancanti" resta comunque come richiamo), mentre il
+     * successo apre il consueto dialogo di conferma.
      */
-    fun importSafetyCars() {
+    fun importSafetyCars(silent: Boolean = false) {
         val race = _uiState.value.race ?: return
         val client = openF1 ?: return
         if (_uiState.value.scImport is ScImportState.Loading) return
@@ -497,8 +536,12 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                 // spiega la causa invece di mostrare il trace di ktor.
                 val status = (e as? ResponseException)?.response?.status?.value
                 val message = openF1FailureMessage(status, e.message)
-                _uiState.update { it.copy(scImport = ScImportState.Failed(message)) }
-                _events.emit(ResultEvent.Failure(message))
+                if (silent) {
+                    _uiState.update { it.copy(scImport = ScImportState.Idle) }
+                } else {
+                    _uiState.update { it.copy(scImport = ScImportState.Failed(message)) }
+                    _events.emit(ResultEvent.Failure(message))
+                }
             }
         }
     }

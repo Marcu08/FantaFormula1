@@ -396,7 +396,7 @@ private fun OpenF1ImportButton(state: ResultUiState, viewModel: ResultViewModel)
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedButton(
-            onClick = viewModel::importSafetyCars,
+            onClick = { viewModel.importSafetyCars() },
             enabled = state.isAdmin && state.scImport !is ScImportState.Loading,
         ) {
             if (state.scImport is ScImportState.Loading) {
