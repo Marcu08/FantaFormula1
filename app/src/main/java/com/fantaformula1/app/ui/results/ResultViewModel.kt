@@ -370,6 +370,18 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         }
     }
 
+    /**
+     * Rientro nella schermata (ON_RESUME): ricarica dal DB lo stato reale
+     * SOLO se l'admin non sta compilando — mai sovrascrivere i campi non
+     * salvati. Con la sync in corso si aspetta il prossimo rientro.
+     */
+    fun reloadIfUnedited() {
+        val current = _uiState.value
+        if (!current.edited && !current.resultsSyncing && !current.loading) {
+            load()
+        }
+    }
+
     /** Conferma del refresh: rigenera il risultato salvato da Jolpica. */
     fun confirmRefreshResult() {
         val sync = f1Sync ?: return
