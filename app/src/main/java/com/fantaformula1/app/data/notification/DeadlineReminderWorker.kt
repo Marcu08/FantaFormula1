@@ -20,11 +20,13 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.fantaformula1.app.FantaApplication
+import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.RacePrediction
 import com.fantaformula1.app.core.domain.Rules
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 /**
  * Worker che invia i promemoria di scadenza dei pronostici (F1): due avvisi
@@ -45,26 +47,63 @@ class DeadlineReminderWorker(
             ?: return Result.failure()
         val leadMinutes = inputData.getInt(KEY_LEAD_MINUTES, LEAD_1_HOUR_MINUTES)
         val container = (applicationContext as FantaApplication).container
+        // WorkManager puo' partire prima del restore della sessione.
+        try {
+            container.initialize()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Inizializzazione transitoria: riprovare invece di perdere il
+            // promemoria e saltare il controllo proprietario con utente null.
+            return Result.retry()
+        }
+
+        // Il promemoria appartiene all'utente che l'ha schedullato. Se la
+        // sessione e' cambiata o non e' piu' verificabile, non notificare.
+        val expectedUserId = inputData.getString(KEY_USER_ID)
+        if (!reminderBelongsToUser(
+                expectedUserId,
+                container.authRepository.currentUserId(),
+            )
+        ) {
+            return Result.success()
+        }
 
         // Impostazione "Notifiche" spenta dall'utente: nessun avviso.
         if (!NotificationPrefs(applicationContext).enabled()) return Result.success()
 
-        val race = runCatching { container.raceRepository.race(raceId) }.getOrNull()
+        val race = try {
+            container.raceRepository.race(raceId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Rete/sessione non disponibili: non possiamo verificare se il
+            // promemoria serve. Non inviare un avviso potenzialmente falso.
+            return Result.retry()
+        } ?: return Result.success()
         // Gara chiusa/completata (risultato gia' salvato): nessun promemoria.
-        if (race != null && !race.isPredictionOpen()) {
+        if (!race.isPredictionOpen()) {
             return Result.success()
         }
 
-        val mine = race?.let {
-            runCatching { container.predictionRepository.myPrediction(raceId) }.getOrNull()
+        val mine = try {
+            container.predictionRepository.myPrediction(raceId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return Result.retry()
         }
-        val rules = race?.let {
-            runCatching { container.leagueRepository.league(it.leagueId)?.rules }.getOrNull()
+        val rules = try {
+            container.leagueRepository.league(race.leagueId)?.rules
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
         }
         // F1: il promemoria serve solo a chi deve ancora compilare (o finire)
         // il pronostico; chi ha completato tutti i tipi attivi non viene
-        // disturbato.
-        if (!isPredictionIncomplete(mine, rules)) {
+        // disturbato. Lo sprint e' richiesto solo nelle gare sprint.
+        if (!isPredictionIncomplete(mine, rules, isSprintRace = race.isSprint)) {
             return Result.success()
         }
 
@@ -75,6 +114,15 @@ class DeadlineReminderWorker(
         } else {
             "I tuoi pronostici $whenText sono ancora incompleti: finiscili!"
         }
+        // Ultima verifica subito prima della notifica: un cambio account
+        // durante le query non deve produrre un avviso per l'altro utente.
+        if (!reminderBelongsToUser(
+                expectedUserId,
+                container.authRepository.currentUserId(),
+            )
+        ) {
+            return Result.success()
+        }
         DeadlineNotifications.showDeadlineNotification(applicationContext, raceId, title, body)
         return Result.success()
     }
@@ -82,10 +130,21 @@ class DeadlineReminderWorker(
     companion object {
         const val KEY_RACE_ID = "race_id"
         const val KEY_LEAD_MINUTES = "lead_minutes"
+        const val KEY_USER_ID = "user_id"
         const val LEAD_24_HOURS_MINUTES = 24 * 60
         const val LEAD_1_HOUR_MINUTES = 60
     }
 }
+
+/**
+ * Un promemoria senza proprietario (job creato da una versione precedente)
+ * non e' verificabile e viene ignorato: non deve mai essere attribuito
+ * all'account che ha fatto login nel frattempo.
+ */
+internal fun reminderBelongsToUser(expectedUserId: String?, currentUserId: String?): Boolean =
+    !expectedUserId.isNullOrBlank() &&
+        !currentUserId.isNullOrBlank() &&
+        expectedUserId == currentUserId
 
 /**
  * Funzione pura (F1, testata su JVM): il pronostico e' "incompleto" quando
@@ -93,11 +152,19 @@ class DeadlineReminderWorker(
  * Senza regole nota (errore di rete) il richiamo degrada sul solo controllo
  * "almeno qualcosa compilato".
  */
-internal fun isPredictionIncomplete(prediction: RacePrediction?, rules: Rules?): Boolean {
+internal fun isPredictionIncomplete(
+    prediction: RacePrediction?,
+    rules: Rules?,
+    isSprintRace: Boolean = false,
+): Boolean {
     if (prediction == null) return true
     val savedTypes = prediction.entries.map { it.type }.toSet()
     if (rules == null) return savedTypes.isEmpty()
-    return rules.enabledTypes.any { it !in savedTypes }
+    return rules.enabledTypes.any { type ->
+        // SPRINT_WINNER non e' compilabile nelle gare senza sprint: non
+        // renderlo mai un tipo "mancante".
+        (isSprintRace || type != PredictionType.SPRINT_WINNER) && type !in savedTypes
+    }
 }
 
 /**
@@ -107,9 +174,27 @@ internal fun isPredictionIncomplete(prediction: RacePrediction?, rules: Rules?):
  */
 object DeadlineReminderScheduler {
 
-    fun schedule(context: Context, raceId: String, deadline: Instant) {
-        scheduleAt(context, raceId, deadline, DeadlineReminderWorker.LEAD_24_HOURS_MINUTES)
-        scheduleAt(context, raceId, deadline, DeadlineReminderWorker.LEAD_1_HOUR_MINUTES)
+    fun schedule(
+        context: Context,
+        raceId: String,
+        deadline: Instant,
+        userId: String?,
+    ) {
+        if (userId.isNullOrBlank()) return
+        scheduleAt(
+            context,
+            raceId,
+            deadline,
+            DeadlineReminderWorker.LEAD_24_HOURS_MINUTES,
+            userId,
+        )
+        scheduleAt(
+            context,
+            raceId,
+            deadline,
+            DeadlineReminderWorker.LEAD_1_HOUR_MINUTES,
+            userId,
+        )
     }
 
     private fun scheduleAt(
@@ -117,6 +202,7 @@ object DeadlineReminderScheduler {
         raceId: String,
         deadline: Instant,
         leadMinutes: Int,
+        userId: String,
     ) {
         val now = Instant.now()
         val triggerAt = deadline.minus(Duration.ofMinutes(leadMinutes.toLong()))
@@ -134,21 +220,27 @@ object DeadlineReminderScheduler {
                 workDataOf(
                     DeadlineReminderWorker.KEY_RACE_ID to raceId,
                     DeadlineReminderWorker.KEY_LEAD_MINUTES to leadMinutes,
+                    DeadlineReminderWorker.KEY_USER_ID to userId,
                 ),
             )
             .addTag(TAG)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
-            uniqueName(raceId, leadMinutes),
+            uniqueName(raceId, leadMinutes, userId),
             ExistingWorkPolicy.REPLACE,
             request,
         )
     }
 
-    fun cancel(context: Context, raceId: String) {
+    fun cancel(context: Context, raceId: String, userId: String?) {
+        if (userId.isNullOrBlank()) return
         val manager = WorkManager.getInstance(context)
-        manager.cancelUniqueWork(uniqueName(raceId, DeadlineReminderWorker.LEAD_24_HOURS_MINUTES))
-        manager.cancelUniqueWork(uniqueName(raceId, DeadlineReminderWorker.LEAD_1_HOUR_MINUTES))
+        manager.cancelUniqueWork(
+            uniqueName(raceId, DeadlineReminderWorker.LEAD_24_HOURS_MINUTES, userId),
+        )
+        manager.cancelUniqueWork(
+            uniqueName(raceId, DeadlineReminderWorker.LEAD_1_HOUR_MINUTES, userId),
+        )
     }
 
     /**
@@ -161,8 +253,8 @@ object DeadlineReminderScheduler {
 
     internal const val TAG = "deadline_reminder"
 
-    private fun uniqueName(raceId: String, leadMinutes: Int): String =
-        "deadline_reminder_${raceId}_$leadMinutes"
+    private fun uniqueName(raceId: String, leadMinutes: Int, userId: String): String =
+        "deadline_reminder_${userId}_${raceId}_$leadMinutes"
 }
 
 /** Canali e notifiche dell'app (F1: scadenze e risultati disponibili). */

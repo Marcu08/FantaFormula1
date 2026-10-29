@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -79,6 +80,16 @@ fun AppNavHost(
     LaunchedEffect(authState) {
         if (authState is AuthState.SignedOut && startDestination != null) {
             F1SyncScheduler.cancelAll(context)
+            com.fantaformula1.app.data.notification.DeadlineReminderScheduler.cancelAll(context)
+            // Cache, bozze e coda offline sono per-utente, ma al logout
+            // eliminiamo anche eventuali residui legacy non namespace.
+            try {
+                container.clearLocalUserData()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Pulizia best-effort: le chiavi per-utente restano isolate.
+            }
             val onAuth = navController.currentDestination?.route == Routes.AUTH
             if (!onAuth) {
                 navController.navigate(Routes.AUTH) {
@@ -151,12 +162,19 @@ fun AppNavHost(
             // La sincronizzazione periodica e' riservata agli admin (N5): i
             // non-admin riceverebbero errori RLS dal worker.
             LaunchedEffect(leagueId) {
-                val isAdmin = runCatching { container.leagueRepository.isAdmin(leagueId) }
-                    .getOrDefault(false)
-                if (isAdmin) {
-                    F1SyncScheduler.schedule(context, leagueId)
-                } else {
-                    F1SyncScheduler.cancel(context, leagueId)
+                val isAdmin = try {
+                    container.leagueRepository.isAdmin(leagueId)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    // Rete/sessione non disponibili: non e' una prova che
+                    // l'utente non sia admin. Non cancellare la sync.
+                    null
+                }
+                when (isAdmin) {
+                    true -> F1SyncScheduler.schedule(context, leagueId)
+                    false -> F1SyncScheduler.cancel(context, leagueId)
+                    null -> Unit
                 }
             }
             LeagueScreen(
@@ -229,6 +247,17 @@ fun AppNavHost(
                                 is SyncResult.Failure -> result.message
                             }
                             snackbarState.showSnackbar(message)
+                            // 0013: dopo i risultati aggiorna le quote della
+                            // prossima gara aperta (best-effort).
+                            if (result is SyncResult.Success) {
+                                try {
+                                    container.quoteService.publishAfterResults(leagueId)
+                                } catch (cancellation: CancellationException) {
+                                    throw cancellation
+                                } catch (_: Exception) {
+                                    // Nessun errore a video.
+                                }
+                            }
                         }
                     }
                 },

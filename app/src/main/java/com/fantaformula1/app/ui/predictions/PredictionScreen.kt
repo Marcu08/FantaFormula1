@@ -75,12 +75,17 @@ import com.fantaformula1.app.core.domain.DriverPointsEstimates
 import com.fantaformula1.app.core.domain.DriverSeasonStats
 import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
+import com.fantaformula1.app.core.domain.QuoteKeys
+import com.fantaformula1.app.core.domain.RaceQuote
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.ScoringEngine
 import com.fantaformula1.app.core.domain.italianDescription
 import com.fantaformula1.app.core.domain.OverUnderQuotes
 import com.fantaformula1.app.core.domain.italianLabel
+import com.fantaformula1.app.core.domain.quoteFor
+import com.fantaformula1.app.core.domain.usesServerQuote
 import com.fantaformula1.app.core.util.Formats
+import com.fantaformula1.app.data.repository.RaceQuoteLoad
 import com.fantaformula1.app.ui.components.DriverAvatar
 import com.fantaformula1.app.ui.components.DriverImages
 import com.fantaformula1.app.ui.components.DriverPickerBottomSheet
@@ -107,12 +112,14 @@ fun PredictionScreen(
             raceRepository = container.raceRepository,
             leagueRepository = container.leagueRepository,
             predictionRepository = container.predictionRepository,
+            authRepository = container.authRepository,
             leagueDataRepository = container.leagueDataRepository,
             seasonResultsStore = container.seasonResultsStore,
             raceId = raceId,
             draftStore = container.predictionDraftStore,
             offlineCache = container.offlineCacheStore,
             pendingWritesStore = container.pendingWritesStore,
+            quoteService = container.quoteService,
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -308,6 +315,19 @@ fun PredictionScreen(
                         }
                     }
 
+                    // 0013: senza quote pubblicate i tipi a quota non sono
+                    // compilabili; gli altri restano disponibili.
+                    val quotesReady = state.quotesLoad is RaceQuoteLoad.Published
+                    if (!quotesReady && state.visibleTypes.any { it.usesServerQuote }) {
+                        item {
+                            QuoteUnavailableCard(
+                                load = state.quotesLoad,
+                                isAdmin = state.isAdmin,
+                                error = state.quoteError,
+                            )
+                        }
+                    }
+
                     items(state.visibleTypes, key = { it.name }) { type ->
                         val draft = state.drafts.firstOrNull { it.type == type }
                             ?: DraftEntry.of(type)
@@ -320,10 +340,12 @@ fun PredictionScreen(
                             type = type,
                             draft = draft,
                             points = state.rules.pointsFor(type),
-                            enabled = state.canSubmit,
+                            enabled = state.canSubmit &&
+                                (!type.usesServerQuote || quotesReady),
                             isSprintRace = state.race?.isSprint == true,
                             rules = state.rules,
                             seasonStats = state.seasonStats,
+                            quotes = state.quotes,
                             viewModel = viewModel,
                             lockedWinnerEnabled = state.rules.enabledTypes.contains(
                                 PredictionType.WINNER,
@@ -485,6 +507,55 @@ private fun formatEstimate(value: Double): String {
     }
 }
 
+@Composable
+private fun QuoteUnavailableCard(
+    load: RaceQuoteLoad,
+    isAdmin: Boolean,
+    error: String? = null,
+) {
+    val message = when (load) {
+        RaceQuoteLoad.ServerUnsupported -> stringResource(R.string.quote_server_non_aggiornato)
+        RaceQuoteLoad.Unreachable -> stringResource(R.string.quote_rete)
+        else -> stringResource(R.string.quote_non_disponibili)
+    }
+    val detail = if (load == RaceQuoteLoad.NotPublished && isAdmin) {
+        stringResource(R.string.quote_admin_prompt)
+    } else {
+        null
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            detail?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            error?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PredictionCard(
@@ -495,6 +566,7 @@ private fun PredictionCard(
     isSprintRace: Boolean,
     rules: Rules,
     seasonStats: DriverSeasonStats,
+    quotes: List<RaceQuote>,
     viewModel: PredictionViewModel,
     lockedWinnerEnabled: Boolean = false,
     winnerDriverId: String? = null,
@@ -589,23 +661,23 @@ private fun PredictionCard(
                     )
                 }
                 if (type == PredictionType.HEAD_TO_HEAD) {
-                    // Quota e fasce della coppia scelta: chiaro PRIMA di salvare
-                    // quanto rende la sfida (pari 1.2x, favorito poco, sorpresa
-                    // tanto). Fasce REALI (0009): senza gare completate valgono
-                    // quelle del prior pre-stagione.
+                    // 0013: quota PUBBLICATA dal server per la coppia scelta
+                    // (la coppia e' canonica, il lato scelto decide la quota).
                     val firstId = draft.driverIds.getOrNull(0)
                     val secondId = draft.driverIds.getOrNull(1)
                     if (firstId != null && secondId != null) {
-                        val tierA = seasonStats.tierOf(firstId)
-                        val tierB = seasonStats.tierOf(secondId)
-                        val factor = OverUnderQuotes.headToHeadFactor(tierA, tierB)
-                        Text(
-                            text = "Fasce: ${tierLabel(tierA)} vs ${tierLabel(tierB)} — " +
-                                "quota x${formatEstimate(factor)} → " +
-                                "${formatEstimate(points * factor)} punti se vince",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                        val quote = quoteFor(quotes, type, QuoteKeys.headToHead(firstId, secondId))
+                        if (quote != null) {
+                            val tierA = seasonStats.tierOf(firstId)
+                            val tierB = seasonStats.tierOf(secondId)
+                            Text(
+                                text = "Fasce: ${tierLabel(tierA)} vs ${tierLabel(tierB)} — " +
+                                    "quota x${formatEstimate(quote.quota)} → " +
+                                    "${formatEstimate(points * quote.quota)} punti se vince",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
                  Spacer(Modifier.height(8.dp))
@@ -695,27 +767,39 @@ private fun PredictionCard(
                             enabled = enabled,
                         )
                     }
-                    if (driverId != null) {
-                        // Quote a valore atteso (0009): "non ritira" non e' piu'
-                        // gratis — paga in proporzione alla sua probabilita'.
-                        val rate = seasonStats.dnfRate(driverId)
-                        val (qSi, qNo) = OverUnderQuotes.dnfQuotas(rate)
-                        val chosen = draft.booleanValue
+                    if (draft.booleanValue == null) {
+                        // Il flag acceso/spento e' ambiguo finche' non e'
+                        // stata fatta una scelta: "off" non significa "no".
                         Text(
-                            text = stringResource(
-                                R.string.pronostico_dnf_quote,
-                                formatEstimate(qSi),
-                                formatEstimate(points * qSi),
-                                formatEstimate(qNo),
-                                formatEstimate(points * qNo),
-                            ),
+                            text = stringResource(R.string.pronostico_dnf_scegli),
                             style = MaterialTheme.typography.labelMedium,
-                            color = when (chosen) {
-                                null -> MaterialTheme.colorScheme.onSurfaceVariant
-                                true -> MaterialTheme.colorScheme.primary
-                                false -> MaterialTheme.colorScheme.secondary
-                            },
+                            color = MaterialTheme.colorScheme.error,
                         )
+                    }
+                    if (driverId != null) {
+                        // 0013: quote PUBBLICATE dal server per i due lati.
+                        val quoteRetires = quoteFor(quotes, type, QuoteKeys.dnf(driverId, true))
+                        val quoteFinishes = quoteFor(quotes, type, QuoteKeys.dnf(driverId, false))
+                        if (quoteRetires != null && quoteFinishes != null) {
+                            val qSi = quoteRetires.quota
+                            val qNo = quoteFinishes.quota
+                            val chosen = draft.booleanValue
+                            Text(
+                                text = stringResource(
+                                    R.string.pronostico_dnf_quote,
+                                    formatEstimate(qSi),
+                                    formatEstimate(points * qSi),
+                                    formatEstimate(qNo),
+                                    formatEstimate(points * qNo),
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = when (chosen) {
+                                    null -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    true -> MaterialTheme.colorScheme.primary
+                                    false -> MaterialTheme.colorScheme.secondary
+                                },
+                            )
+                        }
                     }
                 }
 
@@ -728,52 +812,52 @@ private fun PredictionCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        // Soglia dai DATI REALI (mediana empirica, 0009); sotto
-                        // il minimo di 3 gare queda la stima pre-stagione.
-                        val threshold = seasonStats.thresholdFor(driverId)
-                        val n = seasonStats.racesRun(driverId)
-                        val (qOver, qUnder) = OverUnderQuotes.pointsOverUnderQuotas(
-                            seasonStats.countOverPoints(driverId, threshold),
-                            n,
-                        )
-                        Text(
-                            text = if (seasonStats.isEmpirical(driverId)) {
-                                stringResource(
-                                    R.string.pronostico_soglia_reale,
-                                    n,
-                                    DriversCatalog.nameOf(driverId),
-                                    formatEstimate(threshold),
-                                )
-                            } else {
-                                stringResource(
-                                    R.string.pronostico_soglia_stimata,
-                                    formatEstimate(threshold),
-                                    DriversCatalog.nameOf(driverId),
-                                )
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        OverUnderRow(
-                            over = draft.over,
-                            enabled = enabled,
-                            onChange = {
-                                // Soglia = dati reali (o stima): si setta al
-                                // primo giro, il giocatore sceglie sopra/sotto.
-                                viewModel.setThreshold(type, formatEstimate(threshold))
-                                viewModel.setOver(type, it)
-                            },
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.pronostico_punti_quote,
-                                formatEstimate(qOver),
-                                formatEstimate(points * qOver),
-                                formatEstimate(qUnder),
-                                formatEstimate(points * qUnder),
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                        // 0013: soglia e quote PUBBLICATE dal server (stessa
+                        // soglia per i due lati). Niente calcolo locale.
+                        val quoteOver = quoteFor(quotes, type, QuoteKeys.points(driverId, true))
+                        val quoteUnder = quoteFor(quotes, type, QuoteKeys.points(driverId, false))
+                        val threshold = quoteOver?.threshold ?: quoteUnder?.threshold
+                        if (quoteOver != null && quoteUnder != null && threshold != null) {
+                            val n = seasonStats.racesRun(driverId)
+                            Text(
+                                text = if (seasonStats.isEmpirical(driverId)) {
+                                    stringResource(
+                                        R.string.pronostico_soglia_reale,
+                                        n,
+                                        DriversCatalog.nameOf(driverId),
+                                        formatEstimate(threshold),
+                                    )
+                                } else {
+                                    stringResource(
+                                        R.string.pronostico_soglia_stimata,
+                                        formatEstimate(threshold),
+                                        DriversCatalog.nameOf(driverId),
+                                    )
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            OverUnderRow(
+                                over = draft.over,
+                                enabled = enabled,
+                                onChange = {
+                                    // La soglia e' quella pubblicata: si
+                                    // imposta insieme al lato scelto.
+                                    viewModel.setThreshold(type, formatEstimate(threshold))
+                                    viewModel.setOver(type, it)
+                                },
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.pronostico_punti_quote,
+                                    formatEstimate(quoteOver.quota),
+                                    formatEstimate(points * quoteOver.quota),
+                                    formatEstimate(quoteUnder.quota),
+                                    formatEstimate(points * quoteUnder.quota),
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
 

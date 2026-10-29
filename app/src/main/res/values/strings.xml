@@ -36,6 +36,7 @@
     <string name="config_mancante_testo">Inserisci l\'URL del progetto e la chiave anon per collegare la lega al cloud.</string>
     <string name="config_reset">Ripristina valori predefiniti</string>
     <string name="config_reset_done">Ripristinati i valori predefiniti</string>
+    <string name="config_versione">Versione %1$s (%2$d)</string>
     <!-- F1: notifiche locali -->
     <string name="config_notifiche">Notifiche</string>
     <string name="config_notifiche_sub">Promemoria 24 ore e 1 ora prima della scadenza dei pronostici (solo se incompleti) e avviso quando arrivano i risultati.</string>
@@ -44,6 +45,7 @@
     <string name="config_override_attivo">Valori personalizzati attivi</string>
     <string name="config_url_invalido">L\'URL deve iniziare con https://</string>
     <string name="config_key_vuota">La chiave anon non può essere vuota</string>
+    <string name="config_test">Verifica connessione</string>
     <string name="config_test_in_corso">Verifica della connessione…</string>
     <string name="config_test_ok">Connessione riuscita</string>
     <string name="config_test_ko">Connessione fallita: controlla URL e chiave</string>
@@ -155,6 +157,7 @@
     <string name="risultato_salvato">Risultato salvato</string>
     <string name="risultati_deadline">Deadline %1$s</string>
     <string name="risultati_sola_lettura">Solo l\'amministratore può inserire o modificare i risultati.</string>
+    <string name="risultati_nessun_dato">Nessun risultato inserito per questa gara.</string>
     <string name="sezione_gara">Dati della gara</string>
     <string name="sezione_piloti">Piloti</string>
     <string name="piloti_istruzioni">Compila almeno i piloti classificati: griglia, posizione, DNF, penalità e pit stop.</string>
@@ -203,6 +206,8 @@
     <string name="campo_motivo_dnf">Motivo del ritiro</string>
     <string name="campo_penalita">Penalità</string>
     <string name="campo_pit_stop">Pit stop</string>
+    <string name="campo_pit_stop_totali">Pit stop totali griglia</string>
+    <string name="campo_pit_stop_totali_hint">Lascia vuoto per ricavarlo dai piloti</string>
     <string name="campo_punti">Punti campionato</string>
     <string name="campo_punti_hint">Lascia vuoto per usare la tabella F1</string>
 
@@ -221,6 +226,7 @@
     <string name="podio_slot_bloccato">Il 1º posto del podio è il vincitore selezionato e non può essere modificato.</string>
     <string name="podio_slot_bloccato_icona">Bloccato: coincide con il vincitore</string>
     <string name="pronostico_ritira">Il pilota ritira</string>
+    <string name="pronostico_dnf_scegli">Scegli Sì o No: il pronostico non è ancora completo</string>
     <string name="pronostico_soglia">Soglia</string>
     <string name="pronostico_sopra">Sopra</string>
     <string name="pronostico_sotto">Sotto</string>
@@ -234,7 +240,7 @@
     <string name="classifica_titolo">Classifica</string>
     <string name="classifica_tab_classifica">Classifica</string>
     <string name="classifica_tab_gare">Punti per gara</string>
-    <string name="classifica_dettaglio">%1$d gare vinte su %2$d pronostici</string>
+    <string name="classifica_dettaglio">%1$d gare vinte su %2$d gare con risultato</string>
     <string name="classifica_vuota">Nessun punteggio ancora</string>
     <string name="classifica_vuota_sub">Gioca almeno una gara con risultato inserito per vedere la classifica.</string>
     <string name="classifica_dati_parziali">Attenzione: %1$d pronostici e %2$d risultati non sono leggibili. La classifica potrebbe essere incompleta.</string>
@@ -300,6 +306,12 @@
     <string name="pronostico_punti_quote">Sopra ×%1$s → %2$s punti · Sotto ×%3$s → %4$s punti</string>
     <string name="pronostico_quota">Quota ×%1$s → %2$s punti</string>
     <string name="pronostico_fascia_legacy">Fascia salvata: %1$d-%2$d. Le fasce sono diventate obbligatorie: scegli una delle nuove bande.</string>
+
+    <!-- 0013: quote e soglie pubblicate dal server -->
+    <string name="quote_non_disponibili">Quote non ancora disponibili: le pubblica l\'admin</string>
+    <string name="quote_admin_prompt">Sei l\'admin: le quote vengono pubblicate automaticamente per questa gara. Riapri la schermata tra poco se non compaiono.</string>
+    <string name="quote_server_non_aggiornato">Quote non disponibili: il server non è aggiornato (migrazione 0013 mancante)</string>
+    <string name="quote_rete">Quote non disponibili: controlla la connessione e riprova</string>
 
     <!-- U2: selettori data/ora deadline -->
     <string name="gara_scegli_data">Scegli data</string>

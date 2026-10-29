@@ -10,6 +10,7 @@ import com.fantaformula1.app.core.domain.RaceResultValidation
 import com.fantaformula1.app.core.domain.RaceStatus
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
+import com.fantaformula1.app.data.repository.QuotePublishOutcome
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
 import com.fantaformula1.app.data.openf1.OpenF1Client
@@ -17,6 +18,7 @@ import com.fantaformula1.app.data.openf1.OpenF1SafetyCarParser
 import com.fantaformula1.app.data.openf1.OpenF1SessionMatcher
 import com.fantaformula1.app.data.openf1.OpenF1Source
 import com.fantaformula1.app.data.openf1.openF1FailureMessage
+import com.fantaformula1.app.data.quotes.QuoteService
 import com.fantaformula1.app.data.sync.F1SyncStateHolder
 import com.fantaformula1.app.data.sync.SyncResult
 import io.ktor.client.plugins.ResponseException
@@ -35,6 +37,19 @@ sealed interface ResultEvent {
     /** Messaggio informativo (snackbar neutra, non un errore). */
     data class Notice(val message: String) : ResultEvent
 }
+
+/** Accetta sia il punto sia la virgola decimale (tastiere italiane). */
+internal fun parseDecimal(raw: String): Double? =
+    raw.replace(',', '.').toDoubleOrNull()
+
+/** 0 e' un valore confermato; solo null e' "non noto" e diventa campo vuoto. */
+internal fun safetyCarsFormValue(result: com.fantaformula1.app.core.domain.RaceResultData?): String =
+    result?.safetyCars?.toString().orEmpty()
+
+/** Il totale esplicito si conserva; se assente il campo resta vuoto. */
+internal fun totalPitStopsFormValue(
+    result: com.fantaformula1.app.core.domain.RaceResultData?,
+): String = result?.totalPitStops?.toString().orEmpty()
 
 /** Riga del form risultati: tutto in stringhe, conversione al salvataggio. */
 data class DriverFormState(
@@ -68,8 +83,9 @@ data class DriverFormState(
         dnf = dnf,
         dnfReason = dnfReason.trim().ifBlank { null },
         penaltyPoints = penaltyPoints.toIntOrNull() ?: 0,
-        pitStops = pitStops.toIntOrNull() ?: 0,
-        pointsScored = pointsScored.toDoubleOrNull(),
+        // Campo vuoto = dato non inserito (null), non zero inventato.
+        pitStops = pitStops.toIntOrNull(),
+        pointsScored = parseDecimal(pointsScored),
     )
 
     companion object {
@@ -84,7 +100,8 @@ data class DriverFormState(
             dnf = driver.dnf,
             dnfReason = driver.dnfReason.orEmpty(),
             penaltyPoints = driver.penaltyPoints.takeIf { it > 0 }?.toString().orEmpty(),
-            pitStops = driver.pitStops.takeIf { it > 0 }?.toString().orEmpty(),
+            // 0 e' un valore esplicito (nessuna fermata); null = non noto.
+            pitStops = driver.pitStops?.toString().orEmpty(),
             pointsScored = driver.pointsScored?.toString().orEmpty(),
         )
 
@@ -104,6 +121,10 @@ data class ResultUiState(
     val safetyCars: String = "",
     val redFlags: String = "",
     val laps: String = "",
+    /** Totale esplicito della griglia; vuoto = ricavalo dai piloti / sconosciuto. */
+    val totalPitStops: String = "",
+    /** True se l'admin ha modificato i pit stop per pilota in questa sessione. */
+    val pitStopsEdited: Boolean = false,
     val weather: String = "",
     val notes: String = "",
     val fieldErrors: List<String> = emptyList(),
@@ -141,6 +162,23 @@ sealed interface ScImportState {
     data class Failed(val reason: String) : ScImportState
 }
 
+/**
+ * Il totale esplicito resta la fonte finche' l'admin non modifica i pit stop
+ * per pilota; dopo una modifica per-pilota torna a null e si usa la somma.
+ */
+internal fun totalPitStopsForSave(state: ResultUiState): Int? =
+    if (state.pitStopsEdited) null else state.totalPitStops.toIntOrNull()
+
+/** Applica una conferma SC/VSC e la marca come modifica non salvata. */
+internal fun ResultUiState.withConfirmedSafetyCar(total: Int): ResultUiState = copy(
+    safetyCars = total.coerceIn(0, 99).toString(),
+    safetyCarsUnknown = false,
+    scImport = ScImportState.Idle,
+    // Senza questo flag un ON_RESUME ricaricherebbe il DB e perderebbe
+    // il valore importato prima che l'admin possa salvarlo.
+    edited = true,
+)
+
 class ResultViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
@@ -148,6 +186,8 @@ class ResultViewModel(
     private val openF1: OpenF1Source? = null,
     /** Sync Jolpica dei risultati piloti (stesso holder della sync periodica). */
     private val f1Sync: F1SyncStateHolder? = null,
+    /** 0013: pubblicazione pigra delle quote dopo i risultati. */
+    private val quoteService: QuoteService? = null,
     private val raceId: String,
 ) : ViewModel() {
 
@@ -162,6 +202,9 @@ class ResultViewModel(
 
     /** Auto-repair dati mancanti: una sola volta per istanza. */
     private var autoRepairAttempted = false
+
+    /** 0013: pubblicazione quote all'apertura gara (una volta per istanza). */
+    private var quotePublishAttempted = false
 
     init {
         load()
@@ -192,9 +235,13 @@ class ResultViewModel(
                         } else {
                             DriverFormState.catalog()
                         },
-                        safetyCars = result?.safetyCars?.takeIf { v -> v > 0 }?.toString().orEmpty(),
-                        redFlags = result?.redFlags?.takeIf { v -> v > 0 }?.toString().orEmpty(),
-                        laps = result?.laps?.takeIf { v -> v > 0 }?.toString().orEmpty(),
+                        // 0 e' un dato confermato: solo null significa "non noto".
+                        safetyCars = safetyCarsFormValue(result),
+                        // Campi non-null: 0 e' un valore reale, non "vuoto".
+                        redFlags = result?.redFlags?.toString().orEmpty(),
+                        laps = result?.laps?.toString().orEmpty(),
+                        totalPitStops = totalPitStopsFormValue(result),
+                        pitStopsEdited = false,
                         weather = result?.weather.orEmpty(),
                         notes = result?.notes.orEmpty(),
                         saved = result != null,
@@ -225,6 +272,34 @@ class ResultViewModel(
                         }
                         if (needsSafety) {
                             importSafetyCars(silent = true)
+                        }
+                    }
+                }
+                // 0013: admin che apre una gara APERTA senza quote: le
+                // pubblica ora (una volta per apertura). Il servizio non fa
+                // nulla se le quote ci sono o se esistono gia' pronostici.
+                val service = quoteService
+                if (!quotePublishAttempted && service != null && admin &&
+                    race.isPredictionOpen()
+                ) {
+                    quotePublishAttempted = true
+                    viewModelScope.launch {
+                        try {
+                            val outcome = service.publishForOpenedRace(race)
+                            if (outcome is QuotePublishOutcome.Failed) {
+                                _events.emit(
+                                    ResultEvent.Notice("Quote non pubblicate: ${outcome.message}"),
+                                )
+                            }
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (e: Exception) {
+                            _events.emit(
+                                ResultEvent.Notice(
+                                    "Quote non pubblicate: " +
+                                        (e.message ?: "errore sconosciuto"),
+                                ),
+                            )
                         }
                     }
                 }
@@ -294,8 +369,20 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
     fun onPenaltyChange(driverId: String, value: String) =
         updateDriver(driverId) { it.copy(penaltyPoints = value.filter(Char::isDigit).take(2)) }
 
-    fun onPitStopsChange(driverId: String, value: String) =
+    fun onPitStopsChange(driverId: String, value: String) {
+        _uiState.update { it.copy(pitStopsEdited = true) }
         updateDriver(driverId) { it.copy(pitStops = value.filter(Char::isDigit).take(2)) }
+    }
+
+    fun onTotalPitStopsChange(value: String) =
+        _uiState.update {
+            it.copy(
+                totalPitStops = value.filter(Char::isDigit).take(2),
+                // Un totale esplicito appena inserito e' la fonte scelta.
+                pitStopsEdited = false,
+                edited = true,
+            )
+        }
 
     fun onPointsChange(driverId: String, value: String) =
         updateDriver(driverId) { it.copy(pointsScored = value.filter { c -> c.isDigit() || c == ',' || c == '.' }.take(6)) }
@@ -346,6 +433,8 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                     is SyncResult.Success -> {
                         val edited = _uiState.value.edited
                         if (result.completed > 0 && !edited) load()
+                        // 0013: nuove statistiche -> quote della prossima gara.
+                        publishQuotesAfterResults(leagueId)
                         val gare = if (result.completed == 1) "gara aggiornata" else "gare aggiornate"
                         val race = _uiState.value.race
                         val message = when {
@@ -431,6 +520,9 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
                     }
                     is SyncResult.Success -> {
                         if (!_uiState.value.edited) load()
+                        // 0013: risultati rigenerati -> aggiorna le quote
+                        // della prossima gara aperta.
+                        publishQuotesAfterResults(race.leagueId)
                         _events.emit(
                             ResultEvent.Notice(
                                 if (_uiState.value.edited) {
@@ -461,6 +553,25 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
     /** Chiude il dialogo di conferma del refresh senza fare nulla. */
     fun dismissRefreshConfirm() {
         _uiState.update { it.copy(confirmRefresh = false) }
+    }
+
+    /**
+     * 0013 — dopo un risultato salvato o sincronizzato: (ri)pubblica le quote
+     * della PROSSIMA gara aperta (nessun pronostico ancora). Best-effort:
+     * un errore non deve mai far fallire il salvataggio dei risultati.
+     */
+    private suspend fun publishQuotesAfterResults(leagueId: String) {
+        val service = quoteService ?: return
+        try {
+            val outcome = service.publishAfterResults(leagueId)
+            if (outcome is QuotePublishOutcome.Failed) {
+                _events.emit(ResultEvent.Notice("Quote non aggiornate: ${outcome.message}"))
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Nessun errore bloccante: i risultati restano validi.
+        }
     }
 
     /**
@@ -552,12 +663,7 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
      * con persistere scatta come prima con [save].
      */
     fun confirmSafetyCarImport(total: Int) {
-        _uiState.update {
-            it.copy(
-                safetyCars = total.coerceIn(0, 99).toString(),
-                scImport = ScImportState.Idle,
-            )
-        }
+        _uiState.update { it.withConfirmedSafetyCar(total) }
     }
 
     fun dismissSafetyCarImport() =
@@ -579,6 +685,9 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
             laps = state.laps.toIntOrNull() ?: 0,
             weather = state.weather.trim().ifBlank { null },
             notes = state.notes.trim().ifBlank { null },
+            // Un totale esplicito si conserva finche' l'admin non modifica i
+            // pit stop per pilota; in quel caso si ricalcola dal form.
+            totalPitStops = totalPitStopsForSave(state),
         )
 
         val errors = RaceResultValidation.validate(result, isSprintRace = race.isSprint)
@@ -595,11 +704,25 @@ private fun mergeWithCatalog(saved: List<DriverRaceResult>): List<DriverFormStat
         viewModelScope.launch {
             try {
                 raceRepository.saveResult(raceId, race.leagueId, result)
-                _uiState.update { it.copy(saving = false, saved = true) }
+                // 0013: i risultati della gara appena salvata aggiornano le
+                // quote della prossima gara aperta (nessun pronostico ancora).
+                publishQuotesAfterResults(race.leagueId)
+                _uiState.update {
+                    it.copy(
+                        saving = false,
+                        saved = true,
+                        safetyCarsUnknown = result.safetyCars == null,
+                        pitStopsUnknown = result.confirmedTotalPitStops() == null,
+                        totalPitStops = result.totalPitStops?.toString().orEmpty(),
+                        pitStopsEdited = false,
+                    )
+                }
                 _events.emit(ResultEvent.Saved)
             } catch (e: UserException) {
                 _uiState.update { it.copy(saving = false, fieldErrors = listOf(e.message)) }
                 _events.emit(ResultEvent.Failure(e.message))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val message = e.message ?: "Impossibile salvare il risultato"
                 _uiState.update { it.copy(saving = false, fieldErrors = listOf(message)) }

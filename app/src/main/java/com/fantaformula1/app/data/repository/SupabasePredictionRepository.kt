@@ -122,10 +122,20 @@ class SupabasePredictionRepository(
         raceId: String,
         leagueId: String,
         prediction: RacePrediction,
+        expectedUserId: String?,
     ) {
         val client = requireClient()
         val userId = authRepository.currentUserId()
             ?: throw UserException("Devi essere autenticato per inviare un pronostico")
+        if (expectedUserId != null && userId != expectedUserId) {
+            throw UserException(
+                "Sessione cambiata: il pronostico in coda non viene attribuito a un altro account",
+            )
+        }
+        // Se la sessione cambia DOPO questo controllo ma prima della
+        // richiesta, il DTO conserva l'autore originale: la RLS
+        // (user_id = auth.uid()) rifiuta comunque la scrittura.
+        val rowUserId = expectedUserId ?: userId
 
         val normalized = prediction.copy(
             raceId = raceId,
@@ -145,7 +155,7 @@ class SupabasePredictionRepository(
                 PredictionUpsertDto(
                     raceId = raceId,
                     leagueId = leagueId,
-                    userId = userId,
+                    userId = rowUserId,
                     content = encoded,
                     submittedAt = now,
                 ),

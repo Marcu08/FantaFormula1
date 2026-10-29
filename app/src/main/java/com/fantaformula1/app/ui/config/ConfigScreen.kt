@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import android.Manifest
@@ -50,6 +51,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.fantaformula1.app.BuildConfig
 import com.fantaformula1.app.R
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.notification.DeadlineReminderScheduler
@@ -184,7 +186,7 @@ fun ConfigScreen(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.height(0.dp))
                 } else {
-                    Text(stringResource(R.string.config_test_in_corso))
+                    Text(stringResource(R.string.config_test))
                 }
             }
 
@@ -223,6 +225,22 @@ fun ConfigScreen(
                     Text(stringResource(R.string.config_reset))
                 }
             }
+
+            // Versione dell'APK installata (BuildConfig): piccolo e in stile
+            // secondario, in fondo alla schermata.
+            Text(
+                text = stringResource(
+                    R.string.config_versione,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE,
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
         }
     }
 }

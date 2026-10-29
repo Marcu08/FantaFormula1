@@ -95,6 +95,7 @@ fun RaceResultScreen(
             authRepository = container.authRepository,
             openF1 = openF1Client,
             f1Sync = container.f1SyncStateHolder,
+            quoteService = container.quoteService,
             raceId = raceId,
         )
     }
@@ -221,6 +222,25 @@ fun RaceResultScreen(
 
                     if (!state.isAdmin) {
                         item { ReadOnlyNotice() }
+                        if (state.saved) {
+                            item { ReadOnlyRaceFields(state) }
+                        }
+
+                        item { SectionTitle(stringResource(R.string.sezione_piloti)) }
+                        val visibleDrivers = state.drivers.filter { it.hasData }
+                        if (visibleDrivers.isEmpty()) {
+                            item {
+                                Text(
+                                    text = stringResource(R.string.risultati_nessun_dato),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            items(visibleDrivers, key = { it.driverId }) { driver ->
+                                ReadOnlyDriverRow(driver)
+                            }
+                        }
                     } else {
                         item { SectionTitle(stringResource(R.string.sezione_gara)) }
                         item { ResultsSyncRow(state, viewModel) }
@@ -338,6 +358,72 @@ private fun ReadOnlyNotice() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp),
     )
+}
+
+/** Vista in sola lettura dei dati gara per i membri non amministratori. */
+@Composable
+private fun ReadOnlyRaceFields(state: ResultUiState) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            ReadOnlyLine(R.string.campo_safety_car, state.safetyCars)
+            ReadOnlyLine(R.string.campo_bandiere_rosse, state.redFlags)
+            ReadOnlyLine(R.string.campo_giri, state.laps)
+            ReadOnlyLine(R.string.campo_pit_stop_totali, state.totalPitStops)
+            ReadOnlyLine(R.string.campo_meteo, state.weather)
+            ReadOnlyLine(R.string.campo_note, state.notes)
+        }
+    }
+}
+
+@Composable
+private fun ReadOnlyLine(label: Int, value: String) {
+    Text(
+        text = "${stringResource(label)}: ${value.ifBlank { "—" }}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun ReadOnlyDriverRow(driver: DriverFormState) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(driver.driverName, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = driver.team.ifBlank { driver.driverId },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val parts = buildList {
+                driver.grid.takeIf { it.isNotBlank() }?.let { add("Griglia $it") }
+                driver.position.takeIf { it.isNotBlank() }?.let { add("Posizione $it") }
+                driver.sprintPosition.takeIf { it.isNotBlank() }?.let { add("Sprint $it") }
+                if (driver.fastestLap) add("Giro veloce")
+                if (driver.dnf) add("DNF")
+                driver.pitStops.takeIf { it.isNotBlank() }?.let { add("Pit stop $it") }
+                driver.pointsScored.takeIf { it.isNotBlank() }?.let { add("Punti $it") }
+                driver.penaltyPoints.takeIf { it.isNotBlank() }?.let { add("Penalità $it") }
+            }
+            if (parts.isNotEmpty()) {
+                Text(
+                    text = parts.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -637,6 +723,14 @@ private fun RaceFields(state: ResultUiState, viewModel: ResultViewModel) {
                     modifier = Modifier.weight(1f),
                 )
             }
+            FantaNumberField(
+                value = state.totalPitStops.toIntOrNull(),
+                onValueChange = {
+                    viewModel.onTotalPitStopsChange(it?.toString().orEmpty())
+                },
+                label = stringResource(R.string.campo_pit_stop_totali),
+                hint = stringResource(R.string.campo_pit_stop_totali_hint),
+            )
             // N3: i campi che nessuna fonte fornisce, con l'azione esatta.
             if (state.saved && state.safetyCarsUnknown) {
                 Text(

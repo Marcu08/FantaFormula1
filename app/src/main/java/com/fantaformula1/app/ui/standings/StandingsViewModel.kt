@@ -15,6 +15,7 @@ import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.RaceRepository
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
@@ -41,6 +42,8 @@ enum class StandingsTab { OVERALL, PER_RACE }
 
 data class StandingsUiState(
     val loading: Boolean = true,
+    /** True solo durante un refresh manuale (pull-to-refresh). */
+    val refreshing: Boolean = false,
     val error: String? = null,
     val league: League? = null,
     val rows: List<ScoringEngine.StandingsRow> = emptyList(),
@@ -145,7 +148,13 @@ class StandingsViewModel(
         }
     }
 
+    fun refresh() {
+        _uiState.update { it.copy(refreshing = true) }
+        load()
+    }
+
     fun load() {
+        val owner = authRepository.currentUserId()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = it.rows.isEmpty(), error = null) }
             runCatching {
@@ -153,6 +162,7 @@ class StandingsViewModel(
                 val members = leagueRepository.members(leagueId)
                 val races = raceRepository.races(leagueId)
                 val data = leagueDataRepository.raceData(leagueId)
+                    .restrictToRaceIds(races.map { it.id }.toSet())
                 StandingInputs(
                     league = league,
                     memberNames = members.associate { it.userId to it.displayName },
@@ -194,6 +204,7 @@ class StandingsViewModel(
                 _uiState.update {
                     it.copy(
                         loading = false,
+                        refreshing = false,
                         league = inputs.league,
                         rows = snapshot.rows,
                         races = inputs.races,
@@ -218,20 +229,24 @@ class StandingsViewModel(
                 }
                 // F3: la rete funziona -> la classifica viene SEMPRE
                 // salvata in cache per il ripristino offline.
-                offlineCache.saveStandings(
-                    leagueId,
-                    SeasonStandingsSnapshot(
-                        snapshot.rows.mapIndexed { index, row -> row.toCached(index + 1) },
-                    ),
-                )
+                if (owner != null) {
+                    offlineCache.saveStandings(
+                        leagueId,
+                        SeasonStandingsSnapshot(
+                            snapshot.rows.mapIndexed { index, row -> row.toCached(index + 1) },
+                        ),
+                        expectedUserId = owner,
+                    )
+                }
             }.onFailure { throwable ->
                 // F3: rete fallita -> ripristina la classifica dalla cache;
                 // solo senza cache l'errore resta bloccante.
-                val cached = offlineCache.standings(leagueId)
+                val cached = offlineCache.standings(leagueId, expectedUserId = owner)
                 if (cached != null) {
                     _uiState.update {
                         it.copy(
                             loading = false,
+                            refreshing = false,
                             rows = cached.value.rows.map { row -> row.toDomainRow() },
                             error = null,
                             offline = true,
@@ -242,6 +257,7 @@ class StandingsViewModel(
                     _uiState.update {
                         it.copy(
                             loading = false,
+                            refreshing = false,
                             error = throwable.message ?: "Si è verificato un errore",
                         )
                     }

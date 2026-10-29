@@ -49,12 +49,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -111,6 +115,21 @@ fun CalendarScreen(
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf<Race?>(null) }
 
+    // Al rientro (navigazione o app in foreground) ricarica lo stato reale,
+    // senza sovrascrivere un form gara aperto.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                !viewModel.uiState.value.formOpen
+            ) {
+                viewModel.load()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val savedMessage = stringResource(R.string.gara_salvata)
     val deletedMessage = stringResource(R.string.gara_elimina_ok)
 
@@ -125,7 +144,15 @@ fun CalendarScreen(
         viewModel.events.collect { event ->
             when (event) {
                 CalendarEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
-                CalendarEvent.Deleted -> snackbarHostState.showSnackbar(deletedMessage)
+                is CalendarEvent.Deleted -> {
+                    com.fantaformula1.app.data.notification.DeadlineReminderScheduler
+                        .cancel(
+                            context,
+                            event.raceId,
+                            container.authRepository.currentUserId(),
+                        )
+                    snackbarHostState.showSnackbar(deletedMessage)
+                }
                 is CalendarEvent.Failure -> snackbarHostState.showSnackbar(event.message)
             }
         }
@@ -187,7 +214,8 @@ fun CalendarScreen(
         },
     ) { innerPadding ->
         val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-        var refreshing by remember { mutableStateOf(false) }
+        // refreshing vive nel ViewModel: un refresh con lista gia' piena non
+        // cambia `loading`, quindi un flag locale poteva restare bloccato.
         Column(
             modifier = Modifier
                 .padding(innerPadding)
@@ -210,19 +238,11 @@ fun CalendarScreen(
             var showCompleted by remember { mutableStateOf(false) }
 
             androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                isRefreshing = refreshing,
+                isRefreshing = state.refreshing,
                 state = pullRefreshState,
-                onRefresh = {
-                    refreshing = true
-                    viewModel.load()
-                },
+                onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-            // Il caricamento iniziale ha il suo stato dedicato; dopo il
-            // primo caricamento il refresh resta gestito dal gesto.
-            LaunchedEffect(state.loading) {
-                if (!state.loading) refreshing = false
-            }
             when {
                 state.loading -> LoadingState()
                 state.error != null -> ErrorState(

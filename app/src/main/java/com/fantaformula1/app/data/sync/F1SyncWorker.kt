@@ -11,7 +11,9 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.fantaformula1.app.FantaApplication
 import com.fantaformula1.app.data.notification.DeadlineNotifications
+import com.fantaformula1.app.data.notification.NotificationPrefs
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 /**
  * Worker WorkManager che sincronizza calendario e risultati F1 in background.
@@ -20,6 +22,13 @@ import java.util.concurrent.TimeUnit
  * Usa lo stesso [F1SyncStateHolder] della UI: gli orari "Ultimo aggiornamento"
  * restano coerenti e le sincronizzazioni non si sovrappongono a quelle manuali.
  */
+/**
+ * La sync va cancellata solo con una risposta DEFINITIVA "non admin".
+ * `null` significa verifica fallita (rete/sessione) e va trattata come
+ * transitoria.
+ */
+internal fun shouldCancelSyncForAdmin(isAdmin: Boolean?): Boolean = isAdmin == false
+
 class F1SyncWorker(
     context: Context,
     params: WorkerParameters,
@@ -29,16 +38,29 @@ class F1SyncWorker(
         val leagueId = inputData.getString(KEY_LEAGUE_ID)
             ?: return Result.failure()
         val container = (applicationContext as FantaApplication).container
+        try {
+            container.initialize()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return Result.retry()
+        }
 
-        // N5: la scrittura dei risultati e' riservata agli admin (RLS). Se
-        // l'utente di questo dispositivo non e' piu' admin non ha senso
-        // riprovare: il worker si ferma (Result.failure, nessun retry).
-        val isAdmin = runCatching { container.leagueRepository.isAdmin(leagueId) }
-            .getOrDefault(false)
-        if (!isAdmin) {
+        // N5: la scrittura dei risultati e' riservata agli admin (RLS).
+        // Distinguere "non admin" da "verifica fallita": un errore di rete
+        // transitorio non deve cancellare per sempre la sync periodica.
+        val isAdmin: Boolean? = try {
+            container.leagueRepository.isAdmin(leagueId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        if (shouldCancelSyncForAdmin(isAdmin)) {
             F1SyncScheduler.cancel(applicationContext, leagueId)
             return Result.failure()
         }
+        if (isAdmin == null) return Result.retry()
 
         // Null = sincronizzazione manuale gia' in corso: si riprova piu' tardi.
         val calendar = container.f1SyncStateHolder.syncCalendar(leagueId)
@@ -52,8 +74,19 @@ class F1SyncWorker(
             // l'utente locale riceve l'avviso "risultati disponibili"
             // (solo se non ha spento le notifiche dall'impostazione).
             val completed = (results as? SyncResult.Success)?.completed ?: 0
-            if (completed > 0) {
+            if (completed > 0 &&
+                NotificationPrefs(applicationContext).enabled()
+            ) {
                 DeadlineNotifications.showResultsAvailable(applicationContext, completed)
+            }
+            // 0013: le nuove statistiche aggiornano le quote della prossima
+            // gara aperta (best-effort: non fa fallire il worker).
+            try {
+                container.quoteService.publishAfterResults(leagueId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Le quote sono un extra: i risultati sono gia' salvati.
             }
             Result.success()
         } else {

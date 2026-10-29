@@ -33,11 +33,30 @@ class PendingWritesWorker(
 
     override suspend fun doWork(): Result {
         val container = (applicationContext as FantaApplication).container
+        // WorkManager puo' partire prima che Application abbia finito il
+        // restore della sessione: senza questo, un utente valido sembrerebbe
+        // assente e la coda resterebbe ferma fino al ciclo successivo.
+        try {
+            container.initialize()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Inizializzazione transitoria: non perdere la coda, riprova.
+            return Result.retry()
+        }
         val store = container.pendingWritesStore
+        // Se non c'e' un utente verificabile, non si invia NIENTE: una voce
+        // in coda non deve mai essere attribuita all'account successivo.
+        val userId = container.authRepository.currentUserId()
+        if (userId.isNullOrBlank()) return Result.success()
         val writes = store.all()
         if (writes.isEmpty()) return Result.success()
 
         for (write in writes) {
+            // La sessione puo' cambiare mentre il worker gira. Rileggi
+            // l'utente a ogni voce e non attribuire mai una coda a un altro.
+            val activeUserId = container.authRepository.currentUserId()
+            if (!write.belongsTo(activeUserId)) continue
             val race = try {
                 container.raceRepository.race(write.raceId)
             } catch (cancellation: CancellationException) {
@@ -46,6 +65,11 @@ class PendingWritesWorker(
                 // Errore di rete -> resta in coda; altro errore -> comunque
                 // non si butta via il lavoro dell'utente: si riprova.
                 return Result.retry()
+            }
+            // La sessione puo' essere cambiata durante la query della gara:
+            // non notificare ne' rimuovere nulla per un altro account.
+            if (!write.belongsTo(container.authRepository.currentUserId())) {
+                return Result.success()
             }
             if (race == null) {
                 // Gara non esiste piu': niente da salvare.
@@ -66,11 +90,17 @@ class PendingWritesWorker(
                     write.raceId,
                     race.leagueId,
                     write.prediction,
+                    expectedUserId = write.userId,
                 )
                 store.remove(write.raceId)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
+                // Se la sessione e' cambiata proprio durante il salvataggio,
+                // non notificare e non rimuovere la coda dell'altro utente.
+                if (!write.belongsTo(container.authRepository.currentUserId())) {
+                    return Result.success()
+                }
                 if (isOfflineError(throwable)) {
                     // La rete e' ancora giu': la voce resta in coda e si
                     // riprova alla prossima esecuzione del worker.

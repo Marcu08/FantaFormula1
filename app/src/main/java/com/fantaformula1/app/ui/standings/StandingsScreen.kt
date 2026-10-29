@@ -32,8 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +52,6 @@ import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
 import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.PointsSparkline
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,7 +106,6 @@ fun StandingsScreen(
     ) { innerPadding ->
         val pullRefreshState =
             androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-        var refreshing by remember { mutableStateOf(false) }
         Column(
             modifier = Modifier
                 .padding(innerPadding)
@@ -125,19 +121,11 @@ fun StandingsScreen(
             Box(modifier = Modifier.weight(1f)) {
             // U6: anche la classifica si aggiorna con il gesto di trascinamento.
             androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                isRefreshing = refreshing,
+                isRefreshing = state.refreshing,
                 state = pullRefreshState,
-                onRefresh = {
-                    refreshing = true
-                    viewModel.load()
-                },
+                onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // Il caricamento iniziale ha il suo stato dedicato; dopo il
-                // primo caricamento il refresh resta gestito dal gesto.
-                LaunchedEffect(state.loading) {
-                    if (!state.loading) refreshing = false
-                }
                 when {
                     state.loading -> LoadingState()
                     state.error != null -> ErrorState(
@@ -473,4 +461,4 @@ private fun PerRaceList(state: StandingsUiState, viewModel: StandingsViewModel) 
 }
 
 private fun formatPoints(points: Double): String =
-    String.format(Locale.ITALY, "%.1f", points)
+    com.fantaformula1.app.core.util.Formats.points(points, signed = false)

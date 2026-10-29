@@ -67,6 +67,7 @@ class LeaguesViewModel(
     }
 
     fun load() {
+        val owner = authRepository.currentUserId()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = it.leagues.isEmpty(), error = null) }
             runCatching { leagueRepository.myLeagues() }
@@ -81,12 +82,14 @@ class LeaguesViewModel(
                         )
                     }
                     // F3: la rete funziona -> la cache viene SEMPRE aggiornata.
-                    offlineCache?.saveLeagues(leagues)
+                    if (owner != null) {
+                        offlineCache?.saveLeagues(leagues, expectedUserId = owner)
+                    }
                 }
                 .onFailure { throwable ->
                     // F3: rete fallita -> si prova la cache locale; solo se
                     // anche quella manca l'errore resta bloccante.
-                    val cached = offlineCache?.leagues()
+                    val cached = offlineCache?.leagues(expectedUserId = owner)
                     if (cached != null) {
                         _uiState.update {
                             it.copy(
@@ -126,6 +129,8 @@ class LeaguesViewModel(
                 _events.emit(LeaguesEvent.LeagueCreated(league.id))
             } catch (e: UserException) {
                 _events.emit(LeaguesEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.emit(LeaguesEvent.Failure(e.message ?: "Impossibile creare la lega"))
             } finally {
@@ -144,6 +149,8 @@ class LeaguesViewModel(
                 _events.emit(LeaguesEvent.LeagueJoined(leagueId))
             } catch (e: UserException) {
                 _events.emit(LeaguesEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.emit(LeaguesEvent.Failure(e.message ?: "Impossibile unirsi alla lega"))
             } finally {

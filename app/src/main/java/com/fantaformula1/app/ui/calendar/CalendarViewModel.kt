@@ -20,12 +20,14 @@ import kotlinx.coroutines.launch
 
 sealed interface CalendarEvent {
     data object Saved : CalendarEvent
-    data object Deleted : CalendarEvent
+    data class Deleted(val raceId: String) : CalendarEvent
     data class Failure(val message: String) : CalendarEvent
 }
 
 data class CalendarUiState(
     val loading: Boolean = true,
+    /** True solo durante un refresh manuale (pull-to-refresh). */
+    val refreshing: Boolean = false,
     val races: List<Race> = emptyList(),
     val isAdmin: Boolean = false,
     /** Gare per cui l'utente corrente ha gia' inviato un pronostico. */
@@ -96,7 +98,13 @@ class CalendarViewModel(
         load()
     }
 
+    fun refresh() {
+        _uiState.update { it.copy(refreshing = true) }
+        load()
+    }
+
     fun load() {
+        val owner = authRepository.currentUserId()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = it.races.isEmpty(), error = null) }
             runCatching {
@@ -110,6 +118,7 @@ class CalendarViewModel(
                 _uiState.update {
                     it.copy(
                         loading = false,
+                        refreshing = false,
                         races = races,
                         isAdmin = admin,
                         myPredictionRaceIds = mine.keys,
@@ -118,17 +127,23 @@ class CalendarViewModel(
                     )
                 }
                 // F3: la rete funziona -> la cache viene SEMPRE aggiornata.
-                offlineCache.saveRaces(leagueId, races)
-                offlineCache.savePredictions(leagueId, mine)
+                if (owner != null) {
+                    offlineCache.saveRaces(leagueId, races, expectedUserId = owner)
+                    offlineCache.savePredictions(leagueId, mine, expectedUserId = owner)
+                }
             }.onFailure { throwable ->
                 // F3: rete fallita -> gare e pronostici dalla cache locale;
                 // solo senza cache l'errore resta bloccante.
-                val cachedRaces = offlineCache.races(leagueId)
+                val cachedRaces = offlineCache.races(leagueId, expectedUserId = owner)
                 if (cachedRaces != null) {
-                    val cachedPredictions = offlineCache.predictions(leagueId)
+                    val cachedPredictions = offlineCache.predictions(
+                        leagueId,
+                        expectedUserId = owner,
+                    )
                     _uiState.update {
                         it.copy(
                             loading = false,
+                            refreshing = false,
                             races = cachedRaces.value,
                             myPredictionRaceIds = cachedPredictions?.value?.keys.orEmpty(),
                             error = null,
@@ -138,7 +153,11 @@ class CalendarViewModel(
                     }
                 } else {
                     _uiState.update {
-                        it.copy(loading = false, error = throwable.message ?: "Si è verificato un errore")
+                        it.copy(
+                            loading = false,
+                            refreshing = false,
+                            error = throwable.message ?: "Si è verificato un errore",
+                        )
                     }
                 }
             }
@@ -233,6 +252,8 @@ class CalendarViewModel(
             } catch (e: UserException) {
                 _uiState.update { it.copy(formError = e.message) }
                 _events.emit(CalendarEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val message = e.message ?: "Impossibile salvare la gara"
                 _uiState.update { it.copy(formError = message) }
@@ -248,9 +269,11 @@ class CalendarViewModel(
             try {
                 raceRepository.deleteRace(race.id)
                 load()
-                _events.emit(CalendarEvent.Deleted)
+                _events.emit(CalendarEvent.Deleted(race.id))
             } catch (e: UserException) {
                 _events.emit(CalendarEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.emit(
                     CalendarEvent.Failure(e.message ?: "Impossibile eliminare la gara"),

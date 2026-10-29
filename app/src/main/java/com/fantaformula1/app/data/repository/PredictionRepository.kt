@@ -34,8 +34,19 @@ interface PredictionRepository {
      */
     suspend fun othersPredictions(raceId: String): Map<String, RacePrediction>
 
-    /** Inserisce o aggiorna il pronostico dell'utente corrente. */
-    suspend fun savePrediction(raceId: String, leagueId: String, prediction: RacePrediction)
+    /**
+     * Inserisce o aggiorna il pronostico dell'utente corrente.
+     *
+     * [expectedUserId] e' usato dal worker offline: se la sessione cambia
+     * durante l'esecuzione, il salvataggio viene rifiutato invece di
+     * attribuire il pronostico all'account successivo.
+     */
+    suspend fun savePrediction(
+        raceId: String,
+        leagueId: String,
+        prediction: RacePrediction,
+        expectedUserId: String? = null,
+    )
 
     suspend fun deletePrediction(raceId: String)
 }

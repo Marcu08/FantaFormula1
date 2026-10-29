@@ -87,6 +87,8 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 }
             } catch (e: UserException) {
                 _events.emit(AuthEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.emit(
                     AuthEvent.Failure(e.message ?: "Si è verificato un errore durante l'accesso"),

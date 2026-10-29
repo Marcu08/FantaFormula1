@@ -4,16 +4,19 @@ import android.content.Context
 import com.fantaformula1.app.data.config.SupabaseConfigStore
 import com.fantaformula1.app.data.offline.OfflineCacheStore
 import com.fantaformula1.app.data.offline.PendingWritesStore
+import com.fantaformula1.app.data.quotes.QuoteService
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
+import com.fantaformula1.app.data.repository.RaceQuoteRepository
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.SeasonHistoryRepository
 import com.fantaformula1.app.data.repository.SupabaseAuthRepository
 import com.fantaformula1.app.data.repository.SupabaseLeagueDataRepository
 import com.fantaformula1.app.data.repository.SupabaseLeagueRepository
 import com.fantaformula1.app.data.repository.SupabasePredictionRepository
+import com.fantaformula1.app.data.repository.SupabaseRaceQuoteRepository
 import com.fantaformula1.app.data.repository.SupabaseRaceRepository
 import com.fantaformula1.app.data.repository.SupabaseSeasonHistoryRepository
 import com.fantaformula1.app.data.supabase.SupabaseHolder
@@ -66,15 +69,21 @@ class AppContainer(
     val seasonHistoryRepository: SeasonHistoryRepository =
         SupabaseSeasonHistoryRepository(supabaseHolder, authRepository)
 
-    /** U5: bozze locali dei pronostici (ripristino alla riapertura). */
+    /** U5: bozze locali dei pronostici (ripristino alla riapertura), per utente. */
     val predictionDraftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore =
-        com.fantaformula1.app.data.prediction.PredictionDraftStore(applicationContext)
+        com.fantaformula1.app.data.prediction.PredictionDraftStore(applicationContext) {
+            authRepository.currentUserId()
+        }
 
-    /** F3: cache di sola lettura (banner "Ultimo aggiornamento" a rete assente). */
-    val offlineCacheStore = OfflineCacheStore(applicationContext)
+    /** F3: cache di sola lettura (banner "Ultimo aggiornamento" a rete assente), per utente. */
+    val offlineCacheStore = OfflineCacheStore(applicationContext) {
+        authRepository.currentUserId()
+    }
 
-    /** F3: coda dei pronostici salvati offline, riprovati dal worker periodico. */
-    val pendingWritesStore = PendingWritesStore(applicationContext)
+    /** F3: coda dei pronostici salvati offline, per utente. */
+    val pendingWritesStore = PendingWritesStore(applicationContext) {
+        authRepository.currentUserId()
+    }
 
     /** Sincronizzazione calendario e risultati dal mondiale F1 reale. */
     val f1SyncRepository: F1SyncRepository = F1SyncRepository(
@@ -86,6 +95,20 @@ class AppContainer(
     val seasonResultsStore: SeasonResultsStore = SeasonResultsStore(
         context = applicationContext,
         remote = F1ApiSeasonResultsRemote(f1ApiClient),
+    )
+
+    /** 0013: quote e soglie pubblicate dal server (lettura + RPC admin). */
+    val raceQuoteRepository: RaceQuoteRepository =
+        SupabaseRaceQuoteRepository(supabaseHolder)
+
+    /** 0013: pubblicazione pigra delle quote (apertura gara / dopo risultati). */
+    val quoteService: QuoteService = QuoteService(
+        raceRepository = raceRepository,
+        leagueRepository = leagueRepository,
+        predictionRepository = predictionRepository,
+        leagueDataRepository = leagueDataRepository,
+        seasonResultsStore = seasonResultsStore,
+        quoteRepository = raceQuoteRepository,
     )
 
     /** Orario dell'ultima sincronizzazione riuscita (indicatore in UI). */
@@ -108,6 +131,17 @@ class AppContainer(
      *
      * B8: aspetta l'inizializzazione del plugin Auth prima di leggere l'utente.
      */
+    /**
+     * Elimina i dati locali legati all'account (cache offline, bozze, coda
+     * offline). Chiamato al logout: oltre alle chiavi per-utente, rimuove
+     * anche eventuali residui legacy non namespace.
+     */
+    suspend fun clearLocalUserData() {
+        offlineCacheStore.clearAll()
+        predictionDraftStore.clearAll()
+        pendingWritesStore.clear()
+    }
+
     suspend fun initialize() {
         val config = configStore.current()
         val changed = config != supabaseHolder.currentConfigOrNull()

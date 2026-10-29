@@ -8,21 +8,29 @@ import com.fantaformula1.app.core.domain.PredictionType
 import com.fantaformula1.app.core.domain.PredictionValidation
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RacePrediction
+import com.fantaformula1.app.core.domain.RaceQuote
+import com.fantaformula1.app.core.domain.QuoteKeys
 import com.fantaformula1.app.core.domain.Rules
 import com.fantaformula1.app.core.domain.isSprintRelated
 import com.fantaformula1.app.core.domain.italianLabel
-import com.fantaformula1.app.core.domain.withFrozenQuota
+import com.fantaformula1.app.core.domain.usesServerQuote
+import com.fantaformula1.app.core.domain.withPublishedQuote
 import com.fantaformula1.app.data.offline.OfflineCacheStore
 import com.fantaformula1.app.data.offline.PendingPredictionWrite
 import com.fantaformula1.app.data.offline.PendingWritesStore
 import com.fantaformula1.app.data.offline.isOfflineError
+import com.fantaformula1.app.data.quotes.QuoteService
+import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.League
 import com.fantaformula1.app.data.repository.LeagueDataRepository
 import com.fantaformula1.app.data.repository.LeagueRepository
 import com.fantaformula1.app.data.repository.PredictionRepository
+import com.fantaformula1.app.data.repository.QuotePublishOutcome
+import com.fantaformula1.app.data.repository.RaceQuoteLoad
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.UserException
 import com.fantaformula1.app.data.repository.LeagueDataSnapshot
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import com.fantaformula1.app.data.sync.SeasonResultsStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +110,55 @@ data class OtherPrediction(
     val prediction: RacePrediction,
 )
 
+/**
+ * Esito della risoluzione delle voci da salvare. Se [missingQuoteTypes] non
+ * e' vuoto il salvataggio va bloccato: una voce a quota non puo' sparire
+ * silenziosamente perche' il server non ha pubblicato quella scelta.
+ */
+internal data class ResolvedPredictionEntries(
+    val entries: List<PredictionEntry>,
+    val missingQuoteTypes: List<PredictionType>,
+)
+
+internal fun resolveEntriesForSave(
+    drafts: List<DraftEntry>,
+    quotes: List<RaceQuote>,
+    mine: RacePrediction?,
+): ResolvedPredictionEntries {
+    val entries = mutableListOf<PredictionEntry>()
+    val missing = mutableListOf<PredictionType>()
+
+    drafts.filter { it.complete }.forEach { draft ->
+        val entry = draft.toDomain()
+        if (!entry.type.usesServerQuote) {
+            entries += entry
+            return@forEach
+        }
+
+        val fromServer = entry.withPublishedQuote(quotes)
+        if (fromServer != null) {
+            entries += fromServer
+            return@forEach
+        }
+
+        // Voce "vintage" gia' salvata con la stessa scelta: conservala invece
+        // di perdere dati quando la migrazione 0013 non e' disponibile.
+        val previous = mine?.entries
+            ?.firstOrNull { it.type == entry.type }
+            ?.takeIf { QuoteKeys.of(it) == QuoteKeys.of(entry) }
+        if (previous != null) {
+            entries += previous
+        } else {
+            missing += entry.type
+        }
+    }
+
+    return ResolvedPredictionEntries(
+        entries = entries,
+        missingQuoteTypes = missing.distinct(),
+    )
+}
+
 data class PredictionUiState(
     val loading: Boolean = true,
     val race: Race? = null,
@@ -129,6 +186,14 @@ data class PredictionUiState(
     val offline: Boolean = false,
     /** F3: quando e' stato aggiornato l'ultimo dato di rete mostrato. */
     val lastUpdatedEpochMs: Long? = null,
+    /** 0013: quote pubblicate dal server per questa gara. */
+    val quotes: List<RaceQuote> = emptyList(),
+    /** 0013: esito lettura quote (determina il messaggio in UI). */
+    val quotesLoad: RaceQuoteLoad = RaceQuoteLoad.NotPublished,
+    /** 0013: l'utente corrente e' admin della lega (pubblicazione quote). */
+    val isAdmin: Boolean = false,
+    /** 0013: messaggio di un errore di pubblicazione quote (solo admin). */
+    val quoteError: String? = null,
 ) {
     /** Tipi di pronostico da mostrare nel form. */
     val visibleTypes: List<PredictionType>
@@ -141,6 +206,7 @@ class PredictionViewModel(
     private val raceRepository: RaceRepository,
     private val leagueRepository: LeagueRepository,
     private val predictionRepository: PredictionRepository,
+    private val authRepository: AuthRepository,
     private val leagueDataRepository: LeagueDataRepository,
     private val seasonResultsStore: SeasonResultsStore,
     private val raceId: String,
@@ -149,6 +215,8 @@ class PredictionViewModel(
     private val offlineCache: OfflineCacheStore? = null,
     /** F3: coda salvataggi offline (opzionale per i test). */
     private val pendingWritesStore: PendingWritesStore? = null,
+    /** 0013: lettura/pubblicazione delle quote lato server. */
+    private val quoteService: QuoteService? = null,
 ) : ViewModel() {
 
     companion object {
@@ -161,11 +229,24 @@ class PredictionViewModel(
     private val _events = MutableSharedFlow<PredictionEvent>()
     val events: SharedFlow<PredictionEvent> = _events.asSharedFlow()
 
+    /** 0013: la pubblicazione delle quote si tenta una volta per apertura. */
+    private var quotePublishAttempted = false
+
+    /**
+     * Utente proprietario dei dati locali di questa schermata. Viene
+     * catturato all'inizio di [load] e usato per cache, bozze e coda offline:
+     * un cambio account durante una richiesta non deve scrivere dati di A
+     * sotto la chiave di B.
+     */
+    private var localOwnerId: String? = null
+
     init {
         load()
     }
 
     fun load() {
+        val owner = authRepository.currentUserId()
+        localOwnerId = owner
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             runCatching {
@@ -184,7 +265,11 @@ class PredictionViewModel(
                 val roundsById = runCatching {
                     raceRepository.races(race.leagueId).associate { it.id to it.round }
                 }.getOrDefault(emptyMap())
-                val leagueResults = snapshot.races.mapNotNull { legaRaceData ->
+                // Le statistiche/quote della lega valgono solo per la stagione
+                // corrente: le gare di stagioni archiviate non devono
+                // contaminare medie, DNF e fasce.
+                val seasonSnapshot = snapshot.restrictToRaceIds(roundsById.keys)
+                val leagueResults = seasonSnapshot.races.mapNotNull { legaRaceData ->
                     legaRaceData.result?.let { result ->
                         DriverSeasonStats.StampedResult(
                             round = roundsById[legaRaceData.raceId],
@@ -193,7 +278,7 @@ class PredictionViewModel(
                     }
                 }
                 // U1: risultato della gara corrente, per spiegare i punti.
-                val raceResult = snapshot.races
+                val raceResult = seasonSnapshot.races
                     .firstOrNull { it.raceId == raceId }?.result
 
                 // Statistiche IMMEDIATE: cache stagione (ZERO rete) + lega.
@@ -204,9 +289,15 @@ class PredictionViewModel(
                     }.orEmpty()
                 val stats = DriverSeasonStats.fromMergedResults(leagueResults, cachedReal)
 
-                RaceLoad(race, league, mine, others.map { (id, p) ->
-                    OtherPrediction(id, names[id] ?: "Giocatore", p)
-                }, leagueResults, stats, raceResult)
+                // 0013: quote pubblicate dal server per QUESTA gara.
+                val isAdmin = leagueRepository.isAdmin(race.leagueId)
+                val quotesLoad = quoteService?.loadQuotes(raceId) ?: RaceQuoteLoad.NotPublished
+
+                RaceLoad(
+                    race, league, mine, others.map { (id, p) ->
+                        OtherPrediction(id, names[id] ?: "Giocatore", p)
+                    }, leagueResults, stats, raceResult, isAdmin, quotesLoad,
+                )
             }.onSuccess { load ->
                 val race = load.race
                 val league = load.league
@@ -219,17 +310,18 @@ class PredictionViewModel(
                 // U5: la bozza locale riempie i tipi che sul server
                 // non risultano ancora compilati (l'invio e' l'ultimo passo).
                 val serverDrafts = buildDrafts(rules, race, mine)
-                val localDrafts = try {
-                    draftStore?.load(raceId)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
+                val localDrafts = if (owner == null) {
                     null
+                } else {
+                    try {
+                        draftStore?.load(raceId, expectedUserId = owner)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
-                val mergedDrafts = serverDrafts.map { draft ->
-                    val local = localDrafts?.firstOrNull { it.type == draft.type }
-                    if (draft.driverIds.isEmpty() && local != null) local else draft
-                }
+                val mergedDrafts = mergeDrafts(serverDrafts, localDrafts)
                 val restored = mergedDrafts != serverDrafts
                 _uiState.update {
                     it.copy(
@@ -256,7 +348,44 @@ class PredictionViewModel(
                         draftRestored = restored,
                         offline = false,
                         lastUpdatedEpochMs = null,
+                        quotes = (load.quotesLoad as? RaceQuoteLoad.Published)?.quotes.orEmpty(),
+                        quotesLoad = load.quotesLoad,
+                        isAdmin = load.isAdmin,
+                        quoteError = null,
                     )
+                }
+                // 0013 — pubblicazione PIGRA (solo admin, una volta per
+                // apertura): la gara aperta senza quote le riceve adesso, con
+                // le statistiche appena calcolate. I membri leggono e basta.
+                val service = quoteService
+                if (!quotePublishAttempted && service != null &&
+                    load.isAdmin && race.isPredictionOpen() &&
+                    load.quotesLoad == RaceQuoteLoad.NotPublished
+                ) {
+                    quotePublishAttempted = true
+                    viewModelScope.launch {
+                        try {
+                            val outcome = service.publishForOpenedRace(race, load.stats)
+                            val reloaded = service.loadQuotes(raceId)
+                            _uiState.update {
+                                it.copy(
+                                    quotes = (reloaded as? RaceQuoteLoad.Published)
+                                        ?.quotes.orEmpty(),
+                                    quotesLoad = reloaded,
+                                    quoteError = (outcome as? QuotePublishOutcome.Failed)?.message,
+                                )
+                            }
+                        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                            throw cancellation
+                        } catch (e: Exception) {
+                            _uiState.update {
+                                it.copy(
+                                    quoteError = e.message
+                                        ?: "Impossibile pubblicare le quote",
+                                )
+                            }
+                        }
+                    }
                 }
                 // F3: la rete funziona -> il pronostico viene SEMPRE
                 // salvato in cache per il ripristino offline.
@@ -391,9 +520,15 @@ class PredictionViewModel(
         // U5: la bozza viene persistita localmente a ogni modifica, cosi'
         // chiudere l'app non perde il lavoro in corso.
         val snapshot = _uiState.value.drafts
+        val owner = localOwnerId
+        if (owner == null) return
         viewModelScope.launch {
             try {
-                draftStore?.save(raceId, snapshot)
+                draftStore?.save(
+                    raceId,
+                    snapshot,
+                    expectedUserId = owner,
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -408,11 +543,26 @@ class PredictionViewModel(
         if (state.saving || !state.canSubmit) return
         val race = state.race ?: return
 
-        val entries = state.drafts
-            .filter { it.complete }
-            // Quota/Soglia congelati con le statistiche DEL MOMENTO della
-            // scrittura: dopo il save, il ricalcolo non dipende piu' dai dati.
-            .map { it.toDomain().withFrozenQuota(state.seasonStats) }
+        // 0013: quota e soglia arrivano SOLO dal server (`race_quotes`), mai
+        // ricalcolate localmente. Una voce completa per cui il server non ha
+        // pubblicato la scelta NON viene scartata in silenzio: si blocca il
+        // salvataggio e si spiega il problema. Le voci vintage identiche
+        // restano conservate per compatibilita'.
+        val resolved = resolveEntriesForSave(
+            drafts = state.drafts,
+            quotes = state.quotes,
+            mine = state.mine,
+        )
+        val entries = resolved.entries
+
+        if (resolved.missingQuoteTypes.isNotEmpty()) {
+            val message = "Quote non disponibili per: " +
+                resolved.missingQuoteTypes.joinToString(", ") { it.italianLabel } +
+                ". Riprova quando l'admin le ha pubblicate."
+            _uiState.update { it.copy(errors = listOf(message), warning = null) }
+            viewModelScope.launch { _events.emit(PredictionEvent.Failure(message)) }
+            return
+        }
 
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
@@ -443,11 +593,16 @@ class PredictionViewModel(
         _uiState.update { it.copy(saving = true, errors = emptyList(), warning = warning) }
         viewModelScope.launch {
             try {
-                predictionRepository.savePrediction(raceId, race.leagueId, prediction)
+                predictionRepository.savePrediction(
+                    raceId,
+                    race.leagueId,
+                    prediction,
+                    expectedUserId = localOwnerId,
+                )
                 // U5: bozza inviata -> rimossa dal locale (il server e' ora
                 // la sorgente di verita').
                 try {
-                    draftStore?.clear(raceId)
+                    draftStore?.clear(raceId, expectedUserId = localOwnerId)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -466,6 +621,8 @@ class PredictionViewModel(
                     _uiState.update { it.copy(saving = false, errors = listOf(e.message)) }
                     _events.emit(PredictionEvent.Failure(e.message))
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (isOfflineError(e)) {
                     // F3: rete assente -> in coda, niente errore rosso.
@@ -488,10 +645,12 @@ class PredictionViewModel(
      */
     private suspend fun restoreFromCache(): Boolean {
         val cache = offlineCache ?: return false
-        val cachedRace = cache.race(raceId) ?: return false
+        val owner = localOwnerId ?: return false
+        val cachedRace = cache.race(raceId, expectedUserId = owner) ?: return false
         val race = cachedRace.value
-        val league = cache.leagues()?.value?.firstOrNull { it.id == race.leagueId }
-        val cachedPredictions = cache.predictions(race.leagueId)
+        val league = cache.leagues(expectedUserId = owner)
+            ?.value?.firstOrNull { it.id == race.leagueId }
+        val cachedPredictions = cache.predictions(race.leagueId, expectedUserId = owner)
         val mine = cachedPredictions?.value?.get(raceId)
         val rules = league?.rules ?: Rules()
         // B9/B10: la decisione "gara aperta" vale anche offline (sul clock).
@@ -521,8 +680,14 @@ class PredictionViewModel(
     /** F3: aggiorna la cache locale del "mio pronostico" (best-effort). */
     private suspend fun rememberPrediction(leagueId: String, prediction: RacePrediction) {
         val cache = offlineCache ?: return
-        val existing = cache.predictions(leagueId)?.value.orEmpty()
-        cache.savePredictions(leagueId, existing + (raceId to prediction))
+        val owner = localOwnerId ?: return
+        val existing = cache.predictions(leagueId, expectedUserId = owner)
+            ?.value.orEmpty()
+        cache.savePredictions(
+            leagueId,
+            existing + (raceId to prediction),
+            expectedUserId = owner,
+        )
     }
 
     /**
@@ -530,6 +695,7 @@ class PredictionViewModel(
      * nella coda ([PendingWritesStore]) e il worker periodico riprovera'.
      */
     private fun queueOfflineSave(prediction: RacePrediction) {
+        val owner = localOwnerId ?: return
         viewModelScope.launch {
             val store = pendingWritesStore
             val queued = if (store == null) {
@@ -541,9 +707,10 @@ class PredictionViewModel(
                             raceId = raceId,
                             prediction = prediction,
                             queuedAtEpochMs = Instant.now().toEpochMilli(),
+                            userId = owner,
                         ),
+                        expectedUserId = owner,
                     )
-                    true
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -573,6 +740,8 @@ private data class RaceLoad(
     val leagueResults: List<DriverSeasonStats.StampedResult>,
     val stats: DriverSeasonStats,
     val result: com.fantaformula1.app.core.domain.RaceResultData?,
+    val isAdmin: Boolean,
+    val quotesLoad: RaceQuoteLoad,
 )
 
 /**
@@ -625,6 +794,20 @@ private fun visibleTypesFor(rules: Rules, race: Race): List<PredictionType> =
  * valori salvati solo per i tipi ancora attivi. Così se l'admin disattiva un
  * tipo, la bozza sparisce; se ne attiva uno nuovo, appare subito (B14).
  */
+/**
+ * Unisce le bozze del server con quelle locali. La bozza locale rappresenta
+ * lavoro non ancora inviato: ha la precedenza, altrimenti un ON_RESUME
+ * cancellerebbe le modifiche fatte dopo l'ultimo salvataggio. Dopo un invio
+ * riuscito la bozza locale viene eliminata, quindi non riemerge.
+ */
+internal fun mergeDrafts(
+    serverDrafts: List<DraftEntry>,
+    localDrafts: List<DraftEntry>?,
+): List<DraftEntry> {
+    val localByType = localDrafts.orEmpty().associateBy { it.type }
+    return serverDrafts.map { localByType[it.type] ?: it }
+}
+
 private fun buildDrafts(
     rules: Rules,
     race: Race,

@@ -117,45 +117,73 @@ private fun Race.toCacheDto() = RaceDto(
  * viene letta SOLO quando la rete fallisce ("stale-while-error").
  * Ogni voce ha il proprio timestamp `cached_at_*` (epoch ms). Una
  * decodifica corrotta degrada a null, mai a crash.
+ *
+ * Le chiavi includono l'utente autenticato: la cache di A non deve essere
+ * mostrata a B sullo stesso dispositivo. Le chiavi legacy non namespace non
+ * vengono lette; [clearAll] le elimina insieme a tutto il resto.
  */
-class OfflineCacheStore(private val context: Context) {
+class OfflineCacheStore(
+    private val context: Context,
+    private val currentUserId: () -> String?,
+) {
 
     // ---------------------------------------------------------------------
     // Leghe
     // ---------------------------------------------------------------------
 
-    suspend fun saveLeagues(leagues: List<League>) {
+    suspend fun saveLeagues(
+        leagues: List<League>,
+        expectedUserId: String? = null,
+    ) {
+        val key = scopedKey("leagues", expectedUserId) ?: return
         editBestEffort { prefs ->
-            prefs[KEY_LEAGUES] = OfflineCacheJson.encodeLeagues(leagues)
-            prefs[KEY_CACHED_AT_LEAGUES] = now()
+            prefs[key] = OfflineCacheJson.encodeLeagues(leagues)
+            prefs[timestampKey(key)] = now()
         }
     }
 
-    suspend fun leagues(): Cached<List<League>>? =
-        readValue(KEY_LEAGUES, KEY_CACHED_AT_LEAGUES, OfflineCacheJson::decodeLeagues)
+    suspend fun leagues(expectedUserId: String? = null): Cached<List<League>>? =
+        scopedKey("leagues", expectedUserId)?.let {
+            readValue(it, timestampKey(it), OfflineCacheJson::decodeLeagues)
+        }
 
     // ---------------------------------------------------------------------
     // Gare per lega
     // ---------------------------------------------------------------------
 
-    suspend fun saveRaces(leagueId: String, races: List<Race>) {
+    suspend fun saveRaces(
+        leagueId: String,
+        races: List<Race>,
+        expectedUserId: String? = null,
+    ) {
+        val key = scopedKey("${RACES_PREFIX}$leagueId", expectedUserId) ?: return
         editBestEffort { prefs ->
-            prefs[racesKey(leagueId)] = OfflineCacheJson.encodeRaces(races)
-            prefs[timestampKey(racesKey(leagueId))] = now()
+            prefs[key] = OfflineCacheJson.encodeRaces(races)
+            prefs[timestampKey(key)] = now()
         }
     }
 
-    suspend fun races(leagueId: String): Cached<List<Race>>? =
-        readValue(racesKey(leagueId), timestampKey(racesKey(leagueId)), OfflineCacheJson::decodeRaces)
+    suspend fun races(
+        leagueId: String,
+        expectedUserId: String? = null,
+    ): Cached<List<Race>>? =
+        scopedKey("${RACES_PREFIX}$leagueId", expectedUserId)?.let {
+            readValue(it, timestampKey(it), OfflineCacheJson::decodeRaces)
+        }
 
     /**
-     * Cerca una gara in tutte le gare cacheate (serve alla schermata
-     * pronostici, che conosce il raceId ma non la lega quando la rete manca).
+     * Cerca una gara in tutte le gare cacheate dell'utente corrente (serve
+     * alla schermata pronostici, che conosce il raceId ma non la lega quando
+     * la rete manca).
      */
-    suspend fun race(raceId: String): Cached<Race>? {
+    suspend fun race(
+        raceId: String,
+        expectedUserId: String? = null,
+    ): Cached<Race>? {
+        val prefix = scopedPrefix(RACES_PREFIX, expectedUserId) ?: return null
         val prefs = currentPrefs() ?: return null
         for ((key, value) in prefs.asMap()) {
-            if (!key.name.startsWith(RACES_PREFIX)) continue
+            if (!key.name.startsWith(prefix)) continue
             val text = value as? String ?: continue
             val races = OfflineCacheJson.decodeRaces(text) ?: continue
             val match = races.firstOrNull { it.id == raceId } ?: continue
@@ -170,50 +198,80 @@ class OfflineCacheStore(private val context: Context) {
     // Tuoi pronostici per lega
     // ---------------------------------------------------------------------
 
-    suspend fun savePredictions(leagueId: String, predictions: Map<String, RacePrediction>) {
+    suspend fun savePredictions(
+        leagueId: String,
+        predictions: Map<String, RacePrediction>,
+        expectedUserId: String? = null,
+    ) {
+        val key = scopedKey("${PREDICTIONS_PREFIX}$leagueId", expectedUserId) ?: return
         editBestEffort { prefs ->
-            prefs[predictionsKey(leagueId)] = OfflineCacheJson.encodePredictions(predictions)
-            prefs[timestampKey(predictionsKey(leagueId))] = now()
+            prefs[key] = OfflineCacheJson.encodePredictions(predictions)
+            prefs[timestampKey(key)] = now()
         }
     }
 
-    suspend fun predictions(leagueId: String): Cached<Map<String, RacePrediction>>? =
-        readValue(
-            predictionsKey(leagueId),
-            timestampKey(predictionsKey(leagueId)),
-            OfflineCacheJson::decodePredictions,
-        )
+    suspend fun predictions(
+        leagueId: String,
+        expectedUserId: String? = null,
+    ): Cached<Map<String, RacePrediction>>? =
+        scopedKey("${PREDICTIONS_PREFIX}$leagueId", expectedUserId)?.let {
+            readValue(
+                it,
+                timestampKey(it),
+                OfflineCacheJson::decodePredictions,
+            )
+        }
 
     // ---------------------------------------------------------------------
     // Classifica per lega
     // ---------------------------------------------------------------------
 
-    suspend fun saveStandings(leagueId: String, snapshot: SeasonStandingsSnapshot) {
+    suspend fun saveStandings(
+        leagueId: String,
+        snapshot: SeasonStandingsSnapshot,
+        expectedUserId: String? = null,
+    ) {
+        val key = scopedKey("${STANDINGS_PREFIX}$leagueId", expectedUserId) ?: return
         editBestEffort { prefs ->
-            prefs[standingsKey(leagueId)] = OfflineCacheJson.encodeStandings(snapshot)
-            prefs[timestampKey(standingsKey(leagueId))] = now()
+            prefs[key] = OfflineCacheJson.encodeStandings(snapshot)
+            prefs[timestampKey(key)] = now()
         }
     }
 
-    suspend fun standings(leagueId: String): Cached<SeasonStandingsSnapshot>? =
-        readValue(
-            standingsKey(leagueId),
-            timestampKey(standingsKey(leagueId)),
-            OfflineCacheJson::decodeStandings,
-        )
+    suspend fun standings(
+        leagueId: String,
+        expectedUserId: String? = null,
+    ): Cached<SeasonStandingsSnapshot>? =
+        scopedKey("${STANDINGS_PREFIX}$leagueId", expectedUserId)?.let {
+            readValue(
+                it,
+                timestampKey(it),
+                OfflineCacheJson::decodeStandings,
+            )
+        }
 
     // ---------------------------------------------------------------------
 
     /** Timestamp (epoch ms) dell'ultimo aggiornamento riuscito della categoria. */
     suspend fun lastUpdate(category: OfflineCacheCategory, leagueId: String? = null): Long? {
-        val timestampPrefKey = when (category) {
-            OfflineCacheCategory.LEAGUES -> KEY_CACHED_AT_LEAGUES
-            OfflineCacheCategory.RACES -> timestampKey(racesKey(leagueId.orEmpty()))
-            OfflineCacheCategory.PREDICTIONS -> timestampKey(predictionsKey(leagueId.orEmpty()))
-            OfflineCacheCategory.STANDINGS -> timestampKey(standingsKey(leagueId.orEmpty()))
+        val base = when (category) {
+            OfflineCacheCategory.LEAGUES -> "leagues"
+            OfflineCacheCategory.RACES -> "${RACES_PREFIX}${leagueId.orEmpty()}"
+            OfflineCacheCategory.PREDICTIONS -> "${PREDICTIONS_PREFIX}${leagueId.orEmpty()}"
+            OfflineCacheCategory.STANDINGS -> "${STANDINGS_PREFIX}${leagueId.orEmpty()}"
         }
+        val key = scopedKey(base) ?: return null
         val prefs = currentPrefs() ?: return null
-        return prefs[timestampPrefKey]?.toLongOrNull()
+        return prefs[timestampKey(key)]?.toLongOrNull()
+    }
+
+    /**
+     * Cancella l'intera cache locale. Usato al logout: elimina anche le
+     * chiavi legacy non namespace, che non devono sopravvivere al cambio
+     * account.
+     */
+    suspend fun clearAll() {
+        editBestEffort { prefs -> prefs.clear() }
     }
 
     // ---------------------------------------------------------------------
@@ -250,19 +308,28 @@ class OfflineCacheStore(private val context: Context) {
 
     private fun now() = System.currentTimeMillis().toString()
 
-    private fun racesKey(leagueId: String) = stringPreferencesKey("${RACES_PREFIX}$leagueId")
+    private fun scopedKey(
+        base: String,
+        expectedUserId: String? = null,
+    ): Preferences.Key<String>? {
+        val current = currentUserId()
+        if (expectedUserId != null && current != expectedUserId) return null
+        return scopedPreferenceName(base, current)?.let(::stringPreferencesKey)
+    }
 
-    private fun predictionsKey(leagueId: String) =
-        stringPreferencesKey("${PREDICTIONS_PREFIX}$leagueId")
-
-    private fun standingsKey(leagueId: String) = stringPreferencesKey("${STANDINGS_PREFIX}$leagueId")
+    private fun scopedPrefix(
+        base: String,
+        expectedUserId: String? = null,
+    ): String? {
+        val current = currentUserId()
+        if (expectedUserId != null && current != expectedUserId) return null
+        return current?.trim()?.takeIf { it.isNotEmpty() }?.let { "u_${it}_$base" }
+    }
 
     private fun timestampKey(key: Preferences.Key<String>) =
         stringPreferencesKey("${CACHED_AT_PREFIX}${key.name}")
 
     companion object {
-        private val KEY_LEAGUES = stringPreferencesKey("leagues")
-        private val KEY_CACHED_AT_LEAGUES = stringPreferencesKey("${CACHED_AT_PREFIX}leagues")
         private const val RACES_PREFIX = "races_"
         private const val PREDICTIONS_PREFIX = "predictions_"
         private const val STANDINGS_PREFIX = "standings_"
