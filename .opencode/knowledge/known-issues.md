@@ -35,3 +35,8 @@
 - supabase-kt `rpc()` accetta buildJsonObject, non Map
 - PowerShell: apostrofi swollowano codice nelle stringhe singole → usare doppie virgolette
 - `StateFlow.update` puo' rieseguire la lambda dopo un CAS fallito: mai usare side-effect (`var` esterni) dentro `update` per decisioni di concorrenza → usare `Mutex.tryLock`
+
+- Audit sicurezza 2026-10: `app/fantaformula1.keystore` rimosso dall'indice ma ancora nella storia pubblica (`a8a8b13`); rotazione/reinstallazione e history rewrite sono manuali. Vedi `docs/SECURITY_AUDIT.md` e `docs/RELEASE_SIGNING.md`.
+- Audit sicurezza 2026-10: `0015_security_hardening.sql` (invite code CSPRNG, limite nome profilo, limite JSONB pronostico) e i test SQL sono solo predisposti: nessun ambiente PostgreSQL/Supabase locale e nessuna applicazione live.
+- Rischio residuo noto: `join_league_by_code` non ha rate limiting; codice invito a 6 caratteri (30 bit). Non risolto per non introdurre una tabella di stato senza decisione di prodotto.
+- La firma debug ora e' standard Gradle e locale alla macchina: le vecchie installazioni firmate con il keystore condiviso possono richiedere una disinstallazione una tantum.

@@ -108,4 +108,23 @@ Nel frattempo (fatto in questa revisione): UI con "Ultimo aggiornamento risultat
 
 ## Scelte e verifiche della Fase 6 (prompt v2: verifica finale)
 
-62. **Verifica finale**: `.\gradlew.bat clean testDebugUnitTest lintDebug assembleDebug` verde da rebuild completo (55/55 task, 443 test, 0 falliti, 0 errori lint, APK debug prodotto). Checklist coperta da test/codice: Jolpica fixture + pilota sconosciuto blocca (`F1JolpicaFixtureTest`, `F1MapperTest`); gara con dati collegati e ultimo admin (`RaceWriteErrorTest`, errori FK/trigger di 0011); sync solo admin (pulsante sotto `state.isAdmin`, `F1SyncScheduler` solo per admin + riverifica nel worker); deadline sprint prima dello sprint (`F1MapperTest`); safety car/pit stop mancanti = 0 punti (`ScoringEngineTest`, N3). **Non verificabili in questo ambiente**: eliminazione reale di gara/lega e migrazione su progetto Supabase di prova — la creazione del progetto di prova e' stata tentata ma l'organizzazione ha raggiunto il limite di 2 progetti free attivi (nessun progetto altrui toccato); almeno la sintassi di tutte le 12 migrazioni e dei 6 test SQL e' validata col parser Postgres reale (pglast/libpg_query, 18/18 file) e l'esito e' annotato nel README (aggiunto anche 0012 all'elenco).
+62. **Verifica finale**: `.\gradlew.bat clean testDebugUnitTest lintDebug assembleDebug` verde da rebuild completo (55/55 task, 443 test, 0 falliti, 0 errori lint, APK debug prodotto). Checklist coperta da test/codice: Jolpica fixture + pilota sconosciuto blocca (`F1JolpicaFixtureTest`, `F1MapperTest`); gara con dati collegati e ultimo admin (`RaceWriteErrorTest`, errori FK/trigger di 0011); sync solo admin (pulsante sotto `state.isAdmin`, `F1SyncScheduler` solo per admin + riverifica nel worker); deadline sprint prima dello sprint (`F1MapperTest`); safety car/pit stop mancanti = 0 punti (`ScoringEngineTest`, N3). **Non verificabili in questo ambiente**: eliminazione reale di gara/lega e migrazione su progetto Supabase di prova - la creazione del progetto di prova e' stata tentata ma l'organizzazione ha raggiunto il limite di 2 progetti free attivi (nessun progetto altrui toccato); almeno la sintassi di tutte le 12 migrazioni e dei 6 test SQL e' validata col parser Postgres reale (pglast/libpg_query, 18/18 file) e l'esito e' annotato nel README (aggiunto anche 0012 all'elenco).
+
+## Scelte dell'audit di sicurezza (2026-10)
+
+63. **Firma debug/release separata e fail-closed**: la debug usa il keystore
+    standard di Gradle; la release legge solo `RELEASE_KEYSTORE_PATH`,
+    `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
+    dall'ambiente. `validateReleaseSigning` blocca `assembleRelease`/
+    `bundleRelease`/`packageRelease` se manca anche un solo valore: nessun
+    fallback alla chiave debug. Il keystore condiviso e' stato rimosso
+    dall'indice Git ma resta nella storia (`a8a8b13`): rotazione e history
+    rewrite sono procedure manuali, non automatizzate.
+64. **Hardening 0015**: codice invito con `gen_random_uuid()` (CSPRNG),
+    vincolo nome profilo 1-60 (`NOT VALID`) e trigger che limita il JSONB dei
+    pronostici a 128 KiB. Le migrazioni 0013-0015 restano da applicare e
+    testare su un progetto Supabase di test.
+65. **Segreti**: nessuna chiave privilegiata nel working tree; CI con
+    Gitleaks. La scansione completa di tutti i blob storici non e' terminata
+    nell'ambiente; l'unico file sensibile noto nella storia e' il keystore
+    rimosso dall'indice.

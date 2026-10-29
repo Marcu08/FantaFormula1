@@ -20,8 +20,11 @@ client-side e testato con unit test JVM.
    concedilo per il gestore di file/browser che stai usando, poi conferma l'installazione.
 4. Avvia **FantaFormula 1**.
 
-> L'APK di debug è firmato con la chiave di debug locale: se in futuro ricevi una
-> versione diversa con un'altra firma, Android chiederà prima di disinstallare la precedente.
+> L'APK di debug usa la firma debug standard di Gradle, quindi è adatto solo
+> allo sviluppo/test. La firma debug è locale alla macchina e non è una chiave
+> di release. Se hai installato una vecchia build firmata con il keystore
+> condiviso ormai rimosso, Android può richiedere una disinstallazione una
+> tantum: la nuova build ha un'identità di firma diversa.
 
 ### Compilare l'APK in locale
 
@@ -72,22 +75,44 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    `remove_league_member`) →
    [`0012_season_history.sql`](supabase/migrations/0012_season_history.sql)
    (tabella `season_snapshots` per lo storico stagioni: solo SELECT membri e
-   INSERT admin, nessuna policy di modifica — gli snapshot sono immutabili).
+   INSERT admin, nessuna policy di modifica — gli snapshot sono immutabili) →
+   [`0013_server_quotes.sql`](supabase/migrations/0013_server_quotes.sql)
+   (tabella `race_quotes` + RPC `publish_race_quotes`: quote e soglie dei tipi
+   a quota pubblicate dal server, RLS in sola lettura per i membri e trigger
+   dei pronostici che rifiuta valori diversi da quelli pubblicati) →
+   [`0014_audit_fixes.sql`](supabase/migrations/0014_audit_fixes.sql)
+   (cancellazione lega solo admin, `prediction_exists` limitata a se stessi,
+   FK composita stagione/lega per gli snapshot e RPC atomica
+   `archive_season`) →
+   [`0015_security_hardening.sql`](supabase/migrations/0015_security_hardening.sql)
+   (codice invito con entropia crittografica, limite nome profilo e limite
+   dimensione del JSONB dei pronostici).
 
-   Verifica delle migrazioni: tutte (0001→0012) e i test SQL passano il
-   parse del parser Postgres reale (libpg_query via `pglast`), 18/18 file.
+   Verifica delle migrazioni: tutte (0001→0015) e i test SQL passano il
+   parse del parser Postgres reale (libpg_query via `pglast`), 24/24 file.
    L'applicazione su un **progetto Supabase di prova dedicato** non e' stata
    eseguita: sull'organizzazione e' raggiunto il limite di 2 progetti free
    attivi (FantaFormula1 e FantaCalcio365), quindi per una prova isolata
    serve prima liberare un posto o usare un piano a pagamento. Prima di
-   applicare `0012` al progetto reale, eseguire le migrazioni in ordine
+   applicare `0013`-`0015` al progetto reale, eseguire le migrazioni in ordine
    nell'SQL Editor come sopra (tutte le nuove sono idempotenti).
 
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
-   `races`, `race_results`, `predictions`), le policy **RLS**, le funzioni di
-   business e il trigger di validazione server-side del contenuto dei
-   pronostici (fasce obbligatorie, quote congelate in range, soglie).
-   I test predisposti (non eseguiti, con self-rollback) sono in `supabase/tests/`.
+   `races`, `race_results`, `predictions`, `race_quotes`), le policy **RLS**,
+   le funzioni di business e il trigger di validazione server-side del
+   contenuto dei pronostici (fasce obbligatorie, quote congelate in range,
+   soglie e, dalla 0013, quote pubblicate).
+
+   Test SQL (predisposti, **non eseguiti**, con self-rollback) in
+   `supabase/tests/`: `0004_prediction_validation_tests.sql`,
+   `0006_prediction_bands_tests.sql`, `0009_quota_tests.sql`,
+   `0010_quota_dnf_tests.sql`, `0011_fixes_tests.sql`,
+   `0012_season_history_tests.sql`, `0013_server_quotes_tests.sql`,
+   `0014_audit_fixes_tests.sql`, `0015_security_hardening_tests.sql`.
+   Si eseguono dall'**SQL Editor** del progetto di prova come script unico:
+   il blocco `DO` termina sempre con un'eccezione e annulla la transazione
+   (self-rollback), quindi non lasciano dati residui. Alcuni richiedono di
+   sostituire gli UUID segnaposto (`<UUID_...>`) con utenti reali del progetto.
 3. Da **Authentication → Providers → Email**, disattiva "Confirm email" se vuoi che i
    nuovi giocatori entrino subito senza dover cliccare il link di conferma.
 4. Copia **Project URL** e **anon public key** da **Settings → API**.
@@ -154,6 +179,17 @@ Per DNF, punti over/under e testa a testa la **quota viene congelata nel
 pronostico** al momento dell'invio: le statistiche della stagione cambiano
 col tempo, ma i punteggi già assegnati restano per sempre identici.
 
+### Quote lato server (0013)
+
+Quote e soglie dei tipi a quota (**DNF**, **punti over/under**, **testa a
+testa**) non sono più calcolate dal telefono: l'admin le pubblica nella tabella
+`race_quotes` con la RPC `publish_race_quotes`, e tutti i membri leggono gli
+stessi valori. Il trigger server-side rifiuta pronostici con quota o soglia
+diverse da quelle pubblicate. Senza quote pubblicate i tre tipi a quota sono
+disabilitati (la schermata lo spiega) e **gli altri tipi restano compilabili**.
+Le quote si possono ripubblicare finché non esiste **alcun pronostico** per la
+gara: dopo il primo invio sono immutabili.
+
 ### Sync e statistiche reali
 
 L'app si collega all'API Jolpica/Ergast per il calendario e i risultati reali:
@@ -173,6 +209,75 @@ risultati, e a chiunque di modificare il pronostico di un altro giocatore o
 oltre la deadline.
 
 ---
+
+## Aggiornare app e database
+
+Ogni migrazione è idempotente. Per la **0013** l'ordine conta:
+
+1. Aggiorna l'APK **dell'admin** (versione 1.3).
+2. Applica `0013_server_quotes.sql` **tra due gare**, quando non ci sono
+   pronostici aperti in scadenza.
+3. L'admin apre la **prossima gara aperta**: le quote vengono pubblicate
+   automaticamente (e si aggiornano dopo la sincronizzazione dei risultati).
+4. Applica `0014_audit_fixes.sql` e `0015_security_hardening.sql`, sempre
+   dopo aver eseguito i test SQL su un progetto di prova.
+5. Solo dopo aggiornano i **membri**.
+
+> ⚠️ Dopo la 0013 i **vecchi client** (che non pubblicano le quote) non possono
+> più inviare pronostici a quota: il server li rifiuta finché l'admin non ha
+> pubblicato le quote della gara. I pronostici già salvati restano validi e
+> vengono punteggiati come prima.
+
+---
+
+## Firma APK e release
+
+### Build debug
+
+`assembleDebug` usa la firma debug standard di Gradle: il keystore resta nella
+casa dell'utente (`.android/debug.keystore`) e non viene versionato. Non ci
+sono password o file di firma **tracciati** nel repository.
+
+La firma debug è **locale alla macchina**: due PC diversi producono APK debug
+con firme diverse. Per distribuire una release usare la procedura sotto, non
+un APK debug.
+
+### Build release
+
+La release usa esclusivamente un keystore esterno. I valori si passano tramite
+variabili d'ambiente (in locale o da GitHub Actions Secrets):
+
+```powershell
+$env:RELEASE_KEYSTORE_PATH = "C:\percorso\sicuro\release.jks"
+$env:RELEASE_KEYSTORE_PASSWORD = "<segreto>"
+$env:RELEASE_KEY_ALIAS = "<alias>"
+$env:RELEASE_KEY_PASSWORD = "<segreto>"
+
+.\gradlew.bat assembleRelease
+# -> app\build\outputs\apk\release\app-release.apk
+```
+
+Se una variabile manca o il file non esiste, `validateReleaseSigning` blocca
+`assembleRelease`/`bundleRelease` con un errore esplicito. **Non** viene usata
+la chiave debug come fallback e non viene prodotto un APK release firmato per
+errore.
+
+La procedura completa, inclusi i nomi dei secret GitHub e la rotazione della
+chiave esposta, è in [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md).
+
+### Nota sul keystore rimosso
+
+Il vecchio keystore condiviso è stato rimosso dall'indice Git in questa
+revisione (modifica non ancora committata), ma **resta nella storia del
+repository pubblico**. Finché la
+cronologia non viene riscritta e la chiave non viene sostituita, chiunque
+abbia accesso alla storia può ancora leggerla. La rotazione è una decisione
+manuale del proprietario e richiede una reinstallazione degli APK già
+distribuiti: Android non accetta un aggiornamento con una firma diversa.
+Dettagli e comandi (non eseguiti automaticamente) in
+[`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md).
+
+L'audit completo è in [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md).
 
 ## Architettura
 
