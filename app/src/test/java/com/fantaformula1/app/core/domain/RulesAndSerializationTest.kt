@@ -201,7 +201,12 @@ class RulesAndSerializationTest {
                     pitStops = 2,
                     pointsScored = 26.0,
                 ),
-                DriverRaceResult(driverId = "PER", dnf = true, dnfReason = "Cambio del motore"),
+                DriverRaceResult(
+                    driverId = "PER",
+                    dnf = true,
+                    dnfReason = "Cambio del motore",
+                    pitStops = 0,
+                ),
             ),
             safetyCars = 2,
             redFlags = 1,
@@ -373,9 +378,15 @@ class RulesAndSerializationTest {
     }
 
     @Test
-    fun `U9 maxRacePoints somma il bonus podio senza ordine`() {
+    fun `U9 maxRacePoints usa il maggiore tra podio e bonus senza ordine`() {
+        // Il bonus e' alternativo ai punti per slot: 58 > 10, quindi il
+        // massimo resta 132 (non 142).
         val withBonus = Rules.default().copy(podiumNoOrderPoints = 10.0)
-        assertEquals(142.0, withBonus.maxRacePoints(), 0.001)
+        assertEquals(132.0, withBonus.maxRacePoints(), 0.001)
+
+        // Con un bonus molto alto, invece, il massimo e' il bonus.
+        val bigBonus = Rules.default().copy(podiumNoOrderPoints = 100.0)
+        assertEquals(174.0, bigBonus.maxRacePoints(), 0.001)
     }
 
     @Test

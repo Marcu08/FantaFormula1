@@ -69,17 +69,19 @@ object Formats {
 
     /**
      * Punti con segno opzionale e decimali secondo il Locale: "+12", "-3.5"
-     * diventa "-3,5" in italiano.
+     * diventa "-3,5" in italiano. Il motore calcola al centesimo
+     * ([ScoringEngine] arrotonda a 2 decimali): mostrare un solo decimale
+     * poteva far sembrare pari due punteggi diversi.
      */
     fun points(
         value: Double,
         locale: Locale = Locale.getDefault(),
         signed: Boolean = true,
     ): String {
-        val rounded = Math.round(value * 10.0) / 10.0
+        val rounded = Math.round(value * 100.0) / 100.0
         val formatter = java.text.NumberFormat.getNumberInstance(locale).apply {
             minimumFractionDigits = 0
-            maximumFractionDigits = 1
+            maximumFractionDigits = 2
         }
         val text = formatter.format(rounded)
         return when {

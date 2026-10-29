@@ -166,6 +166,8 @@ class RulesViewModel(
             } catch (e: UserException) {
                 _uiState.update { it.copy(saving = false, errors = listOf(e.message)) }
                 _events.emit(RulesEvent.Failure(e.message))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val message = e.message ?: "Impossibile salvare le regole"
                 _uiState.update { it.copy(saving = false, errors = listOf(message)) }

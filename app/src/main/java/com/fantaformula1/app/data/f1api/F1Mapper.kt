@@ -200,7 +200,7 @@ object F1Mapper {
             dnf = !classified,
             dnfReason = dnfReason,
             penaltyPoints = 0,
-            pitStops = 0,
+            pitStops = null,
             pointsScored = pointsScored,
         )
     }

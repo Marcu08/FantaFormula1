@@ -1,5 +1,8 @@
 package com.fantaformula1.app.core.domain
 
+import com.fantaformula1.app.data.repository.LeagueDataSnapshot
+import com.fantaformula1.app.data.repository.LeagueRaceData
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,6 +121,52 @@ class LeagueStandingsTest {
         assertEquals(25.0, snapshot.rows.last().totalPoints, 0.001)
         // la classifica e' in ordine decrescente di punti
         assertTrue(snapshot.rows.zipWithNext().all { (a, b) -> a.totalPoints >= b.totalPoints })
+    }
+
+    @Test
+    fun `risultati di una stagione precedente non entrano nella classifica corrente`() {
+        val currentRaces = listOf(race("r1", 1, "GP corrente"))
+        // rOld appartiene a una stagione precedente: non e' in `races`.
+        val results = mapOf(
+            "r1" to raceResult("r1"),
+            "rOld" to raceResult("rOld"),
+        )
+        val predictionsByUser = mapOf(
+            "u1" to listOf(
+                winnerPrediction("r1", "VER"),
+                winnerPrediction("rOld", "VER"),
+            ),
+            "u2" to listOf(winnerPrediction("rOld", "VER")),
+        )
+
+        val snapshot = LeagueStandings.build(
+            rules = rules,
+            memberNames = mapOf("u1" to "Alice", "u2" to "Bob"),
+            races = currentRaces,
+            results = results,
+            predictionsByUser = predictionsByUser,
+        )
+
+        assertEquals(25.0, snapshot.rows.first { it.userId == "u1" }.totalPoints, 0.001)
+        assertEquals(0.0, snapshot.rows.first { it.userId == "u2" }.totalPoints, 0.001)
+        assertEquals(listOf("r1"), snapshot.completedRaceIds)
+        assertEquals(setOf("r1"), snapshot.scoresByRace.keys)
+    }
+
+    @Test
+    fun `restrictToRaceIds elimina le gare di altre stagioni`() {
+        val snapshot = LeagueDataSnapshot(
+            races = listOf(
+                LeagueRaceData("r1", raceResult("r1"), emptyMap()),
+                LeagueRaceData("rOld", raceResult("rOld"), emptyMap()),
+            ),
+            unreadablePredictions = 0,
+            unreadableResults = 0,
+        )
+
+        val restricted = snapshot.restrictToRaceIds(setOf("r1"))
+
+        assertEquals(listOf("r1"), restricted.races.map { it.raceId })
     }
 
     @Test

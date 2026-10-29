@@ -135,7 +135,7 @@ class F1SyncRepository(
                 // dell'endpoint non blocca la sincronizzazione della gara, ma il
                 // totale resta null ("da confermare", N3).
                 val pitStops = try {
-                    f1ApiClient.pitStops(season, race.round)
+                    f1ApiClient.pitStops(season, race.round).takeIf { it.isNotEmpty() }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {
@@ -146,7 +146,13 @@ class F1SyncRepository(
 
                 val enriched = resultData.copy(
                     drivers = resultData.drivers.map { driver ->
-                        driver.copy(pitStops = pitStopsByDriver[driver.driverId] ?: driver.pitStops)
+                        driver.copy(
+                            pitStops = if (pitStops != null) {
+                                pitStopsByDriver[driver.driverId] ?: 0
+                            } else {
+                                driver.pitStops
+                            },
+                        )
                     },
                     laps = totalLaps ?: resultData.laps,
                     // Totale noto solo se l'endpoint ha risposto davvero.
@@ -204,12 +210,12 @@ class F1SyncRepository(
         val byDriver = F1Mapper.pitStopsByDriver(stops)
         val total = byDriver.values.sum()
         if (total <= 0) return false
-        val untouched = existing.drivers.all { it.pitStops == 0 }
+        val untouched = existing.drivers.all { it.pitStops == null || it.pitStops == 0 }
         val updated = existing.copy(
             totalPitStops = total,
             drivers = if (untouched) {
                 existing.drivers.map { driver ->
-                    driver.copy(pitStops = byDriver[driver.driverId] ?: driver.pitStops)
+                    driver.copy(pitStops = byDriver[driver.driverId] ?: 0)
                 }
             } else {
                 existing.drivers
@@ -251,21 +257,31 @@ class F1SyncRepository(
             val base = (mapping as RaceMapping.Success).data
             val existing = raceRepository.result(race.id)
             val pitStops = try {
-                f1ApiClient.pitStops(season, race.round)
+                f1ApiClient.pitStops(season, race.round).takeIf { it.isNotEmpty() }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
                 null
             }
             val byDriver = pitStops?.let { F1Mapper.pitStopsByDriver(it) }.orEmpty()
+            val existingByDriver = existing?.drivers?.associateBy { it.driverId }.orEmpty()
             val refreshed = base.copy(
                 drivers = base.drivers.map { driver ->
-                    driver.copy(pitStops = byDriver[driver.driverId] ?: driver.pitStops)
+                    driver.copy(
+                        // Se l'endpoint pit stop fallisce non cancellare i dati
+                        // gia' confermati: usa il valore precedente del pilota.
+                        // Se invece ha risposto, l'assenza del pilota vale 0.
+                        pitStops = if (pitStops != null) {
+                            byDriver[driver.driverId] ?: 0
+                        } else {
+                            driver.pitStops ?: existingByDriver[driver.driverId]?.pitStops
+                        },
+                    )
                 },
                 laps = F1Mapper.raceLaps(results) ?: base.laps,
                 totalPitStops = pitStops?.let {
                     F1Mapper.pitStopsByDriver(it).values.sum()
-                },
+                } ?: existing?.totalPitStops,
                 // Campi dell'admin: mai toccati dal refresh.
                 safetyCars = existing?.safetyCars,
                 redFlags = existing?.redFlags ?: base.redFlags,

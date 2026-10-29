@@ -29,10 +29,18 @@ object LeagueStandings {
     ): Snapshot {
         val orderedRaces = races.sortedBy { it.round }
         val orderedRaceIds = orderedRaces.map { it.id }
+        // La sorgente dati della lega contiene tutte le stagioni. La
+        // classifica (e lo snapshot di archivio, che usa questa stessa
+        // funzione) deve considerare SOLO le gare passate in `races`.
+        val allowedRaceIds = orderedRaceIds.toSet()
+        val resultsInSeason = results.filterKeys { it in allowedRaceIds }
+        val predictionsInSeason = predictionsByUser.mapValues { (_, predictions) ->
+            predictions.filter { it.raceId in allowedRaceIds }
+        }.filterValues { it.isNotEmpty() }
 
         val raceScores = ScoringEngine.computeRaceScores(
-            predictions = predictionsByUser,
-            results = results,
+            predictions = predictionsInSeason,
+            results = resultsInSeason,
             rules = rules,
         )
         val scoresByRace = raceScores
@@ -43,16 +51,16 @@ object LeagueStandings {
                         .thenBy { memberNames[it.userId].orEmpty() },
                 )
             }
-            .filterKeys { it in orderedRaceIds || results.containsKey(it) }
+            .filterKeys { it in orderedRaceIds || resultsInSeason.containsKey(it) }
 
         val rows = ScoringEngine.computeStandings(
-            predictions = predictionsByUser,
-            results = results,
+            predictions = predictionsInSeason,
+            results = resultsInSeason,
             rules = rules,
             displayNames = memberNames,
         )
 
-        val completed = orderedRaces.filter { results.containsKey(it.id) }.map { it.id }
+        val completed = orderedRaces.filter { resultsInSeason.containsKey(it.id) }.map { it.id }
 
         return Snapshot(
             rows = rows,

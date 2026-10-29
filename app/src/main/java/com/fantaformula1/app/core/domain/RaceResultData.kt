@@ -18,7 +18,12 @@ data class DriverRaceResult(
     val dnfReason: String? = null,
     /** Punti di penalita' inflitti al pilota. */
     val penaltyPoints: Int = 0,
-    val pitStops: Int = 0,
+    /**
+     * Pit stop del pilota; null = dato non inserito/non disponibile.
+     * La distinzione tra 0 (nessuna fermata) e null (sconosciuto) e'
+     * necessaria: sommare zeri inventati falserebbe la fascia pit stop.
+     */
+    val pitStops: Int? = null,
     /** Punti campionato effettivamente assegnati (serve per over/under). */
     val pointsScored: Double? = null,
 )
@@ -93,12 +98,16 @@ data class RaceResultData(
 
     /**
      * Pit stop totali effettivi, usati dagli over/under: il valore esplicito
-     * se presente, altrimenti la somma dei pit stop dei piloti (risultati
-     * vecchi scritti prima del campo). Null se non c'e' nessuna fonte.
+     * se presente; altrimenti la somma SOLO se ogni pilota del risultato ha
+     * un dato noto (nessun null). Con dati parziali il totale resta
+     * sconosciuto: non si inventa uno zero per i piloti non compilati.
      */
-    fun confirmedTotalPitStops(): Int? =
-        totalPitStops ?: drivers.takeIf { list -> list.any { it.pitStops > 0 } }
-            ?.sumOf { it.pitStops }
+    fun confirmedTotalPitStops(): Int? {
+        totalPitStops?.let { return it }
+        if (drivers.isEmpty() || drivers.any { it.pitStops == null }) return null
+        val values = drivers.mapNotNull { it.pitStops }
+        return if (values.any { it > 0 }) values.sum() else null
+    }
 
     /**
      * Punti campionato effettivi di un pilota, usati dagli over/under.

@@ -72,7 +72,10 @@ class FormatsTest {
     }
 
     @Test
-    fun `decimali al massimo su una cifra`() {
-        assertEquals("+12,3", Formats.points(12.34, italian))
+    fun `decimali al massimo su due cifre come il motore`() {
+        assertEquals("+12,34", Formats.points(12.34, italian))
+        assertEquals("+12,35", Formats.points(12.345, italian))
+        // Due punteggi diversi non devono sembrare uguali.
+        assertTrue(Formats.points(12.34, italian) != Formats.points(12.36, italian))
     }
 }

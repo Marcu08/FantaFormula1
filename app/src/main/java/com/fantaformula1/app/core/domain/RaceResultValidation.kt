@@ -52,7 +52,7 @@ object RaceResultValidation {
             if (driver.penaltyPoints < 0) {
                 errors += "Penalità di $label non valide"
             }
-            if (driver.pitStops < 0) {
+            if (driver.pitStops?.let { it < 0 } == true) {
                 errors += "Pit stop di $label non validi"
             }
             if (driver.dnf && driver.position != null) {

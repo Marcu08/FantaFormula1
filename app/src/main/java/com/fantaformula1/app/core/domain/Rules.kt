@@ -70,9 +70,10 @@ data class Rules(
         var total = 0.0
         enabledTypes.forEach { type ->
             total += when (type) {
-                // Il podio somma i tre valori (eventuale bonus senza ordine).
+                // Il bonus senza ordine e' ALTERNATIVO ai punti per slot:
+                // il massimo e' il maggiore dei due, non la loro somma.
                 PredictionType.PODIUM ->
-                    podiumPoints.take(3).sumOf { it } + podiumNoOrderPoints
+                    maxOf(podiumPoints.take(3).sumOf { it }, podiumNoOrderPoints)
                 // Lo sprint paga col moltiplicatore applicato.
                 PredictionType.SPRINT_WINNER ->
                     pointsFor(type) * sprintPointsMultiplier

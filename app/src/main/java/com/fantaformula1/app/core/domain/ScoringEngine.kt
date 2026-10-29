@@ -70,7 +70,7 @@ object ScoringEngine {
             return ScoreLine(entry.type, 0.0, TYPE_DISABLED_LABEL)
         }
         val points = baseScore(entry, result, rules).coerceAtLeast(0.0).roundTo2()
-        return ScoreLine(entry.type, points, detailFor(entry, result))
+        return ScoreLine(entry.type, points, detailFor(entry, result, rules))
     }
 
     // ---------------------------------------------------------------------
@@ -333,7 +333,11 @@ object ScoringEngine {
      * reale, nella forma "Verstappen 1º ✓, Norris 3º ✗". Funzione pura,
      * senza risorse Android (i nomi vengono da [DriversCatalog]).
      */
-    private fun detailFor(entry: PredictionEntry, result: RaceResultData): String =
+    private fun detailFor(
+        entry: PredictionEntry,
+        result: RaceResultData,
+        rules: Rules,
+    ): String =
         when (entry.type) {
             PredictionType.WINNER -> {
                 val winner = result.winner()
@@ -351,14 +355,29 @@ object ScoringEngine {
                 if (order.isEmpty()) {
                     NO_DATA_LABEL
                 } else {
-                    entry.driverIds.take(3).mapIndexed { index, driverId ->
-                        val actualPosition = order.indexOfFirst { it.driverId == driverId }
-                        if (actualPosition in 0..2) {
-                            "${name(driverId)} ${actualPosition + 1}º $HIT"
+                    val slots = entry.driverIds.take(3).mapIndexed { index, driverId ->
+                        val actual = order.getOrNull(index)
+                        if (actual?.driverId == driverId) {
+                            "${name(driverId)} ${index + 1}º $HIT"
                         } else {
-                            "${name(driverId)} ${MISS}"
+                            val actualLabel = actual?.let {
+                                "${name(it.driverId)} ${index + 1}º"
+                            } ?: "nessun pilota"
+                            "${name(driverId)} atteso ${index + 1}º $MISS (reale: $actualLabel)"
                         }
                     }.joinToString(", ")
+                    val noOrderBonus = rules.podiumNoOrderPoints > 0.0 &&
+                        order.size >= 3 &&
+                        entry.driverIds.take(3).toSet() ==
+                        order.take(3).map { it.driverId }.toSet() &&
+                        entry.driverIds.take(3).withIndex().none { (index, driverId) ->
+                            order.getOrNull(index)?.driverId == driverId
+                        }
+                    if (noOrderBonus) {
+                        slots + " — bonus podio senza ordine"
+                    } else {
+                        slots
+                    }
                 }
             }
 
@@ -391,9 +410,21 @@ object ScoringEngine {
                     // invece dei "dati della gara non disponibili".
                     actual == null ->
                         "${name(driverId)}: non classificato " + mark(false)
-                    else ->
-                        "${name(driverId)} ${actual}º (atteso ${target}º) " +
-                            mark(actual == target)
+                    else -> {
+                        val diff = abs(actual - target)
+                        val nearMiss = when (diff) {
+                            1 -> rules.exactPositionNearMissFactor > 0.0
+                            2 -> rules.exactPositionMissFactor2 > 0.0
+                            else -> false
+                        }
+                        val resultMark = when {
+                            actual == target -> HIT
+                            nearMiss -> "~"
+                            else -> MISS
+                        }
+                        "${name(driverId)} ${actual}º (atteso ${target}º) $resultMark" +
+                            if (nearMiss) " — punti parziali" else ""
+                    }
                 }
             }
 
@@ -481,7 +512,8 @@ object ScoringEngine {
         return if (threshold == null || over == null || actual == null) {
             NO_DATA_LABEL
         } else {
-            val comparison = if (over) ">" else "<"
+            // Under = "N o meno", non "strettamente meno di N".
+            val comparison = if (over) ">" else "≤"
             "$subject $actual (soglia $comparison $threshold) " +
                 mark(isOver(actual, threshold) == over)
         }

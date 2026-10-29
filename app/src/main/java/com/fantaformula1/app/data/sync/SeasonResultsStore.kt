@@ -129,6 +129,7 @@ internal fun mergeFetched(
 class SeasonResultsStore(
     private val context: Context,
     private val remote: SeasonResultsRemote,
+    private val season: Int = F1ApiClient.currentSeason(),
 ) {
 
     /**
@@ -141,7 +142,7 @@ class SeasonResultsStore(
         val decoded = runCatching {
             AppJson.decodeFromString(SeasonResultsCache.serializer(), payload)
         }.getOrNull()
-        return usableSeasonCache(decoded, SEASON)
+        return usableSeasonCache(decoded, season)
     }
 
     /**
@@ -163,7 +164,7 @@ class SeasonResultsStore(
         if (!shouldRefreshSeasonCache(cached, force, nowEpochMs, FRESH_MS)) {
             return cached // zero richieste
         }
-        return runRefreshCycle(cached, remote, nowEpochMs) { save(it) }
+        return runRefreshCycle(cached, remote, nowEpochMs, season = season) { save(it) }
     }
 
     private suspend fun save(cache: SeasonResultsCache) {
@@ -186,9 +187,6 @@ class SeasonResultsStore(
         /** Timeout su ogni singola richiesta di rete (calendario e round). */
         const val NETWORK_TIMEOUT_MS: Long = 10_000L
 
-        /** Stagione del mondiale reale (allineata a F1SyncRepository). */
-        const val SEASON = 2026
-
         private val KEY_CACHE = stringPreferencesKey("season_results_cache")
     }
 }
@@ -210,9 +208,9 @@ internal suspend fun runRefreshCycle(
     cached: SeasonResultsCache?,
     remote: SeasonResultsRemote,
     nowEpochMs: Long,
+    season: Int = F1ApiClient.currentSeason(),
     save: suspend (SeasonResultsCache) -> Unit,
 ): SeasonResultsCache? {
-    val season = SeasonResultsStore.SEASON
     val calendar = try {
         withTimeoutOrNull(SeasonResultsStore.NETWORK_TIMEOUT_MS) { remote.calendar(season) }
     } catch (e: kotlin.coroutines.cancellation.CancellationException) {

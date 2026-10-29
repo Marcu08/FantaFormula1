@@ -85,8 +85,9 @@ class OpenF1Client : OpenF1Source {
         private const val REQUEST_TIMEOUT_MS = 15_000L
         private const val CONNECT_TIMEOUT_MS = 10_000L
 
-        /** Stagione supportata (allineata all'app: Jolpica e cache stagione). */
-        const val SEASON = 2026
+        /** Stagione corrente (nessun anno fisso: Jolpica/cache usano lo stesso). */
+        val SEASON: Int
+            get() = com.fantaformula1.app.data.f1api.F1ApiClient.currentSeason()
 
         /** Unknown keys: l'API aggiunge campi senza preavviso; vietato rompere l'app. */
         private val openF1Json = Json { ignoreUnknownKeys = true }

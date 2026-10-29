@@ -81,6 +81,47 @@ class ScoringEngineExplainTest {
     }
 
     @Test
+    fun `podio riordinato - le spunte seguono gli slot, non il set`() {
+        val entry = PredictionEntry(
+            type = PredictionType.PODIUM,
+            driverIds = listOf("RUS", "VER", "LEC"),
+        )
+        val line = ScoringEngine.explain(entry, sampleResult(), rules)
+
+        assertEquals(15.0, line.points, 0.001)
+        assertTrue(line.detail.contains("atteso 1º"))
+        assertTrue(line.detail.contains("atteso 2º"))
+        assertTrue(line.detail.contains("3º ✓"))
+    }
+
+    @Test
+    fun `bonus podio senza ordine viene spiegato`() {
+        val withBonus = rules.copy(podiumNoOrderPoints = 10.0)
+        val entry = PredictionEntry(
+            type = PredictionType.PODIUM,
+            driverIds = listOf("RUS", "LEC", "VER"),
+        )
+        val line = ScoringEngine.explain(entry, sampleResult(), withBonus)
+
+        assertEquals(10.0, line.points, 0.001)
+        assertTrue(line.detail.contains("bonus podio senza ordine"))
+    }
+
+    @Test
+    fun `posizione quasi indovinata - la spiegazione dice punti parziali`() {
+        val entry = PredictionEntry(
+            type = PredictionType.DRIVER_EXACT_POSITION,
+            driverIds = listOf("LEC"),
+            position = 2,
+        )
+        val line = ScoringEngine.explain(entry, sampleResult(), rules)
+
+        assertEquals(6.0, line.points, 0.001)
+        assertTrue(line.detail.contains("punti parziali"))
+        assertTrue(line.detail.contains("~"))
+    }
+
+    @Test
     fun `posizione esatta - mostra atteso ed effettivo`() {
         val entry = PredictionEntry(
             type = PredictionType.DRIVER_EXACT_POSITION,

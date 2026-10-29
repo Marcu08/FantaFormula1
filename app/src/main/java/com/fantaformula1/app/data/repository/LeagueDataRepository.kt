@@ -25,6 +25,14 @@ data class LeagueDataSnapshot(
 )
 
 /**
+ * Limita lo snapshot alle gare della stagione corrente. `raceData` legge
+ * l'intera lega (le RLS non conoscono le stagioni), mentre classifica,
+ * statistiche e quote devono considerare solo le gare passate in [races].
+ */
+fun LeagueDataSnapshot.restrictToRaceIds(raceIds: Set<String>): LeagueDataSnapshot =
+    copy(races = races.filter { it.raceId in raceIds })
+
+/**
  * Dati grezzi di una lega necessari a ricalcolare punteggi e classifica
  * con lo [com.fantaformula1.app.core.domain.ScoringEngine].
  */
