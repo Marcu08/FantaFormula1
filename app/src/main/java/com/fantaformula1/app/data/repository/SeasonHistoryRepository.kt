@@ -3,10 +3,14 @@ package com.fantaformula1.app.data.repository
 import com.fantaformula1.app.data.model.SeasonDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Stagione chiusa e consultabile nello storico: nome, data di archiviazione
@@ -55,8 +59,8 @@ interface SeasonHistoryRepository {
  * Riga di `season_snapshots`. I nomi dei campi sono in snake_case per
  * coincidere con le colonne (stesso criterio di [com.fantaformula1.app.data.model.SeasonDto]).
  *
- * `archived_at` ha default a null solo per la decodifica: l'insert lo omette
- * (il client usa encodeDefaults=false) e la colonna usa il default del server.
+ * `archived_at` ha default a null solo per la decodifica: l'archiviazione
+ * passa alla RPC `archive_season`, che lascia al server il default.
  */
 @Serializable
 internal data class SeasonSnapshotDto(
@@ -66,17 +70,6 @@ internal data class SeasonSnapshotDto(
     val standings: JsonElement,
     @SerialName("archived_by") val archivedBy: String? = null,
     @SerialName("archived_at") val archivedAt: String? = null,
-)
-
-/**
- * PATCH su `seasons` per disattivare la stagione dopo l'archiviazione.
- * Il campo NON ha default: con encodeDefaults=false un default a false
- * verrebbe omesso e la colonna resterebbe invariata (stesso problema di
- * B27 / RaceUpdateDto.deadline).
- */
-@Serializable
-internal data class SeasonUpdateDto(
-    @SerialName("is_active") val isActive: Boolean,
 )
 
 /**
@@ -176,32 +169,22 @@ class SupabaseSeasonHistoryRepository(
         standings: JsonElement,
     ) {
         val client = requireClient()
-        val archivedBy = authRepository.currentUserId()
-            ?: throw UserException("Devi essere autenticato per archiviare la stagione")
-
-        // 1) Congela la classifica finale (PK = season_id: un doppio tentativo
-        //    viene rifiutato dalla RLS/vincolo con "La stagione e' gia' archiviata").
-        try {
-            client.from("season_snapshots").insert(
-                SeasonSnapshotDto(
-                    seasonId = seasonId,
-                    leagueId = leagueId,
-                    seasonName = seasonName,
-                    standings = standings,
-                    archivedBy = archivedBy,
-                ),
-            )
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            throw UserException(mapSeasonHistoryError(throwable.message, "archiviare la stagione"))
+        if (authRepository.currentUserId() == null) {
+            throw UserException("Devi essere autenticato per archiviare la stagione")
         }
 
-        // 2) Disattiva la stagione: le sue gare escono dalle schermate correnti.
+        // Snapshot + disattivazione avvengono nella stessa transazione
+        // server-side: niente stato parziale se la seconda scrittura fallisce.
         try {
-            client.from("seasons").update(SeasonUpdateDto(isActive = false)) {
-                filter { eq("id", seasonId) }
-            }
+            client.postgrest.rpc(
+                function = "archive_season",
+                parameters = buildJsonObject {
+                    put("p_league", leagueId)
+                    put("p_season", seasonId)
+                    put("p_name", seasonName)
+                    put("p_standings", standings)
+                },
+            )
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {

@@ -67,6 +67,7 @@ import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.isSprintRelated
 import com.fantaformula1.app.core.util.Formats
 import com.fantaformula1.app.data.repository.League
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import com.fantaformula1.app.data.notification.DeadlineReminderScheduler
 import com.fantaformula1.app.ui.components.CircuitOutline
 import com.fantaformula1.app.ui.components.CircuitTracks
@@ -168,6 +169,7 @@ fun LeagueScreen(
             // schermata classifica (se non disponibile resta null).
             val position = runCatching {
                 val snapshot = container.leagueDataRepository.raceData(leagueId)
+                    .restrictToRaceIds(races.map { it.id }.toSet())
                 val memberNames = container.leagueRepository.members(leagueId)
                     .associate { it.userId to it.displayName }
                 val results = snapshot.races
@@ -197,7 +199,12 @@ fun LeagueScreen(
             // Promemoria notifica un'ora prima della chiusura (REPLACE per gara).
             if (race != null) {
                 race.deadline?.let { deadline ->
-                    DeadlineReminderScheduler.schedule(context, race.id, deadline)
+                    DeadlineReminderScheduler.schedule(
+                        context,
+                        race.id,
+                        deadline,
+                        container.authRepository.currentUserId(),
+                    )
                 }
             }
         }

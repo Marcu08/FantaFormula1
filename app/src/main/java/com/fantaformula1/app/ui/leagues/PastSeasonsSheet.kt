@@ -43,7 +43,6 @@ import com.fantaformula1.app.data.repository.PastSeason
 import com.fantaformula1.app.data.util.AppJson
 import com.fantaformula1.app.data.util.parseInstantMillis
 import java.time.Instant
-import java.util.Locale
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -255,4 +254,4 @@ private fun decodeSnapshot(json: JsonElement?): SeasonStandingsSnapshot? {
 
 /** Punti con un decimale, come nella schermata Classifica. */
 private fun formatPoints(points: Double): String =
-    String.format(Locale.ITALY, "%.1f", points)
+    Formats.points(points, signed = false)

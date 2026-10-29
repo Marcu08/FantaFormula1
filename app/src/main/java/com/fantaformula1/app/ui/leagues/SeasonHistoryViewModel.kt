@@ -12,6 +12,7 @@ import com.fantaformula1.app.data.repository.PastSeason
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.SeasonHistoryRepository
 import com.fantaformula1.app.data.repository.UserException
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import com.fantaformula1.app.data.util.AppJson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,6 +113,7 @@ class SeasonHistoryViewModel(
                     .associate { it.userId to it.displayName }
                 val races = raceRepository.races(leagueId)
                 val data = leagueDataRepository.raceData(leagueId)
+                    .restrictToRaceIds(races.map { it.id }.toSet())
 
                 val results = data.races
                     .mapNotNull { datum -> datum.result?.let { datum.raceId to it } }
