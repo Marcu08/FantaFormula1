@@ -1,0 +1,15 @@
+title = "FantaFormula1 gitleaks config"
+
+[extend]
+useDefault = true
+
+# I segnaposto della documentazione non sono segreti e non devono far fallire
+# la CI. L'allowlist e' volutamente limitata a stringhe esatte: non nasconde
+# valori reali eventualmente inseriti nei file.
+[allowlist]
+description = "Placeholder espliciti nella documentazione di release"
+regexes = [
+    '''<inserire-a-runtime>''',
+    '''<segreto>''',
+    '''<alias>''',
+]

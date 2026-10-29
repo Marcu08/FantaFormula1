@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   test:
     name: Test e lint
@@ -23,8 +27,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit test e lint
-        run: ./gradlew testDebugUnitTest lintDebug
+      - name: Unit test, lint, build e guardia sorgenti
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug checkNoCjkCharacters
 
       # Il report di lint resta accessibile anche quando il job fallisce.
       - name: Upload report lint
@@ -34,3 +38,21 @@ jobs:
           name: lint-report
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (storia completa per lo scanner)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Gitleaks e' gratuito per repository personali/pubblici. Per
+      # un'organizzazione potrebbe essere richiesta una licenza: in quel caso
+      # impostare GITLEAKS_LICENSE come GitHub Actions secret e passarla qui.
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
