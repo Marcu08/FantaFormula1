@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -127,6 +128,16 @@ fun PredictionScreen(
     // U3: "ora corrente" aggiornata ogni minuto per il countdown alla deadline.
     var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
     var collapsedSections by rememberCollapsedPredictionSections()
+    var handledSaveFailure by rememberSaveable { mutableStateOf(0) }
+
+    // Riapre tutte le sezioni solo quando arriva un NUOVO fallimento di
+    // validazione: comprimere una sezione dopo l'errore non la riapre.
+    LaunchedEffect(state.saveAttemptFailed) {
+        if (state.saveAttemptFailed > handledSaveFailure) {
+            collapsedSections = emptySet()
+            handledSaveFailure = state.saveAttemptFailed
+        }
+    }
 
     val savedMessage = stringResource(R.string.pronostico_salvato)
 

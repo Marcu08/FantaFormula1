@@ -178,6 +178,11 @@ data class PredictionUiState(
     val error: String? = null,
     /** Avviso non bloccante su cio' che resta da compilare (R6). */
     val warning: String? = null,
+    /**
+     * Incrementato solo quando un tentativo di salvataggio viene fermato da
+     * un errore di validazione. La schermata lo usa per riaprire le sezioni.
+     */
+    val saveAttemptFailed: Int = 0,
     /** Risultato della gara, se gia' disponibile (per la spiegazione U1). */
     val result: com.fantaformula1.app.core.domain.RaceResultData? = null,
     /** U5: true se alla riapertura è stata ripristinata una bozza locale. */
@@ -208,7 +213,7 @@ class PredictionViewModel(
     private val predictionRepository: PredictionRepository,
     private val authRepository: AuthRepository,
     private val leagueDataRepository: LeagueDataRepository,
-    private val seasonResultsStore: SeasonResultsStore,
+    private val seasonResultsStore: SeasonResultsStore? = null,
     private val raceId: String,
     private val draftStore: com.fantaformula1.app.data.prediction.PredictionDraftStore? = null,
     /** F3: cache offline del "mio pronostico" (opzionale per i test). */
@@ -283,7 +288,7 @@ class PredictionViewModel(
 
                 // Statistiche IMMEDIATE: cache stagione (ZERO rete) + lega.
                 // La schermata non aspetta mai la rete per le statistiche.
-                val cachedReal = runCatching { seasonResultsStore.current() }
+                val cachedReal = runCatching { seasonResultsStore?.current() }
                     .getOrNull()?.results?.map {
                         DriverSeasonStats.StampedResult(round = it.round, result = it.result)
                     }.orEmpty()
@@ -394,7 +399,7 @@ class PredictionViewModel(
                 // a richiesta): non blocca la schermata e nessun errore
                 // visibile se fallisce. Quando arriva aggiorna le statistiche.
                 viewModelScope.launch {
-                    val refreshed = runCatching { seasonResultsStore.ensureFresh() }.getOrNull()
+                    val refreshed = runCatching { seasonResultsStore?.ensureFresh() }.getOrNull()
                     if (refreshed != null) {
                         val statsAfter = DriverSeasonStats.fromMergedResults(
                             load.leagueResults,
@@ -559,7 +564,13 @@ class PredictionViewModel(
             val message = "Quote non disponibili per: " +
                 resolved.missingQuoteTypes.joinToString(", ") { it.italianLabel } +
                 ". Riprova quando l'admin le ha pubblicate."
-            _uiState.update { it.copy(errors = listOf(message), warning = null) }
+            _uiState.update {
+                it.copy(
+                    errors = listOf(message),
+                    warning = null,
+                    saveAttemptFailed = it.saveAttemptFailed + 1,
+                )
+            }
             viewModelScope.launch { _events.emit(PredictionEvent.Failure(message)) }
             return
         }
@@ -567,7 +578,13 @@ class PredictionViewModel(
         val prediction = RacePrediction(raceId = raceId, entries = entries)
 
         if (entries.isEmpty()) {
-            _uiState.update { it.copy(errors = listOf(NIENTE_COMPILATO), warning = null) }
+            _uiState.update {
+                it.copy(
+                    errors = listOf(NIENTE_COMPILATO),
+                    warning = null,
+                    saveAttemptFailed = it.saveAttemptFailed + 1,
+                )
+            }
             viewModelScope.launch { _events.emit(PredictionEvent.Failure(NIENTE_COMPILATO)) }
             return
         }
@@ -582,7 +599,13 @@ class PredictionViewModel(
             isSprintRace = race.isSprint,
         )
         if (errors.isNotEmpty()) {
-            _uiState.update { it.copy(errors = errors, warning = warning) }
+            _uiState.update {
+                it.copy(
+                    errors = errors,
+                    warning = warning,
+                    saveAttemptFailed = it.saveAttemptFailed + 1,
+                )
+            }
             viewModelScope.launch { _events.emit(PredictionEvent.Failure(errors.first())) }
             return
         }
