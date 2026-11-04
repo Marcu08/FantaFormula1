@@ -9,6 +9,29 @@ import org.junit.Test
 class PredictionSectionsTest {
 
     @Test
+    fun `mappatura esplicita tipo per tipo`() {
+        val expected = mapOf(
+            PredictionType.WINNER to PredictionSection.RACE_RESULT,
+            PredictionType.PODIUM to PredictionSection.RACE_RESULT,
+            PredictionType.FASTEST_LAP to PredictionSection.RACE_RESULT,
+            PredictionType.POLE to PredictionSection.RACE_RESULT,
+            PredictionType.DRIVER_EXACT_POSITION to PredictionSection.RACE_RESULT,
+            PredictionType.DRIVER_POSITION_RANGE to PredictionSection.RACE_RESULT,
+            PredictionType.HEAD_TO_HEAD to PredictionSection.HEAD_TO_HEAD,
+            PredictionType.DRIVER_DNF to PredictionSection.RACE_EVENTS,
+            PredictionType.SAFETY_CAR_COUNT_OVER_UNDER to PredictionSection.RACE_EVENTS,
+            PredictionType.PIT_STOPS_OVER_UNDER to PredictionSection.RACE_EVENTS,
+            PredictionType.DRIVER_POINTS_OVER_UNDER to PredictionSection.STATISTICS,
+            PredictionType.SPRINT_WINNER to PredictionSection.SPRINT,
+        )
+
+        assertEquals(PredictionType.values().toSet(), expected.keys)
+        expected.forEach { (type, section) ->
+            assertEquals("Sezione errata per $type", section, type.section)
+        }
+    }
+
+    @Test
     fun `ogni tipo appartiene a una sola sezione`() {
         val grouped = groupBySection(PredictionType.values().toList())
 

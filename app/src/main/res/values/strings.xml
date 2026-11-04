@@ -243,8 +243,7 @@
     </plurals>
 
     <!-- Sezioni dei pronostici -->
-    <string name="sezione_risultato_gara">Risultato della gara</string>
-    <string name="sezione_qualifica_partenza">Qualifica e partenza</string>
+    <string name="sezione_risultato_gara">Risultato e qualifica</string>
     <string name="sezione_testa_a_testa">Testa a testa</string>
     <string name="sezione_eventi_gara">Eventi di gara</string>
     <string name="sezione_statistiche">Statistiche e over/under</string>

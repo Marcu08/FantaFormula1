@@ -42,7 +42,6 @@ import com.fantaformula1.app.core.domain.PredictionType
  */
 enum class PredictionSection(@StringRes val labelRes: Int) {
     RACE_RESULT(R.string.sezione_risultato_gara),
-    QUALIFYING_AND_GRID(R.string.sezione_qualifica_partenza),
     HEAD_TO_HEAD(R.string.sezione_testa_a_testa),
     RACE_EVENTS(R.string.sezione_eventi_gara),
     STATISTICS(R.string.sezione_statistiche),
@@ -58,12 +57,10 @@ val PredictionType.section: PredictionSection
         PredictionType.WINNER,
         PredictionType.PODIUM,
         PredictionType.FASTEST_LAP,
-        -> PredictionSection.RACE_RESULT
-
         PredictionType.POLE,
         PredictionType.DRIVER_EXACT_POSITION,
         PredictionType.DRIVER_POSITION_RANGE,
-        -> PredictionSection.QUALIFYING_AND_GRID
+        -> PredictionSection.RACE_RESULT
 
         PredictionType.HEAD_TO_HEAD -> PredictionSection.HEAD_TO_HEAD
 
