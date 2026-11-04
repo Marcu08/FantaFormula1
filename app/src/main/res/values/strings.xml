@@ -236,6 +236,23 @@
     <string name="campo_a">A</string>
     <string name="azione_invia">Invia</string>
 
+    <!-- Avanzamento compilazione pronostici -->
+    <plurals name="pronostico_compilati">
+        <item quantity="one">%1$d/%2$d compilato</item>
+        <item quantity="other">%1$d/%2$d compilati</item>
+    </plurals>
+
+    <!-- Sezioni dei pronostici -->
+    <string name="sezione_risultato_gara">Risultato della gara</string>
+    <string name="sezione_qualifica_partenza">Qualifica e partenza</string>
+    <string name="sezione_testa_a_testa">Testa a testa</string>
+    <string name="sezione_eventi_gara">Eventi di gara</string>
+    <string name="sezione_statistiche">Statistiche e over/under</string>
+    <string name="sezione_sprint">Sprint</string>
+    <string name="sezione_espansa">espansa</string>
+    <string name="sezione_compressa">compressa</string>
+    <string name="sezione_completa">Sezione completa</string>
+
     <!-- Classifica -->
     <string name="classifica_titolo">Classifica</string>
     <string name="classifica_tab_classifica">Classifica</string>

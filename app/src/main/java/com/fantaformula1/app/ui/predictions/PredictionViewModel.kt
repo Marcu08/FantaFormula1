@@ -783,6 +783,23 @@ internal fun missingTypesMessage(drafts: List<DraftEntry>): String? {
     return "Non hai compilato: " + missing.joinToString(", ")
 }
 
+/**
+ * Conteggio dei tipi visibili nella schermata che hanno una bozza completa.
+ * Le bozze di tipi non visibili (es. sprint in una gara normale) non entrano
+ * nel totale, e un'eventuale bozza duplicata non gonfia il conteggio.
+ */
+internal fun completedPredictionCount(
+    drafts: List<DraftEntry>,
+    visibleTypes: List<PredictionType>,
+): Int {
+    if (visibleTypes.isEmpty()) return 0
+    val completeTypes = drafts.asSequence()
+        .filter { it.complete }
+        .map { it.type }
+        .toSet()
+    return visibleTypes.distinct().count { it in completeTypes }
+}
+
 /** Tipi di pronostico da mostrare: attivi nella lega e compatibili con la gara. */
 private fun visibleTypesFor(rules: Rules, race: Race): List<PredictionType> =
     rules.enabledTypes

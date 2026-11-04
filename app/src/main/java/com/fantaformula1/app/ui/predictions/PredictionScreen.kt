@@ -126,6 +126,7 @@ fun PredictionScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // U3: "ora corrente" aggiornata ogni minuto per il countdown alla deadline.
     var nowTick by remember { mutableStateOf(java.time.Instant.now()) }
+    var collapsedSections by rememberCollapsedPredictionSections()
 
     val savedMessage = stringResource(R.string.pronostico_salvato)
 
@@ -328,7 +329,18 @@ fun PredictionScreen(
                         }
                     }
 
-                    items(state.visibleTypes, key = { it.name }) { type ->
+                    predictionSectionItems(
+                        visibleTypes = state.visibleTypes,
+                        drafts = state.drafts,
+                        collapsedSections = collapsedSections,
+                        onToggleSection = { section ->
+                            collapsedSections = if (section.name in collapsedSections) {
+                                collapsedSections - section.name
+                            } else {
+                                collapsedSections + section.name
+                            }
+                        },
+                    ) { type ->
                         val draft = state.drafts.firstOrNull { it.type == type }
                             ?: DraftEntry.of(type)
                         // Regola podio/vincitore: il 1º slot del podio e' il
