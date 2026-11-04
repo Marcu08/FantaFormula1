@@ -323,6 +323,12 @@
     <string name="pronostico_punti_quote">Sopra ×%1$s → %2$s punti · Sotto ×%3$s → %4$s punti</string>
     <string name="pronostico_quota">Quota ×%1$s → %2$s punti</string>
     <string name="pronostico_fascia_legacy">Fascia salvata: %1$d-%2$d. Le fasce sono diventate obbligatorie: scegli una delle nuove bande.</string>
+    <string name="pronostico_fasce_quote">Fasce: %1$s vs %2$s — quota x%3$s → %4$s punti se vince</string>
+    <string name="fascia_alta">ALTA</string>
+    <string name="fascia_media">MEDIA</string>
+    <string name="fascia_bassa">BASSA</string>
+    <string name="fascia_titolo">Fascia %1$s</string>
+    <string name="pilota_numero_gara">N.%1$d</string>
 
     <!-- 0013: quote e soglie pubblicate dal server -->
     <string name="quote_non_disponibili">Quote non ancora disponibili: le pubblica l\'admin</string>

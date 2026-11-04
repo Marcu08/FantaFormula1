@@ -59,8 +59,8 @@ internal fun filterDrivers(query: String, team: String?): List<Driver> {
 private fun teamFilterMatches(teamFilter: String?, driver: Driver): Boolean =
     teamFilter == null || driver.team == teamFilter
 
-/** Riga del picker: intestazione di fascia o carta pilota. */
-internal data class PickerRow(val heading: String? = null, val driver: Driver? = null)
+/** Riga del picker: intestazione di fascia (risorsa stringa) o carta pilota. */
+internal data class PickerRow(val headingRes: Int? = null, val driver: Driver? = null)
 
 /**
  * Raggruppa i piloti nelle tre fasce di forza (ALTA/MEDIA/BASSA, ordine per
@@ -72,13 +72,17 @@ internal fun buildTierRows(
     drivers: List<Driver>,
     tierOfDriver: (String) -> Int = { DriverPointsEstimates.tierOf(it) },
 ): List<PickerRow> = buildList {
-    val tierTitles = listOf("Fascia ALTA" to 0, "Fascia MEDIA" to 1, "Fascia BASSA" to 2)
-    tierTitles.forEach { (title, tier) ->
+    val tierTitles = listOf(
+        R.string.fascia_alta to 0,
+        R.string.fascia_media to 1,
+        R.string.fascia_bassa to 2,
+    )
+    tierTitles.forEach { (titleRes, tier) ->
         val driversInTier = drivers
             .filter { tierOfDriver(it.id) == tier }
             .sortedByDescending { DriverPointsEstimates.forDriver(it.id) }
         if (driversInTier.isNotEmpty()) {
-            add(PickerRow(heading = title))
+            add(PickerRow(headingRes = titleRes))
             driversInTier.forEach { add(PickerRow(driver = it)) }
         }
     }
@@ -187,15 +191,21 @@ fun DriverPickerBottomSheet(
                 ) {
                     items(
                         pickerRows,
-                        key = { row -> row.heading?.let { "h:$it" } ?: "d:${row.driver!!.id}" },
+                        key = { row ->
+                            row.headingRes?.let { "h:$it" } ?: "d:${row.driver!!.id}"
+                        },
                         span = { row ->
                             // Le intestazioni di fascia occupano tutta la riga.
-                            if (row.heading != null) GridItemSpan(maxLineSpan) else GridItemSpan(1)
+                            if (row.headingRes != null) GridItemSpan(maxLineSpan) else GridItemSpan(1)
                         },
                     ) { row ->
-                        if (row.heading != null) {
+                        val headingRes = row.headingRes
+                        if (headingRes != null) {
                             Text(
-                                text = row.heading,
+                                text = stringResource(
+                                    R.string.fascia_titolo,
+                                    stringResource(headingRes),
+                                ),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(top = 4.dp),

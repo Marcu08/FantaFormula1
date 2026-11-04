@@ -398,6 +398,7 @@ private fun DeadlineBanner(
     val race = state.race ?: return
     // Stessa identita' visiva della card nel calendario: la gara e' riconoscibile.
     val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    val flagDescription = stringResource(R.string.descrizione_bandiera, visual.flag)
     // U3: countdown aggiornato ogni minuto dalla schermata.
     val remaining = race.deadline?.let { java.time.Duration.between(now, it) }
     val open = !state.deadlinePassed
@@ -430,7 +431,7 @@ private fun DeadlineBanner(
                     style = MaterialTheme.typography.headlineSmall,
                     // U11: l'emoji della bandiera non e' autoesplicativa.
                     modifier = Modifier.semantics {
-                        contentDescription = "Bandiera ${visual.flag}"
+                        contentDescription = flagDescription
                     },
                 )
                 Spacer(Modifier.width(10.dp))
@@ -499,10 +500,10 @@ private fun bandLabel(band: Pair<Int, Int>): String = when {
 }
 
 /** Fascia testa a testa per indice: 0=ALTA (i 7 piu' forti), 1=MEDIA, 2=BASSA. */
-private fun tierLabel(tier: Int): String = when (tier) {
-    0 -> "ALTA"
-    1 -> "MEDIA"
-    else -> "BASSA"
+private fun tierLabelRes(tier: Int): Int = when (tier) {
+    0 -> R.string.fascia_alta
+    1 -> R.string.fascia_media
+    else -> R.string.fascia_bassa
 }
 
 /**
@@ -683,9 +684,13 @@ private fun PredictionCard(
                             val tierA = seasonStats.tierOf(firstId)
                             val tierB = seasonStats.tierOf(secondId)
                             Text(
-                                text = "Fasce: ${tierLabel(tierA)} vs ${tierLabel(tierB)} — " +
-                                    "quota x${formatEstimate(quote.quota)} → " +
-                                    "${formatEstimate(points * quote.quota)} punti se vince",
+                                text = stringResource(
+                                    R.string.pronostico_fasce_quote,
+                                    stringResource(tierLabelRes(tierA)),
+                                    stringResource(tierLabelRes(tierB)),
+                                    formatEstimate(quote.quota),
+                                    formatEstimate(points * quote.quota),
+                                ),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                             )

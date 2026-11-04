@@ -31,12 +31,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fantaformula1.app.R
 import com.fantaformula1.app.core.domain.DriversCatalog
 
 /**
@@ -174,7 +176,7 @@ fun DriverCard(
             }
             driver?.raceNumber?.let { number ->
                 Text(
-                    text = "N.$number",
+                    text = stringResource(R.string.pilota_numero_gara, number),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     color = teamColor.takeIf { c -> c != Color(0xFF6B6B76) }
