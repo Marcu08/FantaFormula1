@@ -7,7 +7,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +26,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.fantaformula1.app.core.AppContainer
+import com.fantaformula1.app.data.offline.localDataCleanupForAuthState
 import com.fantaformula1.app.data.repository.AuthState
 import com.fantaformula1.app.data.sync.F1SyncScheduler
 import com.fantaformula1.app.data.sync.SyncResult
@@ -39,8 +39,12 @@ import com.fantaformula1.app.ui.leagues.LeaguesScreen
 import com.fantaformula1.app.ui.predictions.PredictionScreen
 import com.fantaformula1.app.ui.results.RaceResultScreen
 import com.fantaformula1.app.ui.rules.RulesScreen
+import com.fantaformula1.app.ui.settings.SettingsScreen
 import com.fantaformula1.app.ui.standings.StandingsScreen
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 
 /**
  * Grafo di navigazione dell'intera app.
@@ -56,6 +60,9 @@ fun AppNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
     var startDestination by remember { mutableStateOf<String?>(null) }
+    // Ultimo account effettivamente autenticato: serve a distinguere il
+    // cleanup della sua cache da un cambio account o da una sessione persa.
+    var lastUserId by remember { mutableStateOf<String?>(null) }
     val authState by container.authRepository.state.collectAsStateWithLifecycle(
         initialValue = AuthState.Checking,
     )
@@ -78,24 +85,40 @@ fun AppNavHost(
     // Uscita dall'account: torna alla schermata di accesso e ferma ogni
     // sincronizzazione F1 avviata da questo dispositivo (N5).
     LaunchedEffect(authState) {
-        if (authState is AuthState.SignedOut && startDestination != null) {
-            F1SyncScheduler.cancelAll(context)
-            com.fantaformula1.app.data.notification.DeadlineReminderScheduler.cancelAll(context)
-            // Cache, bozze e coda offline sono per-utente, ma al logout
-            // eliminiamo anche eventuali residui legacy non namespace.
-            try {
-                container.clearLocalUserData()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Exception) {
-                // Pulizia best-effort: le chiavi per-utente restano isolate.
+        when (val state = authState) {
+            is AuthState.SignedIn -> {
+                lastUserId = state.userId
             }
-            val onAuth = navController.currentDestination?.route == Routes.AUTH
-            if (!onAuth) {
-                navController.navigate(Routes.AUTH) {
-                    popUpTo(0) { inclusive = true }
+
+            is AuthState.SignedOut -> if (startDestination != null) {
+                F1SyncScheduler.cancelAll(context)
+                com.fantaformula1.app.data.notification.DeadlineReminderScheduler.cancelAll(context)
+
+                // La perdita della sessione non deve distruggere bozze o
+                // scritture offline non sincronizzate. Eliminiamo solo la
+                // cache ricostruibile dell'ultimo account noto; il cambio
+                // account e' gia' isolato dalle chiavi per-utente.
+                val cleanup = localDataCleanupForAuthState(state, lastUserId)
+                if (cleanup != null) {
+                    try {
+                        container.clearTransientUserData(cleanup.transientCacheUserId)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        // Pulizia best-effort: le chiavi per-utente restano isolate.
+                    }
+                }
+                lastUserId = null
+
+                val onAuth = navController.currentDestination?.route == Routes.AUTH
+                if (!onAuth) {
+                    navController.navigate(Routes.AUTH) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             }
+
+            AuthState.Checking -> Unit
         }
     }
 
@@ -153,7 +176,15 @@ fun AppNavHost(
                 onOpenMembers = { leagueId ->
                     navController.navigate(Routes.leagueMembers(leagueId))
                 },
-                onOpenConfig = { navController.navigate(Routes.CONFIG) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenAdvanced = { navController.navigate(Routes.CONFIG) },
             )
         }
 
@@ -200,7 +231,12 @@ fun AppNavHost(
                                 }
                                 is SyncResult.Failure -> result.message
                             }
-                            snackbarState.showSnackbar(message)
+                            val kind = if (result is SyncResult.Success) {
+                                FantaSnackbarKind.SUCCESS
+                            } else {
+                                FantaSnackbarKind.ERROR
+                            }
+                            snackbarState.showFantaSnackbar(message, kind)
                         }
                     }
                 },
@@ -246,7 +282,12 @@ fun AppNavHost(
                                 is SyncResult.Success -> "Risultati aggiornati (${result.completed} gare)"
                                 is SyncResult.Failure -> result.message
                             }
-                            snackbarState.showSnackbar(message)
+                            val kind = if (result is SyncResult.Success) {
+                                FantaSnackbarKind.SUCCESS
+                            } else {
+                                FantaSnackbarKind.ERROR
+                            }
+                            snackbarState.showFantaSnackbar(message, kind)
                             // 0013: dopo i risultati aggiorna le quote della
                             // prossima gara aperta (best-effort).
                             if (result is SyncResult.Success) {
@@ -299,7 +340,7 @@ fun AppNavHost(
         }
         }
 
-        SnackbarHost(
+        FantaSnackbarHost(
             hostState = snackbarState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )

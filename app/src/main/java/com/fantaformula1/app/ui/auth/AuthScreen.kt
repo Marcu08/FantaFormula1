@@ -21,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -37,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.AuthRepository
 import com.fantaformula1.app.data.repository.UserException
@@ -62,22 +64,22 @@ fun AuthScreen(
         viewModel.events.collect { event ->
             when (event) {
                 AuthEvent.SignedIn -> {
-                    snackbarHostState.showSnackbar(signedInMessage)
+                    snackbarHostState.showFantaSnackbar(signedInMessage, FantaSnackbarKind.SUCCESS)
                     onAuthenticated()
                 }
                 AuthEvent.SignedUp -> {
-                    snackbarHostState.showSnackbar(signedUpMessage)
+                    snackbarHostState.showFantaSnackbar(signedUpMessage, FantaSnackbarKind.SUCCESS)
                     onAuthenticated()
                 }
                 AuthEvent.SignedOut -> Unit
-                is AuthEvent.Failure -> snackbarHostState.showSnackbar(event.message)
+                is AuthEvent.Failure -> snackbarHostState.showFantaSnackbar(event.message, FantaSnackbarKind.ERROR)
             }
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FantaSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.auth_titolo)) },

@@ -31,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.data.repository.LeagueMember
 import com.fantaformula1.app.data.repository.MemberRole
@@ -101,14 +103,14 @@ fun LeagueMembersScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             if (event is LeaguesEvent.Failure) {
-                snackbarHostState.showSnackbar(event.message)
+                snackbarHostState.showFantaSnackbar(event.message, FantaSnackbarKind.ERROR)
             }
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FantaSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.lega_membri)) },
@@ -130,7 +132,7 @@ fun LeagueMembersScreen(
                                         league.inviteCode,
                                     ),
                                 )
-                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                                scope.launch { snackbarHostState.showFantaSnackbar(copiedMessage, FantaSnackbarKind.INFO) }
                             },
                         ) {
                             Icon(
@@ -273,7 +275,7 @@ fun LeagueMembersScreen(
                     onClick = {
                         confirmLeave = false
                         viewModel.leaveLeague(leagueId) {
-                            scope.launch { snackbarHostState.showSnackbar(leftMessage) }
+                            scope.launch { snackbarHostState.showFantaSnackbar(leftMessage, FantaSnackbarKind.SUCCESS) }
                             onLeftLeague()
                         }
                     },
@@ -326,7 +328,7 @@ fun LeagueMembersScreen(
                         }
                         pendingAction = null
                         val onDone: () -> Unit = {
-                            scope.launch { snackbarHostState.showSnackbar(doneMessage) }
+                            scope.launch { snackbarHostState.showFantaSnackbar(doneMessage, FantaSnackbarKind.SUCCESS) }
                             Unit
                         }
                         when (action) {
