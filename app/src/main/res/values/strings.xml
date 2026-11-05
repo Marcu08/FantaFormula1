@@ -36,7 +36,6 @@
     <string name="config_mancante_testo">Inserisci l\'URL del progetto e la chiave anon per collegare la lega al cloud.</string>
     <string name="config_reset">Ripristina valori predefiniti</string>
     <string name="config_reset_done">Ripristinati i valori predefiniti</string>
-    <string name="config_versione">Versione %1$s (%2$d)</string>
     <!-- F1: notifiche locali -->
     <string name="config_notifiche">Notifiche</string>
     <string name="config_notifiche_sub">Promemoria 24 ore e 1 ora prima della scadenza dei pronostici (solo se incompleti) e avviso quando arrivano i risultati.</string>
@@ -50,6 +49,14 @@
     <string name="config_test_ok">Connessione riuscita</string>
     <string name="config_test_ko">Connessione fallita: controlla URL e chiave</string>
     <string name="config_servono_credenziali">Per continuare serve una configurazione Supabase valida</string>
+
+    <!-- Impostazioni -->
+    <string name="impostazioni_titolo">Impostazioni</string>
+    <string name="impostazioni_sottotitolo">Notifiche, account e informazioni sull\'app</string>
+    <string name="impostazioni_avanzate">Avanzate</string>
+    <string name="impostazioni_avanzate_sub">Configurazione Supabase e parametri tecnici</string>
+    <string name="impostazioni_versione">Versione %1$s (%2$d)</string>
+    <string name="impostazioni_esci_errore">Impossibile uscire dall\'account. Riprova.</string>
 
     <!-- Autenticazione -->
     <string name="auth_titolo">Accedi alla tua lega</string>
@@ -130,6 +137,7 @@
     <string name="calendario_tutte_completate">Non ci sono gare future nel calendario.</string>
     <string name="calendario_completate_mostra">Gare passate (%1$d)</string>
     <string name="calendario_completate_nascondi">Nascondi gare passate</string>
+    <string name="calendario_sincronizza_risultati">Sincronizza risultati F1</string>
     <string name="gara_nuova">Nuova gara</string>
     <string name="gara_modifica">Modifica gara</string>
     <string name="gara_elimina">Elimina gara</string>
@@ -235,6 +243,8 @@
     <string name="campo_da">Da</string>
     <string name="campo_a">A</string>
     <string name="azione_invia">Invia</string>
+    <string name="pronostico_invio_in_corso">Invio…</string>
+    <string name="pronostico_caricamento">Caricamento pronostici…</string>
 
     <!-- Avanzamento compilazione pronostici -->
     <plurals name="pronostico_compilati">
@@ -255,8 +265,41 @@
     <!-- Classifica -->
     <string name="classifica_titolo">Classifica</string>
     <string name="classifica_tab_classifica">Classifica</string>
+    <string name="classifica_tab_ultima_gara">Ultima gara</string>
     <string name="classifica_tab_gare">Punti per gara</string>
-    <string name="classifica_dettaglio">%1$d gare vinte su %2$d gare con risultato</string>
+    <plurals name="classifica_partecipanti">
+        <item quantity="one">%1$d partecipante</item>
+        <item quantity="other">%1$d partecipanti</item>
+    </plurals>
+    <string name="classifica_header_ultima_gara">Ultima gara: %1$s</string>
+    <string name="classifica_tua_posizione">La tua posizione: %1$d° · %2$s</string>
+    <string name="classifica_dal_leader">−%1$s dal leader</string>
+    <string name="classifica_pari_leader">A pari punti dal leader</string>
+    <string name="classifica_leader">Leader</string>
+    <string name="classifica_classifica_completa">Classifica completa</string>
+    <string name="classifica_ultima_gara_titolo">Classifica dell\'ultima gara</string>
+    <string name="classifica_ultima_gara_vuota">Nessuna gara conclusa</string>
+    <string name="classifica_ultima_gara_vuota_sub">La classifica dell\'ultima gara comparirà quando sarà inserito un risultato.</string>
+    <string name="classifica_espandi">Mostra il dettaglio di %1$s</string>
+    <string name="classifica_comprimi">Nascondi il dettaglio di %1$s</string>
+    <plurals name="classifica_movimento_su">
+        <item quantity="one">Salito di %1$d posizione</item>
+        <item quantity="other">Salito di %1$d posizioni</item>
+    </plurals>
+    <plurals name="classifica_movimento_giu">
+        <item quantity="one">Sceso di %1$d posizione</item>
+        <item quantity="other">Sceso di %1$d posizioni</item>
+    </plurals>
+    <string name="classifica_dettaglio">%1$s · %2$s</string>
+    <plurals name="classifica_vittorie">
+        <item quantity="one">%1$d vittoria</item>
+        <item quantity="other">%1$d vittorie</item>
+    </plurals>
+    <plurals name="classifica_gare_con_risultato">
+        <item quantity="one">%1$d gara</item>
+        <item quantity="other">%1$d gare</item>
+    </plurals>
+    <string name="classifica_nessun_risultato">Nessuna gara con risultato.</string>
     <string name="classifica_vuota">Nessun punteggio ancora</string>
     <string name="classifica_vuota_sub">Gioca almeno una gara con risultato inserito per vedere la classifica.</string>
     <string name="classifica_dati_parziali">Attenzione: %1$d pronostici e %2$d risultati non sono leggibili. La classifica potrebbe essere incompleta.</string>
@@ -354,6 +397,14 @@
 
     <!-- U5: bozza automatica -->
     <string name="pronostico_bozza_ripristinata">Bozza locale ripristinata</string>
+    <string name="conflitto_titolo">Conflitto pronostico</string>
+    <string name="conflitto_testo">Il pronostico è stato modificato su un altro dispositivo. Scegli la versione da conservare.</string>
+    <string name="conflitto_server">Versione server</string>
+    <string name="conflitto_locale">Versione locale</string>
+    <string name="conflitto_server_vuoto">Nessuna versione server</string>
+    <string name="conflitto_usa_server">Usa server</string>
+    <string name="conflitto_usa_locale">Riprendi locale</string>
+    <string name="conflitto_annulla">Annulla</string>
     <string name="pronostico_riepilogo_titolo">Riepilogo del pronostico</string>
 
     <!-- U6: refresh e stati vuoti -->
@@ -396,4 +447,5 @@
     <string name="coda_titolo">Pronostico non salvato</string>
     <string name="coda_deadline_passata">Il pronostico di %1$s non è stato salvato: la deadline è passata.</string>
     <string name="coda_salvataggio_fallito">Il pronostico non è stato salvato: %1$s</string>
+    <string name="coda_conflitto">Il pronostico locale è stato conservato, ma il server ha una versione più recente: riapri la gara e controlla prima di inviare.</string>
 </resources>

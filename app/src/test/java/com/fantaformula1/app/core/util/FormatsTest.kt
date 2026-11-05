@@ -49,33 +49,77 @@ class FormatsTest {
     }
 
     @Test
-    fun `deadline mostra il fuso orario`() {
-        val instant = Instant.parse("2026-03-15T13:00:00Z")
-        val text = Formats.deadline(instant, italian, rome)
-        assertTrue(text.endsWith("(Europe/Rome)"))
-        assertTrue(text.contains("14:00"))
+    fun `deadline compatta senza fuso se il dispositivo usa lo stesso fuso`() {
+        val instant = Instant.parse("2026-11-07T18:00:00Z") // 19:00 a Roma
+        val text = Formats.deadline(instant, zone = rome, deviceZone = rome)
+        assertEquals("7 nov · 19:00", text)
+    }
+
+    @Test
+    fun `deadline mostra il fuso solo se diverso da quello del dispositivo`() {
+        val instant = Instant.parse("2026-11-07T18:00:00Z")
+        val text = Formats.deadline(
+            instant,
+            zone = rome,
+            deviceZone = ZoneId.of("UTC"),
+        )
+        assertEquals("7 nov · 19:00 (Europe/Rome)", text)
+    }
+
+    @Test
+    fun `deadline rispetta ora legale e ora solare`() {
+        assertEquals(
+            "1 lug · 14:00",
+            Formats.deadline(
+                Instant.parse("2026-07-01T12:00:00Z"),
+                zone = rome,
+                deviceZone = rome,
+            ),
+        )
+        assertEquals(
+            "1 dic · 13:00",
+            Formats.deadline(
+                Instant.parse("2026-12-01T12:00:00Z"),
+                zone = rome,
+                deviceZone = rome,
+            ),
+        )
     }
 
     @Test
     fun `punti positivi con segno`() {
-        assertEquals("+12", Formats.points(12.0, italian))
+        assertEquals("+12", Formats.points(12.0))
     }
 
     @Test
     fun `punti negativi senza segno doppio`() {
-        assertEquals("-3,5", Formats.points(-3.5, italian))
+        assertEquals("-3,5", Formats.points(-3.5))
     }
 
     @Test
     fun `punti zero senza segno`() {
-        assertEquals("0", Formats.points(0.0, italian))
+        assertEquals("0", Formats.points(0.0))
+    }
+
+    @Test
+    fun `punti interi senza decimali inutili`() {
+        assertEquals("25", Formats.points(25.0, signed = false))
+    }
+
+    @Test
+    fun `punti con virgola e massimo due decimali`() {
+        assertEquals("0,5", Formats.points(0.5, signed = false))
+        assertEquals("12,25", Formats.points(12.25, signed = false))
+        assertEquals("33,6", Formats.points(33.6, signed = false))
+        assertEquals("-12,25", Formats.points(-12.25, signed = false))
+        assertEquals("0", Formats.points(0.0, signed = false))
     }
 
     @Test
     fun `decimali al massimo su due cifre come il motore`() {
-        assertEquals("+12,34", Formats.points(12.34, italian))
-        assertEquals("+12,35", Formats.points(12.345, italian))
+        assertEquals("+12,34", Formats.points(12.34))
+        assertEquals("+12,35", Formats.points(12.345))
         // Due punteggi diversi non devono sembrare uguali.
-        assertTrue(Formats.points(12.34, italian) != Formats.points(12.36, italian))
+        assertTrue(Formats.points(12.34) != Formats.points(12.36))
     }
 }

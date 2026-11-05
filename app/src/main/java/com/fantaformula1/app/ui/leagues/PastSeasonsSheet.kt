@@ -20,7 +20,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +36,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fantaformula1.app.R
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.core.domain.SeasonStandingsSnapshot
 import com.fantaformula1.app.core.util.Formats
 import com.fantaformula1.app.data.repository.PastSeason
@@ -68,13 +70,13 @@ fun PastSeasonsSheet(
     LaunchedEffect(state.archivedEvent) {
         when (state.archivedEvent) {
             true -> {
-                snackbarHostState.showSnackbar(successMessage)
+                snackbarHostState.showFantaSnackbar(successMessage, FantaSnackbarKind.SUCCESS)
                 onArchiveEventShown()
                 onDismiss()
             }
 
             false -> {
-                snackbarHostState.showSnackbar(state.error ?: errorMessage)
+                snackbarHostState.showFantaSnackbar(state.error ?: errorMessage, FantaSnackbarKind.ERROR)
                 onArchiveEventShown()
             }
 
@@ -139,7 +141,7 @@ fun PastSeasonsSheet(
                 }
             }
 
-            SnackbarHost(snackbarHostState)
+            FantaSnackbarHost(snackbarHostState)
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -252,6 +254,6 @@ private fun decodeSnapshot(json: JsonElement?): SeasonStandingsSnapshot? {
     }
 }
 
-/** Punti con un decimale, come nella schermata Classifica. */
+/** Punti nel formato italiano condiviso, come nella schermata Classifica. */
 private fun formatPoints(points: Double): String =
     Formats.points(points, signed = false)

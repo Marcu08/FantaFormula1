@@ -10,7 +10,10 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -75,6 +78,14 @@ private val FantaTypography = Typography(
     labelLarge = Typography().labelLarge.copy(fontWeight = FontWeight.SemiBold),
 )
 
+internal val LocalFantaExtraColors = staticCompositionLocalOf { DarkExtraColors }
+
+/** Colori extra del tema: medaglie, stati gara e overlay foto. */
+val MaterialTheme.fantaExtraColors: FantaExtraColors
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalFantaExtraColors.current
+
 @Composable
 fun FantaFormulaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -100,9 +111,14 @@ fun FantaFormulaTheme(
         }
     }
 
+    val extraColors = if (darkTheme) DarkExtraColors else LightExtraColors
+
     MaterialTheme(
         colorScheme = colorScheme,
         typography = FantaTypography,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalFantaExtraColors provides extraColors) {
+            content()
+        }
+    }
 }

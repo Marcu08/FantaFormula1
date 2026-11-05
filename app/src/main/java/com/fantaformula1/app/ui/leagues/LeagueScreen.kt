@@ -22,12 +22,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,9 +74,13 @@ import com.fantaformula1.app.ui.components.CircuitOutline
 import com.fantaformula1.app.ui.components.CircuitTracks
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.LoadingState
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
 import com.fantaformula1.app.ui.components.RaceIdentity
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.ui.components.SyncBar
 import com.fantaformula1.app.ui.components.raceHeaderBrush
+import com.fantaformula1.app.ui.theme.fantaExtraColors
 import kotlinx.coroutines.launch
 
 /**
@@ -229,7 +234,7 @@ fun LeagueScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FantaSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(league?.name ?: stringResource(R.string.lega_titolo_generico)) },
@@ -397,6 +402,7 @@ private fun NextRaceCard(
     onOpenPrediction: (String) -> Unit,
 ) {
     val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    val extraColors = MaterialTheme.fantaExtraColors
     val open = race.isPredictionOpen(now)
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -443,47 +449,56 @@ private fun NextRaceCard(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
+                DashboardStatusRow(
+                    icon = if (predictionSaved) {
+                        Icons.Outlined.CheckCircle
+                    } else {
+                        Icons.Outlined.WarningAmber
+                    },
                     text = if (predictionSaved) {
                         stringResource(R.string.dashboard_pronostico_salvato)
                     } else {
                         stringResource(R.string.dashboard_da_compilare)
                     },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (predictionSaved) MaterialTheme.colorScheme.primary else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (predictionSaved) {
+                        extraColors.raceOpen
+                    } else {
+                        // Avviso, non verde: il pronostico non e' ancora salvato.
+                        extraColors.raceClosed
                     },
                 )
                 predictionCount?.let { count ->
-                    Text(
+                    DashboardStatusRow(
+                        icon = Icons.Outlined.Groups,
                         text = stringResource(
                             R.string.dashboard_pronostici_conta,
                             count.toString(),
                             memberCount.toString(),
                         ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 // U4: stato di compilazione del MIO pronostico e posizione.
                 compiled?.let { (done, total) ->
                     if (total > 0) {
-                        Text(
+                        DashboardStatusRow(
+                            icon = Icons.Outlined.CheckCircle,
                             text = stringResource(R.string.dashboard_compilati, done, total),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (done < total) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 standingsPosition?.let { position ->
-                    Text(
+                    val medalColor = when (position) {
+                        1 -> extraColors.medalGold
+                        2 -> extraColors.medalSilver
+                        3 -> extraColors.medalBronze
+                        else -> null
+                    }
+                    DashboardStatusRow(
+                        icon = Icons.Outlined.EmojiEvents,
                         text = stringResource(R.string.dashboard_posizione_classifica, position),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = medalColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 race.deadline?.let { deadline ->
@@ -493,36 +508,45 @@ private fun NextRaceCard(
                     val urgent = open &&
                         !remaining.isNegative && !remaining.isZero &&
                         remaining <= java.time.Duration.ofMinutes(60)
-                    Text(
-                        text = buildString {
-                            append(
-                                stringResource(
-                                    R.string.dashboard_chiusura,
-                                    // U12: locale e fuso del dispositivo.
-                                    Formats.deadline(deadline),
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(
+                                R.string.dashboard_chiusura,
+                                Formats.deadline(deadline),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (urgent) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (open && !remaining.isNegative && !remaining.isZero) {
+                            Text(
+                                text = stringResource(
+                                    R.string.dashboard_tra,
+                                    Formats.countdown(remaining),
                                 ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (urgent) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                                maxLines = 1,
                             )
-                            if (open && !remaining.isNegative && !remaining.isZero) {
-                                append(" · ")
-                                append(
-                                    stringResource(
-                                        R.string.dashboard_tra,
-                                        Formats.countdown(remaining),
-                                    ),
-                                )
-                            }
-                            if (urgent) {
-                                append(" · ")
-                                append(stringResource(R.string.dashboard_scadenza_imminente))
-                            }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (urgent) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                        }
+                        if (urgent) {
+                            Text(
+                                text = stringResource(R.string.dashboard_scadenza_imminente),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                 } ?: Text(
                     text = stringResource(R.string.pronostico_sempre_aperta),
                     style = MaterialTheme.typography.bodySmall,
@@ -544,6 +568,36 @@ private fun NextRaceCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * Riga compatta della dashboard: icona e testo condividono lo stesso colore
+ * semantico (verde salvato, ambra da compilare, medaglia per il podio).
+ */
+@Composable
+private fun DashboardStatusRow(
+    icon: ImageVector,
+    text: String,
+    color: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -669,7 +723,7 @@ private fun LeagueSummaryCard(
                                         inviteText,
                                     ),
                                 )
-                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                                scope.launch { snackbarHostState.showFantaSnackbar(copiedMessage, FantaSnackbarKind.INFO) }
                             },
                         ) { Text(stringResource(R.string.lega_codice)) }
                     }

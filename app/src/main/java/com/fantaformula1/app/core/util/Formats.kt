@@ -10,17 +10,21 @@ import java.util.Locale
 /**
  * Formattazione di date, orari, punti e countdown (U3, U12).
  *
- * Tutto puro Kotlin/java.time, con il [Locale] del dispositivo (nessuna
- * stringa fissa) e testato su JVM. Le schermate usano queste funzioni invece
- * di pattern hardcoded, cosi' l'app parla la lingua del telefono.
+ * Tutto puro Kotlin/java.time, testato su JVM. I punti usano sempre il
+ * formato italiano (virgola decimale) indipendentemente dal locale del
+ * dispositivo; date e orari seguono il locale del telefono. Le schermate
+ * usano queste funzioni invece di pattern hardcoded.
  */
 object Formats {
+
+    /** Fuso di riferimento della lega: le deadline sono mostrate in questo fuso. */
+    private val RaceZone: ZoneId = ZoneId.of("Europe/Rome")
 
     /**
      * Countdown compatto: "2 g 4 h", "5 h 20 m", "42 m", "meno di 1 m".
      * Usato dalle card "Prossima gara" e dal banner di scadenza (U3).
      */
-    fun countdown(remaining: Duration, locale: Locale = Locale.getDefault()): String {
+    fun countdown(remaining: Duration, locale: Locale = Locale.ITALY): String {
         val days = remaining.toDays()
         val hours = remaining.toHours() % 24
         val minutes = remaining.toMinutes() % 60
@@ -53,33 +57,37 @@ object Formats {
     }
 
     /**
-     * Deadline come [dateTime] ma con il fuso orario esplicito: la chiusura
-     * dei pronostici e' un istante UTC e l'utente deve sapere in che fuso la
-     * sta leggendo (es. "15 mar 2026, 14:00 (Europe/Rome)").
+     * Deadline compatta: "7 nov · 19:00", con il fuso tra parentesi solo se
+     * il fuso del dispositivo e' diverso da quello della gara. La gara e'
+     * mostrata nel fuso di riferimento Europe/Rome: il modello non memorizza
+     * un fuso per singola gara.
      */
     fun deadline(
         instant: Instant?,
-        locale: Locale = Locale.getDefault(),
-        zone: ZoneId = ZoneId.systemDefault(),
+        zone: ZoneId = RaceZone,
+        deviceZone: ZoneId = ZoneId.systemDefault(),
     ): String {
         if (instant == null) return ""
-        val base = dateTime(instant, locale, zone)
-        return "$base (${zone.id})"
+        val base = DateTimeFormatter.ofPattern("d MMM · HH:mm", Locale.ITALY)
+            .withZone(zone)
+            .format(instant)
+        return if (zone.normalized() == deviceZone.normalized()) {
+            base
+        } else {
+            "$base (${zone.id})"
+        }
     }
 
     /**
-     * Punti con segno opzionale e decimali secondo il Locale: "+12", "-3.5"
-     * diventa "-3,5" in italiano. Il motore calcola al centesimo
-     * ([ScoringEngine] arrotonda a 2 decimali): mostrare un solo decimale
-     * poteva far sembrare pari due punteggi diversi.
+     * Punti in formato italiano: virgola decimale fissa, segno opzionale,
+     * niente zeri inutili e al massimo due decimali.
      */
     fun points(
         value: Double,
-        locale: Locale = Locale.getDefault(),
         signed: Boolean = true,
     ): String {
         val rounded = Math.round(value * 100.0) / 100.0
-        val formatter = java.text.NumberFormat.getNumberInstance(locale).apply {
+        val formatter = java.text.NumberFormat.getNumberInstance(Locale.ITALY).apply {
             minimumFractionDigits = 0
             maximumFractionDigits = 2
         }
