@@ -38,7 +38,7 @@ data class RacePlayerScore(
     val points: Double,
 )
 
-enum class StandingsTab { OVERALL, PER_RACE }
+enum class StandingsTab { OVERALL, LAST_RACE, PER_RACE }
 
 data class StandingsUiState(
     val loading: Boolean = true,
@@ -49,6 +49,12 @@ data class StandingsUiState(
     val rows: List<ScoringEngine.StandingsRow> = emptyList(),
     val races: List<Race> = emptyList(),
     val resultsByRace: Map<String, RaceResultData> = emptyMap(),
+    /** Numero di membri della lega (distinto dalle righe: può includere ex membri). */
+    val memberCount: Int = 0,
+    /** Gare concluse, ordinate per round: base del dettaglio e del filtro ultima gara. */
+    val completedRaces: List<Race> = emptyList(),
+    /** userId -> raceId -> punti: lookup O(1) durante la composizione delle righe. */
+    val scoresByUserRace: Map<String, Map<String, Double>> = emptyMap(),
     /** raceId -> punteggi dei giocatori, ordinati dal più alto. */
     val scoresByRace: Map<String, List<RacePlayerScore>> = emptyMap(),
     val tab: StandingsTab = StandingsTab.OVERALL,
@@ -201,6 +207,18 @@ class StandingsViewModel(
                         )
                     }
                 }
+                // Indice inverso per il dettaglio: evita una ricerca lineare
+                // dentro ogni riga della LazyColumn.
+                val scoresByUserRace = mutableMapOf<String, MutableMap<String, Double>>()
+                snapshot.scoresByRace.forEach { (raceId, scores) ->
+                    scores.forEach { score ->
+                        scoresByUserRace
+                            .getOrPut(score.userId) { mutableMapOf() }[raceId] = score.points
+                    }
+                }
+                val completedRaces = inputs.races
+                    .filter { results.containsKey(it.id) }
+                    .sortedBy { it.round }
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -208,6 +226,9 @@ class StandingsViewModel(
                         league = inputs.league,
                         rows = snapshot.rows,
                         races = inputs.races,
+                        memberCount = inputs.memberNames.size,
+                        completedRaces = completedRaces,
+                        scoresByUserRace = scoresByUserRace,
                         resultsByRace = results,
                         scoresByRace = scoresByRace,
                         unreadablePredictions = inputs.data.unreadablePredictions,
@@ -248,6 +269,11 @@ class StandingsViewModel(
                             loading = false,
                             refreshing = false,
                             rows = cached.value.rows.map { row -> row.toDomainRow() },
+                            memberCount = if (it.memberCount > 0) {
+                                it.memberCount
+                            } else {
+                                cached.value.rows.size
+                            },
                             error = null,
                             offline = true,
                             lastUpdatedEpochMs = cached.cachedAtEpochMs,
