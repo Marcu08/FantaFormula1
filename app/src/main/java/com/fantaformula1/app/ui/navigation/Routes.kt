@@ -3,6 +3,7 @@ package com.fantaformula1.app.ui.navigation
 /** Rotte di navigazione dell'app. */
 object Routes {
     const val CONFIG = "config"
+    const val SETTINGS = "settings"
     const val AUTH = "auth"
     const val HOME = "home"
 
