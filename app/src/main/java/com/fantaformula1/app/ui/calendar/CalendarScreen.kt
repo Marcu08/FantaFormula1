@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
@@ -42,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -61,7 +61,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -70,9 +69,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.Race
 import com.fantaformula1.app.core.domain.RaceStatus
+import com.fantaformula1.app.core.util.Formats
 import com.fantaformula1.app.ui.components.EmptyState
 import com.fantaformula1.app.ui.components.ErrorState
 import com.fantaformula1.app.ui.components.FantaTextField
@@ -84,6 +87,8 @@ import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.SyncBar
 import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.raceHeaderBrush
+import com.fantaformula1.app.ui.theme.fantaExtraColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +119,15 @@ fun CalendarScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf<Race?>(null) }
+    // Orologio condiviso dalle card: il countdown si aggiorna ogni minuto
+    // senza ricaricare il calendario.
+    var now by remember { mutableStateOf(java.time.Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = java.time.Instant.now()
+            delay(60_000L)
+        }
+    }
 
     // Al rientro (navigazione o app in foreground) ricarica lo stato reale,
     // senza sovrascrivere un form gara aperto.
@@ -143,7 +157,7 @@ fun CalendarScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                CalendarEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
+                CalendarEvent.Saved -> snackbarHostState.showFantaSnackbar(savedMessage, FantaSnackbarKind.SUCCESS)
                 is CalendarEvent.Deleted -> {
                     com.fantaformula1.app.data.notification.DeadlineReminderScheduler
                         .cancel(
@@ -151,16 +165,16 @@ fun CalendarScreen(
                             event.raceId,
                             container.authRepository.currentUserId(),
                         )
-                    snackbarHostState.showSnackbar(deletedMessage)
+                    snackbarHostState.showFantaSnackbar(deletedMessage, FantaSnackbarKind.SUCCESS)
                 }
-                is CalendarEvent.Failure -> snackbarHostState.showSnackbar(event.message)
+                is CalendarEvent.Failure -> snackbarHostState.showFantaSnackbar(event.message, FantaSnackbarKind.ERROR)
             }
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FantaSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.calendario_titolo)) },
@@ -188,8 +202,10 @@ fun CalendarScreen(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Outlined.Sync,
-                                    contentDescription = "Sincronizza risultati F1",
+                                    imageVector = Icons.Outlined.CloudSync,
+                                    contentDescription = stringResource(
+                                        R.string.calendario_sincronizza_risultati,
+                                    ),
                                 )
                             }
                         }
@@ -266,9 +282,9 @@ fun CalendarScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 8.dp,
-                        bottom = 96.dp,
+                        bottom = 112.dp,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (syncState.isSyncing || syncState.lastResultsSync != null) {
                         item(key = "sync") {
@@ -305,6 +321,7 @@ fun CalendarScreen(
                     items(upcoming, key = { it.id }) { race ->
                         RaceCard(
                             race = race,
+                            now = now,
                             isAdmin = state.isAdmin,
                             predictionSaved = race.id in state.myPredictionRaceIds,
                             onOpenResult = { onOpenResult(race.id, race.leagueId) },
@@ -344,6 +361,7 @@ fun CalendarScreen(
                             items(past, key = { it.id }) { race ->
                                 RaceCard(
                                     race = race,
+                                    now = now,
                                     isAdmin = state.isAdmin,
                                     predictionSaved = race.id in state.myPredictionRaceIds,
                                     onOpenResult = { onOpenResult(race.id, race.leagueId) },
@@ -394,6 +412,7 @@ confirmButton = {
 @Composable
 private fun RaceCard(
     race: Race,
+    now: java.time.Instant,
     isAdmin: Boolean,
     predictionSaved: Boolean,
     onOpenResult: () -> Unit,
@@ -403,6 +422,8 @@ private fun RaceCard(
 ) {
     // Ogni gara ha la sua identita' visiva: bandiera e gradiente tematico.
     val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    val extraColors = MaterialTheme.fantaExtraColors
+    val open = race.isPredictionOpen(now)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -412,6 +433,7 @@ private fun RaceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(raceHeaderBrush(visual))
+                    .background(extraColors.raceHeaderScrim)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -428,7 +450,7 @@ private fun RaceCard(
                     Text(
                         text = race.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
+                        color = extraColors.onRaceHeader,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -436,7 +458,7 @@ private fun RaceCard(
                         Text(
                             text = country,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = extraColors.onRaceHeaderMuted,
                         )
                     }
                 }
@@ -449,9 +471,12 @@ private fun RaceCard(
                 Text(
                     text = race.round.toString(),
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
+                    color = extraColors.onRaceHeader,
                     modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+                        .background(
+                            extraColors.raceHeaderBadgeBackground,
+                            RoundedCornerShape(10.dp),
+                        )
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
             }
@@ -465,22 +490,36 @@ private fun RaceCard(
                         Spacer(Modifier.width(8.dp))
                         Icon(
                             imageVector = Icons.Outlined.CheckCircle,
-                            contentDescription = "Pronostico salvato",
-                            tint = MaterialTheme.colorScheme.primary,
+                            contentDescription = stringResource(R.string.dashboard_pronostico_salvato),
+                            tint = extraColors.raceOpen,
                             modifier = Modifier.size(18.dp),
                         )
                     }
                     Spacer(Modifier.weight(1f))
                     race.deadline?.let { deadline ->
-                        Text(
-                            text = stringResource(
-                                R.string.gara_deadline,
-                                // U12: locale e fuso del dispositivo.
-                                com.fantaformula1.app.core.util.Formats.deadline(deadline),
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        val remaining = java.time.Duration.between(now, deadline)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = stringResource(
+                                    R.string.gara_deadline,
+                                    Formats.deadline(deadline),
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            if (open && !remaining.isNegative && !remaining.isZero) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.dashboard_tra,
+                                        Formats.countdown(remaining),
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -586,13 +625,14 @@ private fun SprintBadge() {
 
 @Composable
 private fun StatusChip(status: RaceStatus) {
-    // Colore semantico per stato: leggibile su tema chiaro e scuro
-    // (testo saturo su fondo tinto al 16%).
+    // Colore semantico per stato, con testo e contenitore dedicati per
+    // garantire il contrasto AA sia in tema chiaro sia scuro.
+    val extraColors = MaterialTheme.fantaExtraColors
     val (textColor, bgColor) = when (status) {
-        RaceStatus.SCHEDULED -> Color(0xFF2F6FD3) to Color(0xFF2F6FD3).copy(alpha = 0.16f)
-        RaceStatus.OPEN -> Color(0xFF009150) to Color(0xFF009150).copy(alpha = 0.16f)
-        RaceStatus.CLOSED -> Color(0xFFB07C00) to Color(0xFFB07C00).copy(alpha = 0.16f)
-        RaceStatus.COMPLETED -> Color(0xFFD93A34) to Color(0xFFD93A34).copy(alpha = 0.16f)
+        RaceStatus.SCHEDULED -> extraColors.raceScheduled to extraColors.raceScheduledContainer
+        RaceStatus.OPEN -> extraColors.raceOpen to extraColors.raceOpenContainer
+        RaceStatus.CLOSED -> extraColors.raceClosed to extraColors.raceClosedContainer
+        RaceStatus.COMPLETED -> extraColors.raceCompleted to extraColors.raceCompletedContainer
     }
     Text(
         text = when (status) {
