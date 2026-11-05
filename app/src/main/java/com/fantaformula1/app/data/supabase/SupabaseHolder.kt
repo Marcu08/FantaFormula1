@@ -14,6 +14,10 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.realtime.Realtime
 import io.ktor.client.engine.android.Android
 
+/** Limite di rete: evita spinner infiniti su socket che non rispondono. */
+private const val SUPABASE_SOCKET_TIMEOUT_MS = 60_000
+private const val SUPABASE_CONNECT_TIMEOUT_MS = 15_000
+
 /**
  * Detiene l'unico [SupabaseClient] attivo.
  *
@@ -82,7 +86,10 @@ class SupabaseHolder {
             install(Auth)
             install(Postgrest)
             install(Realtime)
-            httpEngine = Android.create()
+            httpEngine = Android.create {
+                connectTimeout = SUPABASE_CONNECT_TIMEOUT_MS
+                socketTimeout = SUPABASE_SOCKET_TIMEOUT_MS
+            }
         }
         client = newClient
         currentConfig = config
@@ -106,7 +113,10 @@ class SupabaseHolder {
                 supabaseKey = config.anonKey.trim(),
             ) {
                 install(Postgrest)
-                httpEngine = Android.create()
+                httpEngine = Android.create {
+                    connectTimeout = SUPABASE_CONNECT_TIMEOUT_MS
+                    socketTimeout = SUPABASE_SOCKET_TIMEOUT_MS
+                }
             }
         } catch (cancellation: CancellationException) {
             throw cancellation

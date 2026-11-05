@@ -253,7 +253,11 @@ class PredictionViewModel(
         val owner = authRepository.currentUserId()
         localOwnerId = owner
         viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
+            // Un ritorno sulla schermata non deve nascondere i dati gia'
+            // caricati dietro lo spinner a schermo intero: lo spinner serve
+            // solo al primo caricamento (o dopo un errore senza dati).
+            val hasContent = _uiState.value.race != null
+            _uiState.update { it.copy(loading = !hasContent, error = null) }
             runCatching {
                 val race = raceRepository.race(raceId)
                     ?: throw UserException("Gara non trovata")

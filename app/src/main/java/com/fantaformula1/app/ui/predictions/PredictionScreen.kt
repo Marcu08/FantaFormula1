@@ -23,25 +23,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,9 +61,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +75,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fantaformula1.app.R
+import com.fantaformula1.app.ui.components.FantaSnackbarHost
+import com.fantaformula1.app.ui.components.FantaSnackbarKind
+import com.fantaformula1.app.ui.components.showFantaSnackbar
 import com.fantaformula1.app.core.AppContainer
 import com.fantaformula1.app.core.domain.DriversCatalog
 import com.fantaformula1.app.core.domain.DriverPointsEstimates
@@ -99,6 +107,7 @@ import com.fantaformula1.app.ui.components.OfflineBanner
 import com.fantaformula1.app.ui.components.RaceIdentity
 import com.fantaformula1.app.ui.components.SectionTitle
 import com.fantaformula1.app.ui.components.raceHeaderBrush
+import com.fantaformula1.app.ui.theme.fantaExtraColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,9 +158,9 @@ fun PredictionScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                PredictionEvent.Saved -> snackbarHostState.showSnackbar(savedMessage)
-                PredictionEvent.Queued -> snackbarHostState.showSnackbar(queuedMessage)
-                is PredictionEvent.Failure -> snackbarHostState.showSnackbar(event.message)
+                PredictionEvent.Saved -> snackbarHostState.showFantaSnackbar(savedMessage, FantaSnackbarKind.SUCCESS)
+                PredictionEvent.Queued -> snackbarHostState.showFantaSnackbar(queuedMessage, FantaSnackbarKind.INFO)
+                is PredictionEvent.Failure -> snackbarHostState.showFantaSnackbar(event.message, FantaSnackbarKind.ERROR)
             }
         }
     }
@@ -159,7 +168,7 @@ fun PredictionScreen(
     // U5: avviso quando una bozza locale è stata ripristinata.
     LaunchedEffect(state.draftRestored) {
         if (state.draftRestored) {
-            snackbarHostState.showSnackbar(draftRestoredMessage)
+            snackbarHostState.showFantaSnackbar(draftRestoredMessage, FantaSnackbarKind.INFO)
         }
     }
 
@@ -189,9 +198,19 @@ fun PredictionScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    state.conflictLocalDrafts?.let { localDrafts ->
+        ConflictResolutionDialog(
+            serverPrediction = state.conflictServerPrediction,
+            localDrafts = localDrafts,
+            onUseServer = viewModel::useServerConflictVersion,
+            onUseLocal = viewModel::useLocalConflictVersion,
+            onDismiss = viewModel::dismissConflictResolution,
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { FantaSnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -211,15 +230,45 @@ fun PredictionScreen(
                 },
             )
         },
-        floatingActionButton = {
+        bottomBar = {
             if (state.canSubmit) {
-                ExtendedFloatingActionButton(
-                    onClick = viewModel::save,
-                    icon = { Icon(Icons.Outlined.Save, contentDescription = null) },
-                    text = { Text(stringResource(R.string.azione_invia)) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 8.dp,
+                ) {
+                    Button(
+                        onClick = { if (!state.saving) viewModel.save() },
+                        enabled = !state.saving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp),
+                    ) {
+                        if (state.saving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = LocalContentColor.current,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(
+                                if (state.saving) {
+                                    R.string.pronostico_invio_in_corso
+                                } else {
+                                    R.string.azione_invia
+                                },
+                            ),
+                        )
+                    }
+                }
             }
         },
     ) { innerPadding ->
@@ -238,8 +287,10 @@ fun PredictionScreen(
             }
             Box(modifier = Modifier.weight(1f)) {
             when {
-                state.loading -> LoadingState()
-                state.error != null -> ErrorState(
+                state.loading && state.race == null -> LoadingState(
+                    message = stringResource(R.string.pronostico_caricamento),
+                )
+                state.error != null && state.race == null -> ErrorState(
                     message = state.error.orEmpty(),
                     onRetry = viewModel::load,
                 )
@@ -249,10 +300,33 @@ fun PredictionScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 8.dp,
-                        bottom = 96.dp,
+                        bottom = 24.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    // Un aggiornamento fallito non nasconde i dati gia'
+                    // presenti: l'errore resta visibile in cima alla lista.
+                    state.error?.let { message ->
+                        item(key = "load_error") {
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    if (state.visibleTypes.isNotEmpty()) {
+                        item(key = "progress") {
+                            PredictionProgressHeader(
+                                completed = completedPredictionCount(
+                                    state.drafts,
+                                    state.visibleTypes,
+                                ),
+                                total = state.visibleTypes.size,
+                            )
+                        }
+                    }
+
                     item {
                         DeadlineBanner(
                             state = state,
@@ -283,7 +357,7 @@ fun PredictionScreen(
                                     lines.forEach { line ->
                                         Text(
                                             text = "${line.type.italianLabel}: " +
-                                                "${Formats.points(line.points)} " +
+                                                "${Formats.points(line.points, signed = false)} " +
                                                 "(${line.detail})",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -292,7 +366,7 @@ fun PredictionScreen(
                                     Text(
                                         text = stringResource(
                                             R.string.pronostico_totale,
-                                            Formats.points(lines.sumOf { it.points }),
+                                            Formats.points(lines.sumOf { it.points }, signed = false),
                                         ),
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.primary,
@@ -401,6 +475,40 @@ fun PredictionScreen(
 }
 
 @Composable
+private fun PredictionProgressHeader(completed: Int, total: Int) {
+    if (total <= 0) return
+    val progress = (completed.toFloat() / total).coerceIn(0f, 1f)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = pluralStringResource(
+                    R.plurals.pronostico_compilati,
+                    total,
+                    completed,
+                    total,
+                ),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surface,
+            )
+        }
+    }
+}
+
+@Composable
 private fun DeadlineBanner(
     state: PredictionUiState,
     now: java.time.Instant,
@@ -409,6 +517,7 @@ private fun DeadlineBanner(
     val race = state.race ?: return
     // Stessa identita' visiva della card nel calendario: la gara e' riconoscibile.
     val visual = RaceIdentity.visualFor(race.name, race.country, race.round)
+    val extraColors = MaterialTheme.fantaExtraColors
     val flagDescription = stringResource(R.string.descrizione_bandiera, visual.flag)
     // U3: countdown aggiornato ogni minuto dalla schermata.
     val remaining = race.deadline?.let { java.time.Duration.between(now, it) }
@@ -434,6 +543,7 @@ private fun DeadlineBanner(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(raceHeaderBrush(visual))
+                    .background(extraColors.raceHeaderScrim)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -449,7 +559,7 @@ private fun DeadlineBanner(
                 Text(
                     text = stringResource(R.string.gara_round_name, race.round, race.name),
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
+                    color = extraColors.onRaceHeader,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -469,6 +579,8 @@ private fun DeadlineBanner(
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (remainingText != null) {
                     Spacer(Modifier.height(4.dp))
@@ -480,6 +592,7 @@ private fun DeadlineBanner(
                         } else {
                             MaterialTheme.colorScheme.primary
                         },
+                        maxLines = 1,
                     )
                 }
                 if (urgent) {
@@ -518,18 +631,11 @@ private fun tierLabelRes(tier: Int): Int = when (tier) {
 }
 
 /**
- * 2.5 -> "2.5", 1.0 -> "1", 0.5454... -> "0.55": MASSIMO 2 cifre decimali.
- * Le quote a valore atteso escono da una divisione (0.5/p) con cifre
- * periodiche: senza arrotondamento la UI mostrava 0.5454545454545455.
+ * Numeri della UI (quote, soglie, punti) nel formato italiano: virgola
+ * decimale, niente zeri inutili, massimo due decimali.
  */
-private fun formatEstimate(value: Double): String {
-    val rounded = kotlin.math.round(value * 100.0) / 100.0
-    return if (rounded == rounded.toInt().toDouble()) {
-        rounded.toInt().toString()
-    } else {
-        rounded.toString()
-    }
-}
+private fun formatEstimate(value: Double): String =
+    Formats.points(value, signed = false)
 
 @Composable
 private fun QuoteUnavailableCard(
@@ -611,7 +717,10 @@ private fun PredictionCard(
                     )
                 }
                 Text(
-                    text = stringResource(R.string.pronostico_punti, points),
+                    text = stringResource(
+                        R.string.pronostico_punti,
+                        Formats.points(points, signed = false),
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -870,7 +979,8 @@ private fun PredictionCard(
                                 onChange = {
                                     // La soglia e' quella pubblicata: si
                                     // imposta insieme al lato scelto.
-                                    viewModel.setThreshold(type, formatEstimate(threshold))
+                                    // Il dominio usa il punto: la UI mostra la virgola.
+                                    viewModel.setThreshold(type, threshold.toString())
                                     viewModel.setOver(type, it)
                                 },
                             )
@@ -1100,6 +1210,72 @@ private fun OverUnderRow(
             enabled = enabled,
         )
     }
+}
+
+@Composable
+private fun ConflictResolutionDialog(
+    serverPrediction: com.fantaformula1.app.core.domain.RacePrediction?,
+    localDrafts: List<DraftEntry>,
+    onUseServer: () -> Unit,
+    onUseLocal: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.conflitto_titolo)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = stringResource(R.string.conflitto_testo),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.conflitto_server),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (serverPrediction == null || serverPrediction.entries.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.conflitto_server_vuoto),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    serverPrediction.entries.forEach { entry ->
+                        Text(
+                            text = summary(entry.type, entry),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.conflitto_locale),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                localDrafts.forEach { draft ->
+                    Text(
+                        text = summary(draft.type, draft.toDomain()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onUseLocal) {
+                Text(stringResource(R.string.conflitto_usa_locale))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onUseServer) {
+                    Text(stringResource(R.string.conflitto_usa_server))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.conflitto_annulla))
+                }
+            }
+        },
+    )
 }
 
 @Composable
