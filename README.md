@@ -23,6 +23,11 @@ client-side e testato con unit test JVM.
 > L'APK di debug è firmato con la chiave di debug locale: se in futuro ricevi una
 > versione diversa con un'altra firma, Android chiederà prima di disinstallare la precedente.
 
+> **Sicurezza:** gli APK di debug sono solo per sviluppo e test locali e non
+> devono essere distribuiti. Dopo la migrazione a una nuova chiave di release,
+> le installazioni firmate con la vecchia chiave condivisa potrebbero richiedere
+> disinstallazione e reinstallazione. La migrazione non è ancora completata.
+
 ### Compilare l'APK in locale
 
 Prerequisiti (una tantum):

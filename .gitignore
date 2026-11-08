@@ -13,6 +13,20 @@ captures/
 # Non versionare i segreti locali (contengono URL/chiavi Supabase e percorsi SDK)
 local.properties
 
+# Firme e credenziali: mai nel repository (debug usa il keystore Gradle locale)
+*.keystore
+*.jks
+*.p12
+keystore.properties
+signing.properties
+release-signing.properties
+.env
+.env.*
+!/.env.example
+
+# Archivi locali di audit (possono contenere keystore e APK firmati)
+audit-local.*
+
 # OS
 .DS_Store
 Thumbs.db
