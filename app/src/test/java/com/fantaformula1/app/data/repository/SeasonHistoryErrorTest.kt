@@ -74,4 +74,37 @@ class SeasonHistoryErrorTest {
 
         assertEquals("Dati della stagione non validi", message)
     }
+
+    @Test
+    fun `errore RPC stagione di altra lega resta comprensibile`() {
+        assertEquals(
+            "La stagione non appartiene a questa lega",
+            mapSeasonHistoryError(
+                "La stagione non appartiene a questa lega",
+                "archiviare la stagione",
+            ),
+        )
+    }
+
+    @Test
+    fun `errore RPC stagione non attiva resta comprensibile`() {
+        assertEquals(
+            "La stagione non è attiva e non può essere archiviata",
+            mapSeasonHistoryError(
+                "La stagione non è attiva e non può essere archiviata",
+                "archiviare la stagione",
+            ),
+        )
+    }
+
+    @Test
+    fun `errore RPC classifica non valida resta comprensibile`() {
+        assertEquals(
+            "La classifica archiviata non è valida",
+            mapSeasonHistoryError(
+                "La classifica archiviata non è valida",
+                "archiviare la stagione",
+            ),
+        )
+    }
 }
