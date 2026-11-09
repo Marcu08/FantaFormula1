@@ -120,8 +120,14 @@ internal fun mapSeasonHistoryError(rawMessage: String?, action: String): String 
             "La stagione è già stata archiviata"
 
         raw.contains("permission denied") || raw.contains("row-level security") ||
-            raw.contains("solo un amministratore") ->
+            raw.contains("insufficient privilege") ->
+            "Permessi insufficienti o versione dell'app non aggiornata. Aggiorna l'app e riprova."
+
+        raw.contains("solo un amministratore") ->
             "Solo un amministratore può $action"
+
+        raw.contains("could not find the function") || raw.contains("schema cache") ->
+            "Il server non è ancora aggiornato. Riprova più tardi o contatta l'amministratore."
 
         raw.contains("null value") || raw.contains("not-null") ->
             "Dati della stagione non validi"

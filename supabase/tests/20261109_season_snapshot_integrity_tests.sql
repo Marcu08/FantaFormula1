@@ -1,8 +1,9 @@
 -- =============================================================================
 -- FantaFormula 1 - test season snapshot integrity + atomic archive
 --
--- Eseguire dopo 0001-0012 e dopo
--- 20261109200000_season_snapshot_integrity.sql.
+-- Eseguire dopo 0001-0012, 20261109200000_season_snapshot_integrity.sql,
+-- 20261109210000_season_snapshot_deployment_guard.sql e
+-- 20261109220000_season_archive_recovery.sql.
 -- Il test crea dati temporanei, cambia ruolo/JWT come farebbe Supabase e
 -- termina con rollback: nessun dato resta nel database.
 -- =============================================================================
@@ -31,6 +32,8 @@ declare
     v_season_c   uuid;
     v_season_d   uuid;
     v_season_e   uuid;
+    v_season_f   uuid;
+    v_season_g   uuid;
     v_race_d     uuid;
     v_race_e     uuid;
     v_standings_a jsonb;
@@ -51,6 +54,7 @@ declare
     v_count      int;
     v_active     boolean;
     v_name       text;
+    v_def        text;
     v_league     uuid;
     v_archived   uuid;
 begin
@@ -104,6 +108,12 @@ begin
     insert into public.seasons (league_id, name, is_active)
     values (v_league_a, '2026 E', true)
     returning id into v_season_e;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 F', true)
+    returning id into v_season_f;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 G', true)
+    returning id into v_season_g;
 
     -- Le gare servono al test dell'ex-membro con pronostico storico e ai
     -- test di rollback durante l'archiviazione.
@@ -890,6 +900,271 @@ begin
     ) then
         raise exception 'FAIL: authenticated non puo eseguire archive_season';
     end if;
+
+    -- 12) Il guard DDL deve rifiutare una sostituzione debole di archive_season.
+    begin
+        execute $weak$
+            create or replace function public.archive_season(
+                p_league uuid,
+                p_season uuid,
+                p_name text,
+                p_standings jsonb
+            )
+            returns void
+            language plpgsql
+            security definer
+            set search_path = public
+            as $weak_body$
+            begin
+                return;
+            end;
+            $weak_body$;
+        $weak$;
+        raise exception 'FAIL: guard DDL non ha bloccato la funzione debole';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then
+            raise;
+        end if;
+        if SQLERRM not like '%archive_season hardening guard%' then
+            raise exception 'FAIL: errore inatteso del guard DDL: %', SQLERRM;
+        end if;
+    end;
+
+    select pg_get_functiondef(
+        'public.archive_season(uuid,uuid,text,jsonb)'::regprocedure
+    ) into v_def;
+    if position('userId duplicati' in v_def) = 0
+       or position('coalesce(nullif(btrim(v_season_name), ''''), ''Stagione'')' in v_def) = 0 then
+        raise exception 'FAIL: il guard ha lasciato una funzione non hardened';
+    end if;
+
+    -- 13) La cancellazione dei parent non deve eliminare gli snapshot.
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_b::text, true);
+    begin
+        delete from public.seasons where id = v_season_b;
+        raise exception 'FAIL: cancellazione stagione con snapshot consentita';
+    exception
+        when foreign_key_violation then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso cancellazione stagione: %', SQLERRM;
+    end;
+
+    begin
+        delete from public.leagues where id = v_league_b;
+        raise exception 'FAIL: cancellazione lega con snapshot consentita';
+    exception
+        when foreign_key_violation then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso cancellazione lega: %', SQLERRM;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select count(*) into v_count
+    from public.season_snapshots where season_id = v_season_b;
+    if v_count <> 1 then
+        raise exception 'FAIL: snapshot B perso dopo i tentativi di cancellazione (%)', v_count;
+    end if;
+
+    -- Una stagione senza snapshot deve restare cancellabile dall'admin.
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    delete from public.seasons where id = v_season_f;
+    get diagnostics v_count = row_count;
+    if v_count <> 1 then
+        raise exception 'FAIL: stagione senza snapshot non cancellabile (%)', v_count;
+    end if;
+
+    perform set_config('role', 'postgres', true);
+    select count(*) into v_count from public.seasons where id = v_season_f;
+    if v_count <> 0 then
+        raise exception 'FAIL: stagione F ancora presente';
+    end if;
+
+    -- 14) Recupero esplicito dello stato legacy snapshot + stagione attiva.
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_e, v_league_a, '2026 E', v_standings_a, v_admin_a
+    );
+
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_member_b::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_e);
+        raise exception 'FAIL: recupero da non-admin consentito';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then raise; end if;
+        if SQLERRM not like '%amministratore%' then
+            raise exception 'FAIL: errore inatteso recupero non-admin: %', SQLERRM;
+        end if;
+    end;
+
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    perform public.complete_partial_season_archive(v_league_a, v_season_e);
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_e;
+    if v_active is distinct from false then
+        raise exception 'FAIL: stagione E non completata dal recupero';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs
+    where season_id = v_season_e
+      and league_id = v_league_a
+      and repaired_by = v_admin_a;
+    if v_count <> 1 then
+        raise exception 'FAIL: audit recupero mancante (%)', v_count;
+    end if;
+    select count(*) into v_count
+    from public.season_snapshots
+    where season_id = v_season_e
+      and standings = v_standings_a;
+    if v_count <> 1 then
+        raise exception 'FAIL: snapshot E modificato dal recupero';
+    end if;
+
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_e);
+        raise exception 'FAIL: recupero ripetuto consentito';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then raise; end if;
+    end;
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_a);
+        raise exception 'FAIL: recupero senza snapshot consentito';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then raise; end if;
+    end;
+
+    -- Snapshot malformato: il recupero deve rifiutarlo, non completare lo stato.
+    perform set_config('role', 'postgres', true);
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_g, v_league_a, '2026 G', v_standings_negative, v_admin_a
+    );
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_g);
+        raise exception 'FAIL: recupero con standings invalide consentito';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then raise; end if;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_g;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione G completata con snapshot invalido';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs where season_id = v_season_g;
+    if v_count <> 0 then
+        raise exception 'FAIL: audit creato per recupero rifiutato (%)', v_count;
+    end if;
+
+    -- 15) ACL complete, default grant simulation, TRUNCATE e service_role.
+    perform set_config('role', 'postgres', true);
+    grant all on public.season_snapshots, public.seasons, public.leagues
+        to authenticated;
+    perform public.harden_season_archive_acl();
+
+    if has_table_privilege('authenticated', 'public.season_snapshots', 'INSERT')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'DELETE')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'TRUNCATE')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'REFERENCES')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'TRIGGER') then
+        raise exception 'FAIL: privilegi residui su season_snapshots';
+    end if;
+    if not has_table_privilege('authenticated', 'public.season_snapshots', 'SELECT') then
+        raise exception 'FAIL: SELECT snapshot mancante';
+    end if;
+
+    if has_table_privilege('authenticated', 'public.seasons', 'UPDATE')
+       or has_column_privilege('authenticated', 'public.seasons', 'is_active', 'UPDATE') then
+        raise exception 'FAIL: UPDATE/is_active residuo su seasons';
+    end if;
+    if not has_column_privilege('authenticated', 'public.seasons', 'name', 'UPDATE')
+       or not has_table_privilege('authenticated', 'public.seasons', 'SELECT')
+       or not has_table_privilege('authenticated', 'public.seasons', 'INSERT')
+       or not has_table_privilege('authenticated', 'public.seasons', 'DELETE') then
+        raise exception 'FAIL: grant necessari su seasons mancanti';
+    end if;
+    if has_table_privilege('authenticated', 'public.seasons', 'TRUNCATE')
+       or has_table_privilege('authenticated', 'public.seasons', 'REFERENCES')
+       or has_table_privilege('authenticated', 'public.seasons', 'TRIGGER')
+       or has_table_privilege('authenticated', 'public.leagues', 'TRUNCATE')
+       or has_table_privilege('authenticated', 'public.leagues', 'REFERENCES')
+       or has_table_privilege('authenticated', 'public.leagues', 'TRIGGER') then
+        raise exception 'FAIL: privilegi residui su seasons/leagues';
+    end if;
+    if has_function_privilege(
+        'authenticated',
+        'public.harden_season_archive_acl()',
+        'EXECUTE'
+    ) then
+        raise exception 'FAIL: helper ACL eseguibile da authenticated';
+    end if;
+    if has_function_privilege(
+        'service_role',
+        'public.archive_season(uuid,uuid,text,jsonb)',
+        'EXECUTE'
+    ) then
+        raise exception 'FAIL: service_role puo eseguire archive_season senza grant esplicito';
+    end if;
+
+    if current_setting('server_version_num')::int >= 170000 then
+        if has_table_privilege('authenticated', 'public.season_snapshots', 'MAINTAIN')
+           or has_table_privilege('authenticated', 'public.seasons', 'MAINTAIN')
+           or has_table_privilege('authenticated', 'public.leagues', 'MAINTAIN') then
+            raise exception 'FAIL: privilegio MAINTAIN residuo';
+        end if;
+    end if;
+
+    if not exists (
+        select 1 from pg_event_trigger
+        where evtname = 'archive_season_hardening_guard'
+          and evtenabled = 'O'
+    ) then
+        raise exception 'FAIL: event trigger di hardening assente o disabilitato';
+    end if;
+    if exists (
+        select 1 from pg_constraint
+        where conrelid = 'public.season_snapshots'::regclass
+          and conname in (
+              'season_snapshots_season_id_fkey',
+              'season_snapshots_league_id_fkey',
+              'season_snapshots_season_league_fk'
+          )
+          and confdeltype <> 'r'
+    ) then
+        raise exception 'FAIL: FK snapshot non RESTRICT';
+    end if;
+    if has_table_privilege('authenticated', 'public.season_archive_repairs', 'SELECT')
+       or has_table_privilege('authenticated', 'public.season_archive_repairs', 'INSERT')
+       or has_table_privilege('authenticated', 'public.season_archive_repairs', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.season_archive_repairs', 'DELETE')
+       or has_table_privilege('authenticated', 'public.season_archive_repairs', 'TRUNCATE') then
+        raise exception 'FAIL: audit table accessibile ai client';
+    end if;
+
+    perform set_config('role', 'authenticated', true);
+    begin
+        execute 'truncate public.season_snapshots';
+        raise exception 'FAIL: TRUNCATE snapshot consentito';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso TRUNCATE: %', SQLERRM;
+    end;
+    perform set_config('role', 'postgres', true);
 
     raise notice 'season snapshot integrity: cross-league, RLS e atomicità OK';
 end;

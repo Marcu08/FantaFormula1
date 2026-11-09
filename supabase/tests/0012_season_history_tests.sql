@@ -3,7 +3,7 @@
 -- File: supabase/tests/0012_season_history_tests.sql
 --
 -- PREDISPOSTI, NON ESEGUITI (richiedono Supabase di test + migrazioni
--- 0001-0012 e 20261109200000_season_snapshot_integrity.sql). Eseguire come
+-- 0001-0012, 20261109200000, 20261109210000 e 20261109220000). Eseguire come
 -- script unico nel SQL Editor; il block DO si chiude sempre con un'eccezione
 -- = self-rollback (nessun dato residuo).
 --

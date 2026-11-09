@@ -44,13 +44,23 @@ LEAGUE=""
 cleanup() {
     # Force UTF-8: on Windows psql can otherwise request a WIN1252 conversion
     # that is unavailable in minimal PostgreSQL distributions.
+    if [ -n "$SEASON" ]; then
+        # The final migration changes snapshot FKs to ON DELETE RESTRICT.
+        # Test fixtures are disposable and owned by the test role, so remove
+        # the audit/snapshot explicitly before deleting the parent rows.
+        PGCLIENTENCODING=UTF8 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -c \
+            "delete from public.season_archive_repairs where season_id = '$SEASON';" \
+            >/dev/null 2>&1 || true
+        PGCLIENTENCODING=UTF8 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -c \
+            "delete from public.season_snapshots where season_id = '$SEASON';" \
+            >/dev/null || echo "WARN: cleanup snapshot failed" >&2
+    fi
     if [ -n "$LEAGUE" ]; then
         PGCLIENTENCODING=UTF8 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -c \
             "delete from public.leagues where id = '$LEAGUE';" >/dev/null \
             || echo "WARN: cleanup league failed" >&2
     fi
     if [ -n "$ADMIN" ]; then
-        # auth.users -> profiles -> leagues/season_snapshots is ON DELETE CASCADE.
         PGCLIENTENCODING=UTF8 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -c \
             "delete from auth.users where id = '$ADMIN';" >/dev/null \
             || echo "WARN: cleanup user failed" >&2
@@ -138,9 +148,14 @@ echo "snapshots=$SNAPSHOTS"
 echo "season_active=$ACTIVE"
 
 FAIL=0
-if { [ "$RC1" -eq 0 ] && [ "$RC2" -eq 0 ]; } || { [ "$RC1" -ne 0 ] && [ "$RC2" -ne 0 ]; }; then
-    echo "FAIL: expected exactly one archive_season call to succeed" >&2
+if [ "$RC1" -ne 0 ] || [ "$RC2" -eq 0 ]; then
+    echo "FAIL: expected client 1 to succeed and client 2 to be rejected" >&2
     cat "$TMP_DIR/client1.log" >&2
+    cat "$TMP_DIR/client2.log" >&2
+    FAIL=1
+fi
+if ! grep -qE 'archiviata|attiva' "$TMP_DIR/client2.log"; then
+    echo "FAIL: client 2 did not fail with the already-archived/inactive error" >&2
     cat "$TMP_DIR/client2.log" >&2
     FAIL=1
 fi

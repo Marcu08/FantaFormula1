@@ -1,0 +1,55 @@
+name: SQL security tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  postgres:
+    name: PostgreSQL 17.5 security regression
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Create test database
+        run: psql -h 127.0.0.1 -U postgres -d postgres -c 'create database ff1_ci'
+
+      - name: Bootstrap Supabase-compatible roles and auth schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci_setup.sql
+
+      - name: Apply migrations in filename order
+        run: |
+          for migration in $(find supabase/migrations -maxdepth 1 -name '*.sql' | sort); do
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Post-deploy hardening verification
+        run: bash supabase/tests/verify_archive_season_hardening.sh
+
+      - name: Season snapshot SQL regression suite
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/20261109_season_snapshot_integrity_tests.sql
+
+      - name: Legacy archive diagnostic smoke test
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/legacy_season_archive_diagnostic.sql
