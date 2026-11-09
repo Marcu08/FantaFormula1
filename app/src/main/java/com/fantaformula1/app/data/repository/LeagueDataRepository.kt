@@ -25,6 +25,14 @@ data class LeagueDataSnapshot(
 )
 
 /**
+ * Limita lo snapshot alle gare indicate. Serve al congelamento di una
+ * stagione: la query di lega contiene anche gare e pronostici storici, che
+ * non devono entrare nei totali della stagione corrente.
+ */
+fun LeagueDataSnapshot.restrictToRaceIds(raceIds: Set<String>): LeagueDataSnapshot =
+    copy(races = races.filter { it.raceId in raceIds })
+
+/**
  * Dati grezzi di una lega necessari a ricalcolare punteggi e classifica
  * con lo [com.fantaformula1.app.core.domain.ScoringEngine].
  */

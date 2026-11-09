@@ -2,7 +2,7 @@
 -- FantaFormula 1 - test season snapshot integrity + atomic archive
 --
 -- Eseguire dopo 0001-0012 e dopo
--- 20261109120000_season_snapshot_integrity.sql.
+-- 20261109200000_season_snapshot_integrity.sql.
 -- Il test crea dati temporanei, cambia ruolo/JWT come farebbe Supabase e
 -- termina con rollback: nessun dato resta nel database.
 -- =============================================================================
@@ -10,10 +10,11 @@
 begin;
 
 -- Nel progetto Supabase i grant di tabella esistono di default; nel test
--- locale li rendiamo espliciti per esercitare RLS e FK.
-grant select, insert, update, delete on public.season_snapshots to authenticated;
+-- locale rendiamo espliciti solo i permessi che la migration lascia ai client.
+grant select on public.season_snapshots to authenticated;
 grant select on public.seasons, public.leagues, public.league_members, public.profiles
     to authenticated;
+grant update (name, start_date, end_date) on public.seasons to authenticated;
 
 do $test$
 declare
@@ -22,17 +23,31 @@ declare
     v_member_b   uuid := gen_random_uuid();
     v_outsider   uuid := gen_random_uuid();
     v_ex_member  uuid := gen_random_uuid();
+    v_ex_member_old uuid := gen_random_uuid();
     v_league_a   uuid;
     v_league_b   uuid;
     v_season_a   uuid;
     v_season_b   uuid;
     v_season_c   uuid;
     v_season_d   uuid;
+    v_season_e   uuid;
     v_race_d     uuid;
+    v_race_e     uuid;
     v_standings_a jsonb;
     v_standings_b jsonb;
     v_standings_bad jsonb;
     v_standings_exmember jsonb;
+    v_standings_exmember_old jsonb;
+    v_standings_dup_user jsonb;
+    v_standings_dup_user_case jsonb;
+    v_standings_dup_position jsonb;
+    v_standings_gap jsonb;
+    v_standings_negative jsonb;
+    v_standings_negative_wins jsonb;
+    v_standings_negative_best jsonb;
+    v_standings_missing_total jsonb;
+    v_standings_bad_uuid jsonb;
+    v_bad_standings jsonb;
     v_count      int;
     v_active     boolean;
     v_name       text;
@@ -46,7 +61,8 @@ begin
         (v_admin_b, 'admin-b-season@example.test'),
         (v_member_b, 'member-b-season@example.test'),
         (v_outsider, 'outsider-season@example.test'),
-        (v_ex_member, 'ex-member-season@example.test');
+        (v_ex_member, 'ex-member-season@example.test'),
+        (v_ex_member_old, 'ex-member-old-season@example.test');
 
     insert into public.profiles (id, display_name)
     values
@@ -54,7 +70,8 @@ begin
         (v_admin_b, 'Admin B'),
         (v_member_b, 'Member B'),
         (v_outsider, 'Outsider'),
-        (v_ex_member, 'Ex giocatore')
+        (v_ex_member, 'Ex giocatore'),
+        (v_ex_member_old, 'Ex giocatore vecchia stagione')
     on conflict (id) do nothing;
 
     insert into public.leagues (name, invite_code, rules, created_by)
@@ -84,8 +101,12 @@ begin
     insert into public.seasons (league_id, name, is_active)
     values (v_league_a, '2026 D', true)
     returning id into v_season_d;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 E', true)
+    returning id into v_season_e;
 
-    -- Le gare servono al test dell'ex-membro con pronostico storico.
+    -- Le gare servono al test dell'ex-membro con pronostico storico e ai
+    -- test di rollback durante l'archiviazione.
     insert into public.races (season_id, league_id, round, name, deadline)
     values
         (v_season_a, v_league_a, 1, 'Gara A', now() + interval '2 days'),
@@ -94,11 +115,28 @@ begin
     insert into public.races (season_id, league_id, round, name, deadline)
     values (v_season_d, v_league_a, 1, 'Gara D', now() + interval '2 days')
     returning id into v_race_d;
+    insert into public.races (season_id, league_id, round, name, deadline)
+    values (v_season_e, v_league_a, 1, 'Gara E', now() + interval '2 days')
+    returning id into v_race_e;
 
     -- Ex-membro con un pronostico storico nella stagione D: deve restare
     -- archiviabile come "Ex giocatore" (semantica di LeagueStandings).
     insert into public.predictions (race_id, league_id, user_id, content)
     values (v_race_d, v_league_a, v_ex_member, '{"entries":[]}'::jsonb);
+
+    -- Lo stesso ex-membro ha un pronostico anche nella stagione A: serve
+    -- per i test di posizioni duplicate/non contigue nella classifica A.
+    insert into public.predictions (race_id, league_id, user_id, content)
+    select r.id, v_league_a, v_ex_member, '{"entries":[]}'::jsonb
+    from public.races r
+    where r.season_id = v_season_a and r.round = 1;
+
+    -- Ex-membro con pronostico solo in una stagione precedente: non deve
+    -- poter entrare nella classifica della stagione D.
+    insert into public.predictions (race_id, league_id, user_id, content)
+    select r.id, v_league_a, v_ex_member_old, '{"entries":[]}'::jsonb
+    from public.races r
+    where r.season_id = v_season_c and r.round = 1;
 
     v_standings_a := jsonb_build_object(
         'rows', jsonb_build_array(
@@ -156,18 +194,190 @@ begin
             )
         )
     );
+    v_standings_exmember_old := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1,
+                'userId', v_admin_a::text,
+                'displayName', 'Admin A',
+                'totalPoints', 10.0,
+                'raceWins', 1,
+                'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 2,
+                'userId', v_ex_member_old::text,
+                'displayName', 'Ex giocatore vecchia stagione',
+                'totalPoints', 5.0,
+                'raceWins', 0,
+                'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_dup_user := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 10.0,
+                'raceWins', 1, 'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 2, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 5.0,
+                'raceWins', 0, 'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_dup_user_case := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', lower(v_admin_a::text),
+                'displayName', 'Admin A', 'totalPoints', 10.0,
+                'raceWins', 1, 'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 2, 'userId', upper(v_admin_a::text),
+                'displayName', 'Admin A', 'totalPoints', 5.0,
+                'raceWins', 0, 'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_dup_position := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 10.0,
+                'raceWins', 1, 'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 1, 'userId', v_ex_member::text,
+                'displayName', 'Ex giocatore', 'totalPoints', 5.0,
+                'raceWins', 0, 'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_gap := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 10.0,
+                'raceWins', 1, 'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 3, 'userId', v_ex_member::text,
+                'displayName', 'Ex giocatore', 'totalPoints', 5.0,
+                'raceWins', 0, 'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_negative := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', -1.0,
+                'raceWins', 0, 'bestRacePoints', 0.0
+            )
+        )
+    );
+    v_standings_negative_wins := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 0.0,
+                'raceWins', -1, 'bestRacePoints', 0.0
+            )
+        )
+    );
+    v_standings_negative_best := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'totalPoints', 0.0,
+                'raceWins', 0, 'bestRacePoints', -0.5
+            )
+        )
+    );
+    v_standings_missing_total := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', v_admin_a::text,
+                'displayName', 'Admin A', 'raceWins', 0,
+                'bestRacePoints', 0.0
+            )
+        )
+    );
+    v_standings_bad_uuid := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1, 'userId', 'not-a-uuid',
+                'displayName', 'Admin A', 'totalPoints', 0.0,
+                'raceWins', 0, 'bestRacePoints', 0.0
+            )
+        )
+    );
 
-    -- 1) Admin A (admin della lega A) prova a inserire direttamente uno
-    -- snapshot con stagione B e league_id A: la FK composita deve rifiutare.
+    -- 1a) Authenticated non ha piu' INSERT diretto: il privilegio di tabella
+    -- e' revocato e la vecchia policy INSERT e' stata rimossa.
     perform set_config('role', 'authenticated', true);
     perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    if has_table_privilege('authenticated', 'public.season_snapshots', 'INSERT') then
+        raise exception 'FAIL: authenticated conserva INSERT diretto';
+    end if;
+    begin
+        insert into public.season_snapshots (
+            season_id, league_id, season_name, standings, archived_by
+        ) values (
+            v_season_a, v_league_a, '2026 A', v_standings_a, v_admin_a
+        );
+        raise exception 'FAIL: insert diretto same-league accettato';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then
+                raise;
+            end if;
+            raise exception 'FAIL: errore inatteso insert same-league: %', SQLERRM;
+    end;
+
+    -- 1b) Anche se un grant residuo concedesse INSERT, senza policy RLS
+    -- l'INSERT diretto deve essere rifiutato. Il grant viene rimosso subito.
+    perform set_config('role', 'postgres', true);
+    grant insert on public.season_snapshots to authenticated;
+    if not has_table_privilege('authenticated', 'public.season_snapshots', 'INSERT') then
+        raise exception 'FAIL: grant temporaneo non applicato';
+    end if;
+    perform set_config('role', 'authenticated', true);
+    begin
+        insert into public.season_snapshots (
+            season_id, league_id, season_name, standings, archived_by
+        ) values (
+            v_season_a, v_league_a, '2026 A', v_standings_a, v_admin_a
+        );
+        raise exception 'FAIL: insert diretto accettato con grant residuo';
+    exception
+        when insufficient_privilege then
+            -- 42501 copre sia permission denied sia RLS: qui deve essere RLS.
+            if SQLERRM not like '%row-level security%' then
+                raise exception 'FAIL: errore inatteso con grant residuo: %', SQLERRM;
+            end if;
+        when others then
+            if SQLERRM like 'FAIL:%' then
+                raise;
+            end if;
+            raise exception 'FAIL: errore inatteso con grant residuo: %', SQLERRM;
+    end;
+    perform set_config('role', 'postgres', true);
+    revoke insert on public.season_snapshots from authenticated;
+
+    -- 1c) FK composita: anche il ruolo owner, che bypassa RLS, non puo'
+    -- inserire una stagione della lega B con league_id A.
     begin
         insert into public.season_snapshots (
             season_id, league_id, season_name, standings, archived_by
         ) values (
             v_season_b, v_league_a, '2026 B', v_standings_b, v_admin_a
         );
-        raise exception 'FAIL: insert cross-league accettato';
+        raise exception 'FAIL: insert cross-league accettato dal owner';
     exception
         when foreign_key_violation then null;
         when others then
@@ -177,11 +387,11 @@ begin
             raise exception 'FAIL: errore inatteso insert cross-league: %', SQLERRM;
     end;
 
-    perform set_config('role', 'postgres', true);
     select count(*) into v_count
-    from public.season_snapshots where season_id = v_season_b;
+    from public.season_snapshots
+    where season_id in (v_season_a, v_season_b);
     if v_count <> 0 then
-        raise exception 'FAIL: snapshot cross-league presente (%)', v_count;
+        raise exception 'FAIL: snapshot diretto presente (%)', v_count;
     end if;
     select is_active into v_active
     from public.seasons where id = v_season_b;
@@ -257,6 +467,123 @@ begin
         raise exception 'FAIL: stagione A disattivata da standings invalide';
     end if;
 
+    -- 4a) Payload incoerenti: userId/posizioni duplicati, buchi e negativi.
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    for v_bad_standings in
+        select unnest(array[
+            v_standings_dup_user,
+            v_standings_dup_user_case,
+            v_standings_dup_position,
+            v_standings_gap,
+            v_standings_negative,
+            v_standings_negative_wins,
+            v_standings_negative_best,
+            v_standings_missing_total,
+            v_standings_bad_uuid,
+            v_standings_exmember_old
+        ])
+    loop
+        begin
+            perform public.archive_season(
+                v_league_a, v_season_a, '2026 A', v_bad_standings
+            );
+            raise exception 'FAIL: standings incoerenti accettate';
+        exception when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+        end;
+    end loop;
+
+    perform set_config('role', 'postgres', true);
+    select count(*) into v_count
+    from public.season_snapshots where season_id = v_season_a;
+    if v_count <> 0 then
+        raise exception 'FAIL: snapshot creato da standings incoerenti (%)', v_count;
+    end if;
+    select is_active into v_active
+    from public.seasons where id = v_season_a;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione A disattivata da standings incoerenti';
+    end if;
+
+    -- 4b) is_active non e' aggiornabile direttamente dai client: il grant
+    -- colonnare esclude la colonna, mentre la RPC owner puo' aggiornarla.
+    if has_table_privilege('authenticated', 'public.seasons', 'UPDATE')
+       or has_column_privilege('authenticated', 'public.seasons', 'is_active', 'UPDATE') then
+        raise exception 'FAIL: authenticated conserva UPDATE su seasons.is_active';
+    end if;
+
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        update public.seasons
+        set is_active = false
+        where id = v_season_a;
+        raise exception 'FAIL: deactivation diretta consentita';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso deactivation diretta: %', SQLERRM;
+    end;
+
+    -- Anche un player (non admin) non puo' deattivare la stagione: il
+    -- privilegio colonnare manca prima ancora della RLS.
+    perform set_config('request.jwt.claim.sub', v_member_b::text, true);
+    begin
+        update public.seasons
+        set is_active = false
+        where id = v_season_b;
+        raise exception 'FAIL: deactivation diretta da player consentita';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso deactivation da player: %', SQLERRM;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active
+    from public.seasons where id = v_season_b;
+    if v_active is distinct from true then
+        raise exception 'FAIL: player ha deattivato la stagione B';
+    end if;
+
+    -- Metadati legittimi: il nome resta modificabile dall'admin.
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    update public.seasons
+    set name = '2026 A renamed'
+    where id = v_season_a;
+    get diagnostics v_count = row_count;
+    if v_count <> 1 then
+        raise exception 'FAIL: update metadati legittimo bloccato (%)', v_count;
+    end if;
+    update public.seasons
+    set name = '2026 A'
+    where id = v_season_a;
+    get diagnostics v_count = row_count;
+    if v_count <> 1 then
+        raise exception 'FAIL: ripristino metadati fallito (%)', v_count;
+    end if;
+
+    -- Un membro non admin ha il grant colonnare ma RLS deve bloccare.
+    perform set_config('request.jwt.claim.sub', v_member_b::text, true);
+    update public.seasons
+    set name = 'Aggiornata da member B'
+    where id = v_season_a;
+    get diagnostics v_count = row_count;
+    if v_count <> 0 then
+        raise exception 'FAIL: non-admin ha aggiornato i metadati (%)', v_count;
+    end if;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active
+    from public.seasons where id = v_season_a;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione A disattivata da update diretto';
+    end if;
+
     -- 5) Archiviazione valida della stagione B da parte di admin B.
     -- Il nome passato dal client e' volutamente diverso: deve vincere quello
     -- autorevole del database.
@@ -284,6 +611,28 @@ begin
     from public.seasons where id = v_season_b;
     if v_active is distinct from false then
         raise exception 'FAIL: stagione B ancora attiva';
+    end if;
+
+    -- Reattivazione diretta: deve essere rifiutata dal grant colonnare.
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_b::text, true);
+    begin
+        update public.seasons
+        set is_active = true
+        where id = v_season_b;
+        raise exception 'FAIL: reactivation diretta consentita';
+    exception
+        when insufficient_privilege then null;
+        when others then
+            if SQLERRM like 'FAIL:%' then raise; end if;
+            raise exception 'FAIL: errore inatteso reactivation diretta: %', SQLERRM;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active
+    from public.seasons where id = v_season_b;
+    if v_active is distinct from false then
+        raise exception 'FAIL: stagione B riattivata direttamente';
     end if;
 
     -- 5b) Un ex-membro con un pronostico storico nella stagione resta
@@ -326,8 +675,17 @@ begin
         raise exception 'FAIL: estraneo legge lo snapshot (%)', v_count;
     end if;
 
-    -- 7) La tabella snapshot non ha policy update/delete: l'admin non puo'
-    -- modificare o cancellare lo snapshot con accesso diretto.
+    -- 7) Snapshot immutabili: UPDATE/DELETE revocati e nessuna policy.
+    if has_table_privilege('authenticated', 'public.season_snapshots', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.season_snapshots', 'DELETE') then
+        raise exception 'FAIL: authenticated conserva UPDATE/DELETE sugli snapshot';
+    end if;
+
+    -- Simula un grant residuo: anche con il privilegio, RLS senza policy
+    -- deve lasciare 0 righe modificate/cancellate.
+    perform set_config('role', 'postgres', true);
+    grant update, delete on public.season_snapshots to authenticated;
+    perform set_config('role', 'authenticated', true);
     perform set_config('request.jwt.claim.sub', v_admin_b::text, true);
     update public.season_snapshots
     set league_id = v_league_a
@@ -343,6 +701,7 @@ begin
     end if;
 
     perform set_config('role', 'postgres', true);
+    revoke update, delete on public.season_snapshots from authenticated;
     select count(*) into v_count
     from public.season_snapshots where season_id = v_season_b;
     if v_count <> 1 then
@@ -469,6 +828,68 @@ begin
 
     drop trigger if exists test_fail_season_update on public.seasons;
     drop function if exists public.test_fail_season_update();
+
+    -- 10b) Fallimento durante l'INSERT dello snapshot: la stagione deve
+    -- restare attiva e non deve restare alcuno snapshot parziale.
+    perform set_config('role', 'postgres', true);
+    create or replace function public.test_fail_snapshot_insert()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+        if new.season_id::text = current_setting('test.fail_snapshot_season', true) then
+            raise exception 'simulated failure during snapshot insert';
+        end if;
+        return new;
+    end;
+    $$;
+    drop trigger if exists test_fail_snapshot_insert on public.season_snapshots;
+    create trigger test_fail_snapshot_insert
+        before insert on public.season_snapshots
+        for each row execute function public.test_fail_snapshot_insert();
+    perform set_config('test.fail_snapshot_season', v_season_e::text, true);
+
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.archive_season(
+            v_league_a, v_season_e, '2026 E', v_standings_a
+        );
+        raise exception 'FAIL: archivio E non fallito';
+    exception when others then
+        if SQLERRM like 'FAIL:%' then raise; end if;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select count(*) into v_count
+    from public.season_snapshots where season_id = v_season_e;
+    if v_count <> 0 then
+        raise exception 'FAIL: snapshot E rimasto dopo rollback (%)', v_count;
+    end if;
+    select is_active into v_active
+    from public.seasons where id = v_season_e;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione E disattivata dopo rollback dello snapshot';
+    end if;
+
+    drop trigger if exists test_fail_snapshot_insert on public.season_snapshots;
+    drop function if exists public.test_fail_snapshot_insert();
+
+    -- 11) Grant della RPC: anon fuori, authenticated dentro.
+    if has_function_privilege(
+        'anon',
+        'public.archive_season(uuid,uuid,text,jsonb)',
+        'EXECUTE'
+    ) then
+        raise exception 'FAIL: anon puo eseguire archive_season';
+    end if;
+    if not has_function_privilege(
+        'authenticated',
+        'public.archive_season(uuid,uuid,text,jsonb)',
+        'EXECUTE'
+    ) then
+        raise exception 'FAIL: authenticated non puo eseguire archive_season';
+    end if;
 
     raise notice 'season snapshot integrity: cross-league, RLS e atomicità OK';
 end;

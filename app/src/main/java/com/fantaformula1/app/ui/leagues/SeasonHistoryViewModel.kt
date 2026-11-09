@@ -12,6 +12,7 @@ import com.fantaformula1.app.data.repository.PastSeason
 import com.fantaformula1.app.data.repository.RaceRepository
 import com.fantaformula1.app.data.repository.SeasonHistoryRepository
 import com.fantaformula1.app.data.repository.UserException
+import com.fantaformula1.app.data.repository.restrictToRaceIds
 import com.fantaformula1.app.data.util.AppJson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,8 +111,14 @@ class SeasonHistoryViewModel(
                 val rules = league?.rules ?: Rules()
                 val memberNames = leagueRepository.members(leagueId)
                     .associate { it.userId to it.displayName }
+                // La query di lega contiene anche gare/pronostici storici:
+                // lo snapshot deve usare solo le gare della stagione che si
+                // sta archiviando, altrimenti i totali diventano all-time.
                 val races = raceRepository.races(leagueId)
+                    .filter { it.seasonId == season.seasonId }
+                val raceIds = races.map { it.id }.toSet()
                 val data = leagueDataRepository.raceData(leagueId)
+                    .restrictToRaceIds(raceIds)
 
                 val results = data.races
                     .mapNotNull { datum -> datum.result?.let { datum.raceId to it } }

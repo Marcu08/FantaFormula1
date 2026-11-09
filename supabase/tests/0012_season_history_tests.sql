@@ -3,15 +3,16 @@
 -- File: supabase/tests/0012_season_history_tests.sql
 --
 -- PREDISPOSTI, NON ESEGUITI (richiedono Supabase di test + migrazioni
--- 0001-0012). Eseguire come script unico nel SQL Editor; il block DO si
--- chiude sempre con un'eccezione = self-rollback (nessun dato residuo).
+-- 0001-0012 e 20261109200000_season_snapshot_integrity.sql). Eseguire come
+-- script unico nel SQL Editor; il block DO si chiude sempre con un'eccezione
+-- = self-rollback (nessun dato residuo).
 --
 -- Sostituire '<UUID_ADMIN>', '<UUID_GIOCATORE>' e '<UUID_ESTRANEO>' con tre
 -- UUID a piacere (non devono corrispondere ad auth.users: i profili vengono
 -- creati qui).
 --
 -- Coperti:
---   * insert da admin (archiviato da se stesso) -> consentita
+--   * insert diretto da admin -> rifiutata (snapshot creato solo via RPC)
 --   * insert con archived_by diverso da auth.uid() -> rifiutata
 --   * insert da non-membro -> rifiutata
 --   * select da membro -> vede lo snapshot
@@ -77,7 +78,8 @@ begin
         insert into test_results values ('insert con archived_by altrui rifiutato',
                                          false, 'inserimento riuscito');
     exception when others then
-        if SQLERRM like '%row-level security%' then
+        if SQLERRM like '%row-level security%'
+           or SQLERRM like '%permission denied%' then
             insert into test_results values ('insert con archived_by altrui rifiutato',
                                              true, null);
         else
@@ -95,7 +97,8 @@ begin
         insert into test_results values ('insert da non-membro rifiutato',
                                          false, 'inserimento riuscito');
     exception when others then
-        if SQLERRM like '%row-level security%' then
+        if SQLERRM like '%row-level security%'
+           or SQLERRM like '%permission denied%' then
             insert into test_results values ('insert da non-membro rifiutato',
                                              true, null);
         else
@@ -104,21 +107,24 @@ begin
         end if;
     end;
 
-    -- Insert da admin con archived_by = auth.uid(): consentito.
+    -- Insert diretto da admin: ora deve essere rifiutato; lo snapshot si
+    -- crea solo tramite archive_season (SECURITY DEFINER).
     perform set_config('request.jwt.claim.sub', v_admin::text, true);
     begin
         insert into public.season_snapshots
             (season_id, league_id, season_name, standings, archived_by)
         values (v_season_a, v_league, '2026', '{"rows":[]}', v_admin);
-        if exists (select 1 from public.season_snapshots
-                   where season_id = v_season_a and archived_by = v_admin) then
-            insert into test_results values ('insert da admin consentito', true, null);
-        else
-            insert into test_results values ('insert da admin consentito',
-                                             false, 'riga non presente');
-        end if;
+        insert into test_results values ('insert diretto da admin rifiutato',
+                                         false, 'inserimento riuscito');
     exception when others then
-        insert into test_results values ('insert da admin consentito', false, SQLERRM);
+        if SQLERRM like '%row-level security%'
+           or SQLERRM like '%permission denied%' then
+            insert into test_results values ('insert diretto da admin rifiutato',
+                                             true, null);
+        else
+            insert into test_results values ('insert diretto da admin rifiutato',
+                                             false, SQLERRM);
+        end if;
     end;
 
     -- Select da un membro (giocatore): vede lo snapshot pre-caricato.
@@ -161,7 +167,12 @@ begin
                                              false, 'riga aggiornata');
         end if;
     exception when others then
-        insert into test_results values ('update non tocca lo snapshot', false, SQLERRM);
+        if SQLERRM like '%row-level security%'
+           or SQLERRM like '%permission denied%' then
+            insert into test_results values ('update non tocca lo snapshot', true, null);
+        else
+            insert into test_results values ('update non tocca lo snapshot', false, SQLERRM);
+        end if;
     end;
 
     -- Immutabilita': nessuna policy di DELETE -> nessuna riga eliminata.
@@ -174,7 +185,12 @@ begin
                                              false, 'riga eliminata');
         end if;
     exception when others then
-        insert into test_results values ('delete non tocca lo snapshot', false, SQLERRM);
+        if SQLERRM like '%row-level security%'
+           or SQLERRM like '%permission denied%' then
+            insert into test_results values ('delete non tocca lo snapshot', true, null);
+        else
+            insert into test_results values ('delete non tocca lo snapshot', false, SQLERRM);
+        end if;
     end;
 
     -- ------------------------------------------------------------ esiti

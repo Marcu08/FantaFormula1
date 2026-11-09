@@ -1,20 +1,38 @@
 -- =============================================================================
 -- FantaFormula 1 - season snapshot integrity and atomic archival
 --
--- Corregge due problemi dell'audit:
+-- Corregge quattro problemi dell'audit:
 --   1) season_snapshots poteva riferire una stagione di un'altra lega:
 --      la FK su season_id controllava solo l'esistenza della stagione, non
 --      la coppia (season_id, league_id).
 --   2) l'archiviazione client faceva INSERT dello snapshot e UPDATE della
 --      stagione in due richieste separate: un errore a meta' lasciava uno
 --      stato parziale.
+--   3) gli utenti autenticati potevano creare/modificare snapshot con
+--      INSERT/UPDATE/DELETE diretti (P1).
+--   4) is_active poteva essere cambiato con un UPDATE diretto su seasons (P2).
 --
 -- La migrazione:
 --   - verifica i dati esistenti e fallisce esplicitamente se trova snapshot
 --     con league_id diverso dalla stagione (nessuna cancellazione silenziosa);
 --   - aggiunge/valida la FK composita (season_id, league_id) -> seasons;
 --   - definisce public.archive_season(...) come unica RPC transazionale,
---     con lock della stagione, controlli server-side e grant minimi.
+--     con lock della stagione, controlli server-side e grant minimi;
+--   - valida la forma della classifica: utenti/posizioni unici, posizioni
+--     contigue 1..N, valori non negativi e partecipazione alla stagione (P5);
+--   - revoca INSERT/UPDATE/DELETE diretti su season_snapshots e UPDATE su
+--     seasons.is_active, lasciando alla RPC SECURITY DEFINER la scrittura (P1/P2).
+--
+-- Ordinamento (P4): la versione 20261109200000 e' successiva sia alle
+-- migrazioni main 0001-0012 sia alle development 0013-0020 sia alla
+-- precedente 20261109120000. L'hardening viene quindi sempre applicato per
+-- ultimo e non puo' essere sostituito da 0014_audit_fixes.sql.
+--
+-- Riparazione per ambienti che avessero gia' registrato la vecchia versione
+-- 20261109120000 (non deployed da questo branch):
+--   supabase migration repair --status reverted 20261109120000
+--   supabase db push
+-- La procedura e' stata verificata con Supabase CLI 2.114.0.
 --
 -- Idempotente. NON applicata automaticamente al progetto Supabase live.
 -- =============================================================================
@@ -126,6 +144,8 @@ declare
     v_row_user uuid;
     v_position numeric;
     v_race_wins numeric;
+    v_total_points numeric;
+    v_best_points numeric;
     v_count int;
 begin
     if v_user is null then
@@ -193,6 +213,8 @@ begin
             v_row_user := (v_row ->> 'userId')::uuid;
             v_position := (v_row ->> 'position')::numeric;
             v_race_wins := (v_row ->> 'raceWins')::numeric;
+            v_total_points := (v_row ->> 'totalPoints')::numeric;
+            v_best_points := (v_row ->> 'bestRacePoints')::numeric;
         exception when others then
             raise exception 'La classifica archiviata contiene valori non validi';
         end;
@@ -202,6 +224,8 @@ begin
            or v_position < 1
            or v_race_wins <> trunc(v_race_wins)
            or v_race_wins < 0
+           or v_total_points < 0
+           or v_best_points < 0
            or btrim(v_row ->> 'displayName') = '' then
             raise exception 'La classifica archiviata non è valida';
         end if;
@@ -226,6 +250,45 @@ begin
             raise exception 'La classifica archiviata contiene un utente che non appartiene alla lega o alla stagione';
         end if;
     end loop;
+
+    -- Integrita' della classifica: niente utenti o posizioni duplicati e
+    -- posizioni contigue 1..N. I punteggi restano client-side (il motore
+    -- Kotlin non e' replicato in SQL), ma la forma della classifica e' qui.
+    if jsonb_array_length(v_rows) > 0 then
+        -- Il confronto usa il tipo uuid: lo stesso utente scritto con case
+        -- diverso (maiuscole/minuscole) resta un duplicato.
+        if (
+            select count(*)
+            from jsonb_array_elements(v_rows)
+        ) <> (
+            select count(distinct (value ->> 'userId')::uuid)
+            from jsonb_array_elements(v_rows)
+        ) then
+            raise exception 'La classifica archiviata contiene userId duplicati';
+        end if;
+
+        if (
+            select count(*)
+            from jsonb_array_elements(v_rows)
+        ) <> (
+            select count(distinct (value ->> 'position')::int)
+            from jsonb_array_elements(v_rows)
+        ) then
+            raise exception 'La classifica archiviata contiene posizioni duplicate';
+        end if;
+
+        if exists (
+            select 1
+            from generate_series(1, jsonb_array_length(v_rows)) as expected(position)
+            where not exists (
+                select 1
+                from jsonb_array_elements(v_rows) as actual
+                where (actual.value ->> 'position')::int = expected.position
+            )
+        ) then
+            raise exception 'La classifica archiviata ha posizioni non contigue';
+        end if;
+    end if;
 
     insert into public.season_snapshots (
         season_id,
@@ -258,3 +321,21 @@ comment on function public.archive_season(uuid, uuid, text, jsonb) is
 
 revoke execute on function public.archive_season(uuid, uuid, text, jsonb) from public, anon;
 grant execute on function public.archive_season(uuid, uuid, text, jsonb) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 5) Chiusura dei percorsi legacy
+--
+-- Gli snapshot sono immutabili e si creano solo dalla RPC SECURITY DEFINER.
+-- La RPC e' di proprieta' del ruolo di migrazione (owner della tabella), quindi
+-- conserva INSERT/UPDATE anche dopo la revoca ai ruoli client.
+-- -----------------------------------------------------------------------------
+drop policy if exists season_snapshots_insert_admin on public.season_snapshots;
+revoke insert, update, delete on public.season_snapshots
+    from public, anon, authenticated;
+-- La lettura resta disponibile ai membri tramite la policy SELECT.
+grant select on public.season_snapshots to authenticated;
+
+-- Su seasons l'app non aggiorna metadati in main; il grant colonnare tiene
+-- aperta la modifica legittima di nome/date e chiude is_active ai client.
+revoke update on public.seasons from public, anon, authenticated;
+grant update (name, start_date, end_date) on public.seasons to authenticated;
