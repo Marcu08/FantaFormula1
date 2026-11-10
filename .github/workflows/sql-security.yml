@@ -22,6 +22,9 @@ jobs:
           --health-retries 10
     env:
       PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci?sslmode=disable
     steps:
       - name: Checkout
@@ -53,3 +56,12 @@ jobs:
 
       - name: Legacy archive diagnostic smoke test
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/legacy_season_archive_diagnostic.sql
+
+      - name: Fail-closed D2/D3 migration lifecycle
+        run: bash supabase/tests/fail_closed_lifecycle.sh
+
+      - name: Archive concurrency and cleanup
+        run: bash supabase/tests/archive_season_concurrency.sh
+
+      - name: Recovery concurrency and cleanup
+        run: bash supabase/tests/recovery_concurrency.sh

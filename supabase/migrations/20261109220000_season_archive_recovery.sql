@@ -9,9 +9,12 @@
 -- percorso esplicito, autorizzato e auditato per completare solo lo stato
 -- "snapshot esistente + stagione attiva".
 --
--- Non modifica mai lo snapshot storico. Per snapshot cross-league o con
--- standings malformati resta obbligatorio un intervento manuale documentato
--- in supabase/MIGRATIONS.md.
+-- Non modifica mai lo snapshot storico. Per snapshot cross-league, con
+-- standings malformati o con partecipanti non eleggibili resta obbligatorio
+-- un intervento manuale documentato in supabase/MIGRATIONS.md.
+--
+-- L'eleggibilita' replica la regola di archive_season: membro corrente oppure
+-- ex-membro con pronostico in una gara della stagione archiviata.
 --
 -- Richiede 20261109200000 e 20261109210000. Idempotente.
 -- NON e' stata applicata al progetto Supabase live.
@@ -149,7 +152,84 @@ comment on function public.season_snapshot_shape_is_valid(jsonb) is
 revoke all on function public.season_snapshot_shape_is_valid(jsonb) from public, anon, authenticated;
 
 -- -----------------------------------------------------------------------------
--- 3) RPC di completamento
+-- 3) Eleggibilita' dei partecipanti
+--
+-- Stessa regola di archive_season: un utente e' eleggibile se e' un membro
+-- corrente della lega oppure ha un pronostico in una gara della stagione
+-- archiviata. Un ex-membro con soli pronostici di stagioni precedenti resta
+-- escluso. Il recupero non modifica mai lo snapshot: se questa validazione
+-- fallisce, l'archivio deve essere corretto manualmente con backup.
+-- -----------------------------------------------------------------------------
+create or replace function public.season_snapshot_participants_are_eligible(
+    p_league uuid,
+    p_season uuid,
+    p_standings jsonb
+)
+returns boolean
+language plpgsql
+stable
+security invoker
+set search_path = public
+as $participants$
+declare
+    v_rows jsonb;
+    v_row jsonb;
+    v_user uuid;
+begin
+    if p_league is null
+       or p_season is null
+       or p_standings is null
+       or jsonb_typeof(p_standings) is distinct from 'object' then
+        return false;
+    end if;
+
+    v_rows := p_standings -> 'rows';
+    if v_rows is null or jsonb_typeof(v_rows) is distinct from 'array' then
+        return false;
+    end if;
+
+    for v_row in select value from jsonb_array_elements(v_rows) loop
+        begin
+            v_user := (v_row ->> 'userId')::uuid;
+        exception when others then
+            return false;
+        end;
+
+        if v_user is null then
+            return false;
+        end if;
+
+        if not exists (
+            select 1
+            from public.league_members lm
+            where lm.league_id = p_league
+              and lm.user_id = v_user
+        ) and not exists (
+            select 1
+            from public.predictions p
+            join public.races r on r.id = p.race_id
+            where p.user_id = v_user
+              and p.league_id = p_league
+              and r.season_id = p_season
+              and r.league_id = p_league
+        ) then
+            return false;
+        end if;
+    end loop;
+
+    return true;
+exception when others then
+    return false;
+end;
+$participants$;
+
+comment on function public.season_snapshot_participants_are_eligible(uuid, uuid, jsonb) is
+    'Verifica che ogni utente dello snapshot sia membro corrente o ex-membro con pronostico nella stagione. Non eseguibile dai ruoli client.';
+
+revoke all on function public.season_snapshot_participants_are_eligible(uuid, uuid, jsonb) from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 4) RPC di completamento
 --
 -- Autorizzata solo all'admin della lega. Verifica che lo snapshot esista e sia
 -- dello stesso league/season, che la stagione sia ancora attiva, e registra
@@ -208,10 +288,14 @@ begin
         raise exception 'Nessuno snapshot da completare: usare archive_season';
     end if;
 
-    -- Non completiamo archivi con forma/duplicati/negativi non validi: in quel
-    -- caso serve un intervento manuale (diagnostica in supabase/tests).
-    if not public.season_snapshot_shape_is_valid(v_standings) then
-        raise exception 'Lo snapshot esistente non e'' valido: intervento manuale necessario';
+    -- Non completiamo archivi con forma/duplicati/negativi non validi o con
+    -- partecipanti non eleggibili: in quel caso serve un intervento manuale
+    -- (diagnostica in supabase/tests).
+    if not public.season_snapshot_shape_is_valid(v_standings)
+       or not public.season_snapshot_participants_are_eligible(
+              p_league, p_season, v_standings
+          ) then
+        raise exception 'Lo snapshot esistente non e'' valido o contiene partecipanti non eleggibili: intervento manuale necessario';
     end if;
 
     insert into public.season_archive_repairs (
@@ -239,7 +323,7 @@ end;
 $recovery$;
 
 comment on function public.complete_partial_season_archive(uuid, uuid) is
-    'Completa esplicitamente un archivio legacy con snapshot esistente e stagione ancora attiva; non modifica lo snapshot e registra un audit.';
+    'Completa esplicitamente un archivio legacy con snapshot esistente e stagione ancora attiva; valida forma e partecipanti, non modifica lo snapshot e registra un audit.';
 
 revoke execute on function public.complete_partial_season_archive(uuid, uuid) from public, anon;
 grant execute on function public.complete_partial_season_archive(uuid, uuid) to authenticated;

@@ -28,6 +28,12 @@ declare
     v_table_owner name;
     v_config text[];
     v_security_definer boolean;
+    v_other_oid oid;
+    v_other_definer boolean;
+    v_other_config text[];
+    v_guard_oid oid;
+    v_guard_definer boolean;
+    v_guard_config text[];
 begin
     if v_oid is null then
         raise exception 'VERIFY FAIL: public.archive_season(...) non esiste';
@@ -146,9 +152,84 @@ begin
     ) then
         raise exception 'VERIFY FAIL: helper ACL eseguibile dai client';
     end if;
-    if to_regprocedure('public.complete_partial_season_archive(uuid,uuid)') is null then
+    -- Nessun overload alternativo di archive_season deve essere eseguibile
+    -- dai client: una firma piu' debole aggirerebbe i controlli della canonica.
+    if exists (
+        select 1
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname = 'archive_season'
+          and p.oid <> v_oid
+          and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+    ) then
+        raise exception 'VERIFY FAIL: overload archive_season eseguibile da authenticated';
+    end if;
+
+    v_other_oid := to_regprocedure('public.complete_partial_season_archive(uuid,uuid)');
+    if v_other_oid is null then
         raise exception 'VERIFY FAIL: RPC di recupero legacy assente';
     end if;
+    select p.prosecdef, p.proconfig
+    into v_other_definer, v_other_config
+    from pg_proc p
+    where p.oid = v_other_oid;
+
+    if not coalesce(v_other_definer, false) then
+        raise exception 'VERIFY FAIL: RPC di recupero non SECURITY DEFINER';
+    end if;
+    if v_other_config is null
+       or not (v_other_config @> array['search_path=public']) then
+        raise exception 'VERIFY FAIL: RPC di recupero search_path non e'' public';
+    end if;
+    select r.rolname
+    into v_table_owner
+    from pg_proc p
+    join pg_roles r on r.oid = p.proowner
+    where p.oid = v_other_oid;
+    if v_table_owner is distinct from v_fn_owner then
+        raise exception
+            'VERIFY FAIL: owner RPC recupero (%) diverso da owner archive_season (%)',
+            v_table_owner, v_fn_owner;
+    end if;
+    if not has_function_privilege('authenticated', v_other_oid, 'EXECUTE') then
+        raise exception 'VERIFY FAIL: authenticated non puo'' eseguire la RPC di recupero';
+    end if;
+    if has_function_privilege('anon', v_other_oid, 'EXECUTE') then
+        raise exception 'VERIFY FAIL: anon puo'' eseguire la RPC di recupero';
+    end if;
+
+    v_guard_oid := to_regprocedure('public.enforce_archive_season_hardening()');
+    if v_guard_oid is null then
+        raise exception 'VERIFY FAIL: funzione event trigger di hardening assente';
+    end if;
+    select p.prosecdef, p.proconfig
+    into v_guard_definer, v_guard_config
+    from pg_proc p
+    where p.oid = v_guard_oid;
+
+    if not coalesce(v_guard_definer, false) then
+        raise exception 'VERIFY FAIL: guard DDL non SECURITY DEFINER';
+    end if;
+    if v_guard_config is null
+       or not (v_guard_config @> array['search_path=public']) then
+        raise exception 'VERIFY FAIL: guard DDL search_path non e'' public';
+    end if;
+    select r.rolname
+    into v_table_owner
+    from pg_proc p
+    join pg_roles r on r.oid = p.proowner
+    where p.oid = v_guard_oid;
+    if v_table_owner is distinct from v_fn_owner then
+        raise exception
+            'VERIFY FAIL: owner guard DDL (%) diverso da owner archive_season (%)',
+            v_table_owner, v_fn_owner;
+    end if;
+    if has_function_privilege('authenticated', v_guard_oid, 'EXECUTE')
+       or has_function_privilege('anon', v_guard_oid, 'EXECUTE') then
+        raise exception 'VERIFY FAIL: guard DDL eseguibile dai client';
+    end if;
+
     if to_regprocedure('public.season_snapshot_shape_is_valid(jsonb)') is null then
         raise exception 'VERIFY FAIL: validatore snapshot legacy assente';
     end if;
@@ -159,14 +240,29 @@ begin
     ) then
         raise exception 'VERIFY FAIL: validatore snapshot legacy eseguibile dai client';
     end if;
+    if to_regprocedure(
+        'public.season_snapshot_participants_are_eligible(uuid,uuid,jsonb)'
+    ) is null then
+        raise exception 'VERIFY FAIL: validatore partecipanti legacy assente';
+    end if;
+    if has_function_privilege(
+        'authenticated',
+        'public.season_snapshot_participants_are_eligible(uuid,uuid,jsonb)',
+        'EXECUTE'
+    ) then
+        raise exception 'VERIFY FAIL: validatore partecipanti eseguibile dai client';
+    end if;
 
     if not exists (
         select 1
         from pg_event_trigger
         where evtname = 'archive_season_hardening_guard'
           and evtenabled = 'O'
+          and evtfoid = v_guard_oid
+          and evttags is not null
+          and 'CREATE FUNCTION' = any(evttags)
     ) then
-        raise exception 'VERIFY FAIL: event trigger di hardening assente o disabilitato';
+        raise exception 'VERIFY FAIL: event trigger di hardening assente, disabilitato o non collegato al guard';
     end if;
 
     if exists (
@@ -197,6 +293,27 @@ begin
     if has_schema_privilege('authenticated', 'public', 'CREATE')
        or has_schema_privilege('anon', 'public', 'CREATE') then
         raise exception 'VERIFY FAIL: ruolo client puo'' creare oggetti in public';
+    end if;
+
+    -- Se la cronologia Supabase e' presente, le tre migrazioni finali devono
+    -- essere registrate. Questo intercetta un deploy CLI interrotto prima
+    -- della chiusura (D2/D3). Nei test psql senza schema_migrations il check
+    -- e' saltato; il deploy reale usa sempre la cronologia CLI.
+    if exists (
+        select 1 from pg_namespace where nspname = 'supabase_migrations'
+    ) and to_regclass('supabase_migrations.schema_migrations') is not null then
+        if not exists (
+            select 1 from supabase_migrations.schema_migrations
+            where version = '20261109200000'
+        ) or not exists (
+            select 1 from supabase_migrations.schema_migrations
+            where version = '20261109210000'
+        ) or not exists (
+            select 1 from supabase_migrations.schema_migrations
+            where version = '20261109220000'
+        ) then
+            raise exception 'VERIFY FAIL: cronologia migrazioni finale incompleta';
+        end if;
     end if;
 
     raise notice 'VERIFY OK: archive_season hardened, ACL minime, FK RESTRICT, guard attivo';

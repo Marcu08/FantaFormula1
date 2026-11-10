@@ -34,11 +34,17 @@ declare
     v_season_e   uuid;
     v_season_f   uuid;
     v_season_g   uuid;
+    v_season_h   uuid;
+    v_season_i   uuid;
+    v_season_j   uuid;
+    v_season_k   uuid;
     v_race_d     uuid;
     v_race_e     uuid;
+    v_race_h     uuid;
     v_standings_a jsonb;
     v_standings_b jsonb;
     v_standings_bad jsonb;
+    v_standings_other_league jsonb;
     v_standings_exmember jsonb;
     v_standings_exmember_old jsonb;
     v_standings_dup_user jsonb;
@@ -57,6 +63,7 @@ declare
     v_def        text;
     v_league     uuid;
     v_archived   uuid;
+    v_state      text;
 begin
     -- Utenti distinti. admin_a e' anche membro (non admin) della lega B.
     insert into auth.users (id, email)
@@ -114,6 +121,18 @@ begin
     insert into public.seasons (league_id, name, is_active)
     values (v_league_a, '2026 G', true)
     returning id into v_season_g;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 H', true)
+    returning id into v_season_h;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 I', true)
+    returning id into v_season_i;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 J', true)
+    returning id into v_season_j;
+    insert into public.seasons (league_id, name, is_active)
+    values (v_league_a, '2026 K', true)
+    returning id into v_season_k;
 
     -- Le gare servono al test dell'ex-membro con pronostico storico e ai
     -- test di rollback durante l'archiviazione.
@@ -128,6 +147,13 @@ begin
     insert into public.races (season_id, league_id, round, name, deadline)
     values (v_season_e, v_league_a, 1, 'Gara E', now() + interval '2 days')
     returning id into v_race_e;
+    insert into public.races (season_id, league_id, round, name, deadline)
+    values (v_season_h, v_league_a, 1, 'Gara H', now() + interval '2 days')
+    returning id into v_race_h;
+
+    -- Ex-membro con pronostico nella stagione H: recupero legittimo.
+    insert into public.predictions (race_id, league_id, user_id, content)
+    values (v_race_h, v_league_a, v_ex_member, '{"entries":[]}'::jsonb);
 
     -- Ex-membro con un pronostico storico nella stagione D: deve restare
     -- archiviabile come "Ex giocatore" (semantica di LeagueStandings).
@@ -178,6 +204,26 @@ begin
                 'position', 1,
                 'userId', v_outsider::text,
                 'displayName', 'Outsider',
+                'totalPoints', 5.0,
+                'raceWins', 0,
+                'bestRacePoints', 5.0
+            )
+        )
+    );
+    v_standings_other_league := jsonb_build_object(
+        'rows', jsonb_build_array(
+            jsonb_build_object(
+                'position', 1,
+                'userId', v_admin_a::text,
+                'displayName', 'Admin A',
+                'totalPoints', 10.0,
+                'raceWins', 1,
+                'bestRacePoints', 10.0
+            ),
+            jsonb_build_object(
+                'position', 2,
+                'userId', v_member_b::text,
+                'displayName', 'Member B',
                 'totalPoints', 5.0,
                 'raceWins', 0,
                 'bestRacePoints', 5.0
@@ -996,9 +1042,11 @@ begin
         perform public.complete_partial_season_archive(v_league_a, v_season_e);
         raise exception 'FAIL: recupero da non-admin consentito';
     exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
         if SQLERRM like 'FAIL:%' then raise; end if;
-        if SQLERRM not like '%amministratore%' then
-            raise exception 'FAIL: errore inatteso recupero non-admin: %', SQLERRM;
+        if v_state <> 'P0001' or SQLERRM not like '%amministratore%' then
+            raise exception 'FAIL: errore inatteso recupero non-admin (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
         end if;
     end;
 
@@ -1032,13 +1080,23 @@ begin
         perform public.complete_partial_season_archive(v_league_a, v_season_e);
         raise exception 'FAIL: recupero ripetuto consentito';
     exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
         if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001' or SQLERRM not like '%non e'' attiva%' then
+            raise exception 'FAIL: errore inatteso recupero ripetuto (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
     end;
     begin
         perform public.complete_partial_season_archive(v_league_a, v_season_a);
         raise exception 'FAIL: recupero senza snapshot consentito';
     exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
         if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001' or SQLERRM not like '%Nessuno snapshot da completare%' then
+            raise exception 'FAIL: errore inatteso recupero senza snapshot (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
     end;
 
     -- Snapshot malformato: il recupero deve rifiutarlo, non completare lo stato.
@@ -1054,7 +1112,13 @@ begin
         perform public.complete_partial_season_archive(v_league_a, v_season_g);
         raise exception 'FAIL: recupero con standings invalide consentito';
     exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
         if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001'
+           or SQLERRM not like '%non e'' valido o contiene partecipanti non eleggibili%' then
+            raise exception 'FAIL: errore inatteso recupero standings invalide (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
     end;
 
     perform set_config('role', 'postgres', true);
@@ -1066,6 +1130,138 @@ begin
     from public.season_archive_repairs where season_id = v_season_g;
     if v_count <> 0 then
         raise exception 'FAIL: audit creato per recupero rifiutato (%)', v_count;
+    end if;
+
+    -- Ex-membro con pronostico nella stagione H: recupero legittimo.
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_h, v_league_a, '2026 H', v_standings_exmember, v_admin_a
+    );
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    perform public.complete_partial_season_archive(v_league_a, v_season_h);
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_h;
+    if v_active is distinct from false then
+        raise exception 'FAIL: ex-membro valido H non completato';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs where season_id = v_season_h;
+    if v_count <> 1 then
+        raise exception 'FAIL: audit recupero H mancante (%)', v_count;
+    end if;
+
+    -- Outsider senza appartenenza/predizione: rifiutato senza modifiche.
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_i, v_league_a, '2026 I', v_standings_bad, v_admin_a
+    );
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_i);
+        raise exception 'FAIL: recupero con outsider consentito';
+    exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001' or SQLERRM not like '%partecipanti non eleggibili%' then
+            raise exception 'FAIL: errore inatteso recupero outsider (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_i;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione I deattivata per outsider';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs where season_id = v_season_i;
+    if v_count <> 0 then
+        raise exception 'FAIL: audit creato per outsider (%)', v_count;
+    end if;
+    select count(*) into v_count
+    from public.season_snapshots
+    where season_id = v_season_i and standings = v_standings_bad;
+    if v_count <> 1 then
+        raise exception 'FAIL: snapshot I modificato dopo rifiuto';
+    end if;
+
+    -- Misto valido + utente di un'altra lega: rifiutato.
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_j, v_league_a, '2026 J', v_standings_other_league, v_admin_a
+    );
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_j);
+        raise exception 'FAIL: recupero con utente di altra lega consentito';
+    exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001' or SQLERRM not like '%partecipanti non eleggibili%' then
+            raise exception 'FAIL: errore inatteso recupero altra lega (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_j;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione J deattivata per utente altra lega';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs where season_id = v_season_j;
+    if v_count <> 0 then
+        raise exception 'FAIL: audit creato per utente altra lega (%)', v_count;
+    end if;
+    select count(*) into v_count
+    from public.season_snapshots
+    where season_id = v_season_j and standings = v_standings_other_league;
+    if v_count <> 1 then
+        raise exception 'FAIL: snapshot J modificato dopo rifiuto';
+    end if;
+
+    -- Duplicati: rifiutati prima di audit/deattivazione.
+    insert into public.season_snapshots (
+        season_id, league_id, season_name, standings, archived_by
+    ) values (
+        v_season_k, v_league_a, '2026 K', v_standings_dup_user, v_admin_a
+    );
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
+    begin
+        perform public.complete_partial_season_archive(v_league_a, v_season_k);
+        raise exception 'FAIL: recupero con utenti duplicati consentito';
+    exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if SQLERRM like 'FAIL:%' then raise; end if;
+        if v_state <> 'P0001' or SQLERRM not like '%partecipanti non eleggibili%' then
+            raise exception 'FAIL: errore inatteso recupero duplicati (sqlstate=%, errore=%)',
+                v_state, SQLERRM;
+        end if;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    select is_active into v_active from public.seasons where id = v_season_k;
+    if v_active is distinct from true then
+        raise exception 'FAIL: stagione K deattivata per duplicati';
+    end if;
+    select count(*) into v_count
+    from public.season_archive_repairs where season_id = v_season_k;
+    if v_count <> 0 then
+        raise exception 'FAIL: audit creato per duplicati (%)', v_count;
+    end if;
+    select count(*) into v_count
+    from public.season_snapshots
+    where season_id = v_season_k and standings = v_standings_dup_user;
+    if v_count <> 1 then
+        raise exception 'FAIL: snapshot K modificato dopo rifiuto';
     end if;
 
     -- 15) ACL complete, default grant simulation, TRUNCATE e service_role.
@@ -1117,6 +1313,17 @@ begin
         'EXECUTE'
     ) then
         raise exception 'FAIL: service_role puo eseguire archive_season senza grant esplicito';
+    end if;
+    if has_function_privilege(
+        'authenticated',
+        'public.season_snapshot_shape_is_valid(jsonb)',
+        'EXECUTE'
+    ) or has_function_privilege(
+        'authenticated',
+        'public.season_snapshot_participants_are_eligible(uuid,uuid,jsonb)',
+        'EXECUTE'
+    ) then
+        raise exception 'FAIL: validatori legacy eseguibili da authenticated';
     end if;
 
     if current_setting('server_version_num')::int >= 170000 then

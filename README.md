@@ -69,19 +69,37 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`0011_fixes.sql`](supabase/migrations/0011_fixes.sql) →
    [`0012_season_history.sql`](supabase/migrations/0012_season_history.sql).
 
-   Se nel tuo ramo sono presenti anche le migrazioni sviluppo
-   `0013`–`0020`, applicale **prima** delle tre migrazioni di integrità.
-   Applica poi, senza saltarne nessuna:
+   Le migrazioni sviluppo `0013`–`0020` sono incluse nel branch corrente.
+   Applicale **prima** delle tre migrazioni di integrità, senza saltarne
+   nessuna:
    [`20261109200000_season_snapshot_integrity.sql`](supabase/migrations/20261109200000_season_snapshot_integrity.sql) →
    [`20261109210000_season_snapshot_deployment_guard.sql`](supabase/migrations/20261109210000_season_snapshot_deployment_guard.sql) →
    [`20261109220000_season_archive_recovery.sql`](supabase/migrations/20261109220000_season_archive_recovery.sql).
 
+   La `0014` di questo branch installa direttamente la funzione hardened, non
+   la vecchia implementazione debole. Se il database contiene già una funzione
+   legacy o una migrazione precedente, esegui **prima** il preflight:
+
+   ```bash
+   DATABASE_URL='postgresql://...' \
+     ./supabase/tests/preflight_revoke_archive_execute.sh
+   ```
+
+   Il preflight revoca `EXECUTE` da `public/anon/authenticated` fuori dalla
+   transazione delle migrazioni. Se un deploy o una riparazione si interrompe,
+   authenticated non può eseguire una vecchia funzione. Il grant viene
+   ripristinato solo dalla funzione hardened.
+
    `20261109200000` da sola **non è sufficiente**: la
    `20261109210000` riasserisce la funzione hardened, revoca le ACL residue e
    installa il guard DDL fail-closed. La `20261109220000` aggiunge il recupero
-   auditato degli archivi legacy parziali. La sequenza canonica, i casi
-   A–E, le riparazioni di cronologia e le precondizioni sono in
+   auditato e la validazione dei partecipanti. La sequenza canonica, D2/D3,
+   le interruzioni, le riparazioni di cronologia e le precondizioni sono in
    [`supabase/MIGRATIONS.md`](supabase/MIGRATIONS.md).
+
+   In D3 (guard già installato) **non disabilitare il guard**: la `0014`
+   hardened passa il controllo. Se viene usato un vecchio `0014`, il guard
+   rifiuta la sostituzione e il deploy si ferma.
 
    Dopo il deploy esegui il verifier read-only:
 
@@ -104,8 +122,10 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
 
    Le verifiche SQL sono eseguite su PostgreSQL 17.5 e con Supabase CLI
    2.114.0; **non** sono state eseguite sul progetto Supabase live. I test
-   automatici sono in `.github/workflows/sql-security.yml`; la diagnostica
-   pre-deploy è in
+   automatici sono in `.github/workflows/sql-security.yml` e includono il
+   lifecycle fail-closed in
+   [`supabase/tests/fail_closed_lifecycle.sh`](supabase/tests/fail_closed_lifecycle.sh),
+   le prove di concorrenza e la diagnostica pre-deploy in
    [`supabase/tests/legacy_season_archive_diagnostic.sql`](supabase/tests/legacy_season_archive_diagnostic.sql).
 
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,

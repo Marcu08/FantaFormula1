@@ -313,11 +313,13 @@ alter table public.season_snapshots
 -- -----------------------------------------------------------------------------
 -- 4) Guardia DDL fail-closed
 --
--- 0014_audit_fixes.sql (development) contiene una vecchia CREATE OR REPLACE
--- FUNCTION public.archive_season(...). Se viene applicata dopo questa
+-- Versioni precedenti di 0014_audit_fixes.sql (o copie legacy di quella
+-- migrazione) contengono una vecchia CREATE OR REPLACE FUNCTION
+-- public.archive_season(...). Se una di esse viene applicata dopo questa
 -- migrazione, il guard rifiuta la sostituzione e fa fallire la migrazione:
 -- la funzione hardened resta attiva e il deploy si ferma invece di degradare
--- silenziosamente la sicurezza.
+-- silenziosamente la sicurezza. La 0014 corrente contiene il corpo hardened
+-- e quindi attraversa il guard senza bisogno di disabilitarlo.
 -- -----------------------------------------------------------------------------
 create or replace function public.enforce_archive_season_hardening()
 returns event_trigger
