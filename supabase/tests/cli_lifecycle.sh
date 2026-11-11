@@ -137,12 +137,14 @@ direct_push() {
 run_wrapper() {
     local workdir="$1" db="$2" log="$3"
     local repair_file="${4:-$REPO_ROOT/supabase/repair/archive_season_repair.sql}"
+    local verifier_file="${5:-$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql}"
     SUPABASE_WORKDIR="$workdir" \
     EXPECTED_DATABASE="$db" \
     PSQL="$PSQL" \
     SUPABASE="$SUPABASE" \
     SUPABASE_CLI_VERSION="$SUPABASE_CLI_VERSION" \
     ARCHIVE_REPAIR_SQL_FILE="$repair_file" \
+    ARCHIVE_VERIFIER_SQL_FILE="$verifier_file" \
     DATABASE_URL="$(db_url "$db")" \
         bash "$REPO_ROOT/supabase/scripts/deploy_archive_safe.sh" >"$log" 2>&1
 }
@@ -222,7 +224,8 @@ assert_final_db() {
 expect_wrapper_failure() {
     local workdir="$1" db="$2" log="$3" label="$4"
     local repair_file="${5:-$REPO_ROOT/supabase/repair/archive_season_repair.sql}"
-    if run_wrapper "$workdir" "$db" "$log" "$repair_file"; then
+    local verifier_file="${6:-$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql}"
+    if run_wrapper "$workdir" "$db" "$log" "$repair_file" "$verifier_file"; then
         fail "$label wrapper unexpectedly succeeded"
     fi
     echo "OK: $label failed closed"
@@ -279,6 +282,16 @@ cp "$REPO_ROOT/supabase/tests/fixtures/weak_archive_season.sql" \
     "$WEAK0014/supabase/migrations/0014_audit_fixes.sql"
 REPAIR_FAIL_TOP="$TMP_ROOT/repair_fail_top.sql"
 REPAIR_FAIL_MID="$TMP_ROOT/repair_fail_mid.sql"
+VERIFIER_FAIL_FINAL="$TMP_ROOT/verifier_fail_final.sql"
+cat >"$VERIFIER_FAIL_FINAL" <<'SQL'
+do $inject$
+begin
+    if current_setting('app.archive_verify_expect_auth', true) = 'true' then
+        raise exception 'injected final verifier failure';
+    end if;
+end;
+$inject$;
+SQL
 "$PYTHON_BIN" - "$MIGRATIONS_DIR/20261109230000_archive_season_exact_protection.sql" \
     "$REPAIR_FAIL_TOP" "top" "injected repair failure before replacement" <<'PY'
 import sys
@@ -341,6 +354,21 @@ run_verifier "$DB_LOCKEDREPAIR" false true >/dev/null || fail "locked verifier s
 run_wrapper "$FULL" "$DB_LOCKEDREPAIR" "$LOG_DIR/lockedrepair-retry.log" || { tail -n 30 "$LOG_DIR/lockedrepair-retry.log" >&2; fail "locked repair retry"; }
 assert_final_db "$DB_LOCKEDREPAIR" "locked repair retry"
 echo "OK: canonical repair failure reported locked, retry succeeded"
+
+echo "== Failure after permission restoration (final verifier injection) =="
+DB_FINALFAIL=ff1_cli_finalfail
+clone_db "$DB_FRESH" "$DB_FINALFAIL"
+expect_wrapper_failure "$FULL" "$DB_FINALFAIL" "$LOG_DIR/finalfail.log" "final verifier failure" \
+    "$REPO_ROOT/supabase/repair/archive_season_repair.sql" "$VERIFIER_FAIL_FINAL"
+grep -q 'injected final verifier failure' "$LOG_DIR/finalfail.log" \
+    || fail "final verifier injection did not fire"
+assert_true "$(function_is_hardened "$DB_FINALFAIL" && echo t || echo f)" "final verifier failure must keep canonical body"
+assert_false "$(auth_exec "$DB_FINALFAIL")" "final verifier failure must re-lock authenticated"
+assert_eq "$(lockout_active "$DB_FINALFAIL")" "t" "final verifier failure lockout"
+run_verifier "$DB_FINALFAIL" false true >/dev/null || fail "locked verifier after final-verifier failure"
+run_wrapper "$FULL" "$DB_FINALFAIL" "$LOG_DIR/finalfail-retry.log" || { tail -n 30 "$LOG_DIR/finalfail-retry.log" >&2; fail "final verifier failure retry"; }
+assert_final_db "$DB_FINALFAIL" "final verifier failure retry"
+echo "OK: final-verifier failure re-locked and retry succeeded"
 
 echo "== D2 upgrade =="
 DB_D2=ff1_cli_d2

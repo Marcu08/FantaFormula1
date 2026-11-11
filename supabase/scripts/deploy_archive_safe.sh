@@ -32,6 +32,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SUPABASE_WORKDIR="${SUPABASE_WORKDIR:-$REPO_ROOT}"
 SUPABASE_SKIP_VAULT="${SUPABASE_SKIP_VAULT:-1}"
 ARCHIVE_REPAIR_SQL_FILE="${ARCHIVE_REPAIR_SQL_FILE:-$REPO_ROOT/supabase/repair/archive_season_repair.sql}"
+ARCHIVE_VERIFIER_SQL_FILE="${ARCHIVE_VERIFIER_SQL_FILE:-$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql}"
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
 
@@ -60,6 +61,10 @@ if ! command -v "$SUPABASE" >/dev/null 2>&1; then
 fi
 if [ ! -f "$ARCHIVE_REPAIR_SQL_FILE" ]; then
     echo "FAIL: repair SQL file not found: $ARCHIVE_REPAIR_SQL_FILE" >&2
+    exit 2
+fi
+if [ ! -f "$ARCHIVE_VERIFIER_SQL_FILE" ]; then
+    echo "FAIL: verifier SQL file not found: $ARCHIVE_VERIFIER_SQL_FILE" >&2
     exit 2
 fi
 
@@ -95,7 +100,7 @@ run_verifier() {
     {
         printf "set app.archive_verify_expect_auth = '%s';\n" "$expect_auth"
         printf "set app.archive_verify_expect_lockout = '%s';\n" "$expect_lockout"
-        cat "$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql"
+        cat "$ARCHIVE_VERIFIER_SQL_FILE"
     } | "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1
 }
 
