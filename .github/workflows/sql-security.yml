@@ -25,7 +25,9 @@ jobs:
       PGHOST: 127.0.0.1
       PGPORT: "5432"
       PGUSER: postgres
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci?sslmode=disable
+      PGSSLMODE: disable
+      SUPABASE_CLI_VERSION: 2.114.0
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,18 +37,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      - name: Install pinned Supabase CLI
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" -o /tmp/supabase.tar.gz
+          sudo tar -xzf /tmp/supabase.tar.gz -C /usr/local/bin supabase
+          supabase --version
+
       - name: Create test database
         run: psql -h 127.0.0.1 -U postgres -d postgres -c 'create database ff1_ci'
 
       - name: Bootstrap Supabase-compatible roles and auth schema
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci_setup.sql
 
-      - name: Apply migrations in filename order
-        run: |
-          for migration in $(find supabase/migrations -maxdepth 1 -name '*.sql' | sort); do
-            echo "Applying $migration"
-            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
-          done
+      - name: Deploy fresh database through the canonical wrapper
+        run: bash supabase/scripts/deploy_archive_safe.sh
 
       - name: Post-deploy hardening verification
         run: bash supabase/tests/verify_archive_season_hardening.sh
@@ -57,8 +61,11 @@ jobs:
       - name: Legacy archive diagnostic smoke test
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/legacy_season_archive_diagnostic.sql
 
-      - name: Fail-closed D2/D3 migration lifecycle
-        run: bash supabase/tests/fail_closed_lifecycle.sh
+      - name: Real Supabase CLI lifecycle (fresh, D2, D3, C1, C2, C3, failures, retries)
+        run: bash supabase/tests/cli_lifecycle.sh
+
+      - name: Preflight and verifier negative tests
+        run: bash supabase/tests/security_negatives.sh
 
       - name: Archive concurrency and cleanup
         run: bash supabase/tests/archive_season_concurrency.sh

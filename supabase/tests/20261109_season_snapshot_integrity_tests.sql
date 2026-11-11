@@ -1,9 +1,8 @@
 -- =============================================================================
 -- FantaFormula 1 - test season snapshot integrity + atomic archive
 --
--- Eseguire dopo 0001-0012, 20261109200000_season_snapshot_integrity.sql,
--- 20261109210000_season_snapshot_deployment_guard.sql e
--- 20261109220000_season_archive_recovery.sql.
+-- Eseguire su un database finalizzato dal wrapper canonico, dopo 0001-0012,
+-- 20261109200000, 20261109210000, 20261109220000 e 20261109230000.
 -- Il test crea dati temporanei, cambia ruolo/JWT come farebbe Supabase e
 -- termina con rollback: nessun dato resta nel database.
 -- =============================================================================
@@ -1341,6 +1340,47 @@ begin
     ) then
         raise exception 'FAIL: event trigger di hardening assente o disabilitato';
     end if;
+    if not exists (
+        select 1 from pg_event_trigger
+        where evtname = 'archive_season_mutation_guard'
+          and evtenabled = 'O'
+    ) then
+        raise exception 'FAIL: event trigger di mutazione assente o disabilitato';
+    end if;
+    if to_regclass('public.archive_season_canonical_definition') is null then
+        raise exception 'FAIL: canonical definition store assente';
+    end if;
+    if has_table_privilege('authenticated', 'public.archive_season_canonical_definition', 'SELECT')
+       or has_table_privilege('anon', 'public.archive_season_canonical_definition', 'SELECT')
+       or has_table_privilege('service_role', 'public.archive_season_canonical_definition', 'SELECT') then
+        raise exception 'FAIL: canonical definition store accessibile ai client';
+    end if;
+    if to_regclass('public.archive_season_deploy_lockout') is null then
+        raise exception 'FAIL: deployment lockout table assente';
+    end if;
+    if (select active from public.archive_season_deploy_lockout where singleton) is not false then
+        raise exception 'FAIL: deployment lockout ancora attivo dopo finalize';
+    end if;
+    if has_table_privilege('authenticated', 'public.archive_season_deploy_lockout', 'SELECT')
+       or has_table_privilege('anon', 'public.archive_season_deploy_lockout', 'SELECT')
+       or has_table_privilege('service_role', 'public.archive_season_deploy_lockout', 'SELECT') then
+        raise exception 'FAIL: deployment lockout table accessibile ai client';
+    end if;
+    if not exists (
+        select 1 from pg_constraint
+        where conrelid = 'public.season_snapshots'::regclass
+          and conname = 'season_snapshots_season_id_fkey'
+    ) or not exists (
+        select 1 from pg_constraint
+        where conrelid = 'public.season_snapshots'::regclass
+          and conname = 'season_snapshots_league_id_fkey'
+    ) or not exists (
+        select 1 from pg_constraint
+        where conrelid = 'public.season_snapshots'::regclass
+          and conname = 'season_snapshots_season_league_fk'
+    ) then
+        raise exception 'FAIL: una FK snapshot richiesta e'' assente';
+    end if;
     if exists (
         select 1 from pg_constraint
         where conrelid = 'public.season_snapshots'::regclass
@@ -1349,9 +1389,9 @@ begin
               'season_snapshots_league_id_fkey',
               'season_snapshots_season_league_fk'
           )
-          and confdeltype <> 'r'
+          and (confdeltype <> 'r' or not convalidated)
     ) then
-        raise exception 'FAIL: FK snapshot non RESTRICT';
+        raise exception 'FAIL: FK snapshot non RESTRICT o non validata';
     end if;
     if has_table_privilege('authenticated', 'public.season_archive_repairs', 'SELECT')
        or has_table_privilege('authenticated', 'public.season_archive_repairs', 'INSERT')

@@ -37,6 +37,23 @@
 -- Idempotente. NON applicata automaticamente al progetto Supabase live.
 -- =============================================================================
 
+-- The external preflight is committed by the deployment wrapper before this
+-- migration starts. Do not replace this gate with a transaction-local REVOKE.
+do $archive_preflight_gate$
+begin
+    if to_regclass('public.archive_season_deploy_lockout') is null then
+        raise exception 'archive_season deployment preflight required: use supabase/scripts/deploy_archive_safe.sh';
+    end if;
+    if not exists (
+        select 1
+        from public.archive_season_deploy_lockout
+        where singleton and active
+    ) then
+        raise exception 'archive_season deployment preflight required: use supabase/scripts/deploy_archive_safe.sh';
+    end if;
+end
+$archive_preflight_gate$;
+
 -- -----------------------------------------------------------------------------
 -- 1) Controllo dati esistenti
 -- -----------------------------------------------------------------------------
@@ -319,8 +336,11 @@ $$;
 comment on function public.archive_season(uuid, uuid, text, jsonb) is
     'Archivia una stagione in modo atomico: verifica admin, lega, stagione attiva e standings, poi snapshot + disattivazione nella stessa transazione.';
 
-revoke execute on function public.archive_season(uuid, uuid, text, jsonb) from public, anon;
-grant execute on function public.archive_season(uuid, uuid, text, jsonb) to authenticated;
+revoke execute on function public.archive_season(uuid, uuid, text, jsonb)
+    from public, anon, authenticated, service_role;
+
+-- authenticated is restored only by the canonical deployment wrapper after the
+-- locked-down verifier, never by this migration.
 
 -- -----------------------------------------------------------------------------
 -- 5) Chiusura dei percorsi legacy
