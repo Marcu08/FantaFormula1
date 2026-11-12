@@ -1,0 +1,83 @@
+name: SQL security tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  postgres:
+    name: PostgreSQL 17.5 security regression
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGSSLMODE: disable
+      SUPABASE_CLI_VERSION: 2.114.0
+      SUPABASE_CLI_SHA256: f36a33ca867f1cce9ba5efa705863fdc545d1465d3719a721793ea67eb692c5a
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install pinned Supabase CLI
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" -o /tmp/supabase.tar.gz
+          echo "${SUPABASE_CLI_SHA256}  /tmp/supabase.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/supabase.tar.gz -C /usr/local/bin supabase
+          supabase --version
+
+      - name: Create test database
+        run: psql -h 127.0.0.1 -U postgres -d postgres -c 'create database ff1_ci'
+
+      - name: Bootstrap Supabase-compatible roles and auth schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci_setup.sql
+
+      - name: Deploy fresh database through the canonical wrapper
+        run: bash supabase/scripts/deploy_archive_safe.sh
+
+      - name: Post-deploy hardening verification
+        run: bash supabase/tests/verify_archive_season_hardening.sh
+
+      - name: Season snapshot SQL regression suite
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/20261109_season_snapshot_integrity_tests.sql
+
+      - name: Legacy archive diagnostic smoke test
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/legacy_season_archive_diagnostic.sql
+
+      - name: Real Supabase CLI lifecycle (fresh, D2, D3, C1, C2, C3, failures, retries)
+        run: bash supabase/tests/cli_lifecycle.sh
+
+      - name: Development migration templates 0014-0019
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'create database ff1_dev_tests template ff1_ci'
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/ff1_dev_tests \
+            bash supabase/tests/legacy_dev_migrations.sh
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'drop database ff1_dev_tests'
+
+      - name: Preflight and verifier negative tests
+        run: bash supabase/tests/security_negatives.sh
+
+      - name: Archive concurrency and cleanup
+        run: bash supabase/tests/archive_season_concurrency.sh
+
+      - name: Recovery concurrency and cleanup
+        run: bash supabase/tests/recovery_concurrency.sh

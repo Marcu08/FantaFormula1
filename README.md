@@ -55,7 +55,10 @@ Test e lint (gate di verifica prima di ogni commit):
 L'app non ha un server proprio: usa un progetto Supabase come unica fonte di verità.
 
 1. Crea un progetto gratuito su [supabase.com](https://supabase.com).
-2. Apri **SQL Editor** ed esegui le migrazioni **in ordine**, una alla volta:
+2. Se stai installando solo lo schema base, apri **SQL Editor** ed esegui
+   le migrazioni `0001`–`0012` **in ordine**, una alla volta. Per la sequenza
+   completa di sicurezza usare il wrapper descritto sotto, non il solo SQL
+   Editor:
    [`0001_init.sql`](supabase/migrations/0001_init.sql) →
    [`0002_fixes.sql`](supabase/migrations/0002_fixes.sql) →
    [`0003_security.sql`](supabase/migrations/0003_security.sql) →
@@ -66,28 +69,89 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`0008_safety_pit_bands.sql`](supabase/migrations/0008_safety_pit_bands.sql) →
    [`0009_quota.sql`](supabase/migrations/0009_quota.sql) →
    [`0010_quota_dnf.sql`](supabase/migrations/0010_quota_dnf.sql) →
-   [`0011_fixes.sql`](supabase/migrations/0011_fixes.sql)
-   (FK con cascade per eliminare gare, trigger "ultimo admin" compatibile con
-   la cancellazione a cascata, deadline obbligatoria per le nuove gare, RPC
-   `remove_league_member`) →
-   [`0012_season_history.sql`](supabase/migrations/0012_season_history.sql)
-   (tabella `season_snapshots` per lo storico stagioni: solo SELECT membri e
-   INSERT admin, nessuna policy di modifica — gli snapshot sono immutabili).
+   [`0011_fixes.sql`](supabase/migrations/0011_fixes.sql) →
+   [`0012_season_history.sql`](supabase/migrations/0012_season_history.sql).
 
-   Verifica delle migrazioni: tutte (0001→0012) e i test SQL passano il
-   parse del parser Postgres reale (libpg_query via `pglast`), 18/18 file.
-   L'applicazione su un **progetto Supabase di prova dedicato** non e' stata
-   eseguita: sull'organizzazione e' raggiunto il limite di 2 progetti free
-   attivi (FantaFormula1 e FantaCalcio365), quindi per una prova isolata
-   serve prima liberare un posto o usare un piano a pagamento. Prima di
-   applicare `0012` al progetto reale, eseguire le migrazioni in ordine
-   nell'SQL Editor come sopra (tutte le nuove sono idempotenti).
+   Le migrazioni sviluppo `0013`–`0020` sono incluse nel branch corrente.
+   Usa l'unico entry point operativo:
+
+   ```bash
+   DATABASE_URL='postgresql://...' \
+     ./supabase/scripts/deploy_archive_safe.sh
+   ```
+
+   Il wrapper applica la sequenza canonica completa:
+   [`20261109200000_season_snapshot_integrity.sql`](supabase/migrations/20261109200000_season_snapshot_integrity.sql) →
+   [`20261109210000_season_snapshot_deployment_guard.sql`](supabase/migrations/20261109210000_season_snapshot_deployment_guard.sql) →
+   [`20261109220000_season_archive_recovery.sql`](supabase/migrations/20261109220000_season_archive_recovery.sql) →
+   [`20261109230000_archive_season_exact_protection.sql`](supabase/migrations/20261109230000_archive_season_exact_protection.sql).
+
+   Non usare direttamente `supabase db push` come procedura normale: le
+   migrazioni di sicurezza controllano il lockout e rifiutano il push senza
+   preflight. Il wrapper esegue il preflight persistente, il push CLI, il
+   repair SQL esplicito (anche quando tutte le versioni risultano già
+   registrate), il verifier in lockout, il finalize e il verifier finale. Se
+   una fase fallisce, `authenticated` resta revocato e il traffico non deve
+   essere riaperto.
+
+   La `0014` di questo branch installa direttamente la funzione hardened, non
+   la vecchia implementazione debole. La
+   `20261109230000_archive_season_exact_protection.sql` installa il controllo
+   esatto della definizione canonica, rifiuta `ALTER`/`DROP`/overload e rende
+   il repair indipendente dalla cronologia. La sequenza canonica, D2/D3,
+   C1/C2/C3, le interruzioni e le precondizioni sono in
+   [`supabase/MIGRATIONS.md`](supabase/MIGRATIONS.md).
+
+   In D3 **non disabilitare mai il guard**: la `0014` canonica passa il
+   controllo esatto; un vecchio `0014` viene rifiutato.
+
+   Il wrapper esegue il verifier in due modalità. Per una verifica manuale
+   read-only dopo il deploy finale:
+
+   ```bash
+   DATABASE_URL='postgresql://...' \
+     ./supabase/tests/verify_archive_season_hardening.sh
+   ```
+
+   Il comando termina con errore se la definizione canonica non corrisponde
+   esattamente (SHA-256), se manca una FK RESTRICT validata, se
+   `authenticated`/`anon`/`service_role` hanno `EXECUTE` non previsto, se il
+   lockout non è chiuso o se una guardia DDL non è attiva.
+
+   `season_snapshots` contiene lo storico: gli utenti leggono solo gli
+   snapshot della propria lega; INSERT/UPDATE/DELETE diretti sono revocati e
+   `anon`/`service_role` non hanno accesso alla tabella. La scrittura avviene
+   esclusivamente tramite `archive_season`, che verifica
+   admin, lega, stagione attiva, standings e atomicità. Gli snapshot non
+   vengono cancellati dalle FK dei parent: le FK sono `RESTRICT` e una
+   cancellazione di lega/stagione con storico richiede un processo esplicito.
+
+   Le verifiche SQL sono eseguite su PostgreSQL 17.5 e con Supabase CLI
+   2.114.0; **non** sono state eseguite sul progetto Supabase live. I test
+   automatici sono in `.github/workflows/sql-security.yml` e includono il
+   lifecycle con CLI reale in
+   [`supabase/tests/cli_lifecycle.sh`](supabase/tests/cli_lifecycle.sh),
+   i test negativi di preflight/verifier in
+   [`supabase/tests/security_negatives.sh`](supabase/tests/security_negatives.sh),
+   i template sviluppo `0014`–`0019` in
+   [`supabase/tests/legacy_dev_migrations.sh`](supabase/tests/legacy_dev_migrations.sh),
+   le prove di concorrenza e la diagnostica pre-deploy in
+   [`supabase/tests/legacy_season_archive_diagnostic.sql`](supabase/tests/legacy_season_archive_diagnostic.sql).
 
    Vengono create tabelle (`profiles`, `leagues`, `league_members`, `seasons`,
-   `races`, `race_results`, `predictions`), le policy **RLS**, le funzioni di
-   business e il trigger di validazione server-side del contenuto dei
-   pronostici (fasce obbligatorie, quote congelate in range, soglie).
-   I test predisposti (non eseguiti, con self-rollback) sono in `supabase/tests/`.
+   `races`, `race_results`, `predictions`, `season_snapshots`), le policy
+   **RLS**, le funzioni di business e il trigger di validazione server-side del
+   contenuto dei pronostici (fasce obbligatorie, quote congelate in range,
+   soglie).
+
+   **Ordine di rilascio:** eseguire il wrapper completo (migrazioni, repair,
+   verifier e finalize), poi pubblicare l'app aggiornata (versione minima per
+   l'archiviazione: **1.3**, versionCode 4). Le versioni precedenti dell'app
+   non possono più archiviare
+   (ricevono `permission denied`), ma continuano a leggere. Una nuova app
+   installata prima della migrazione riceve “server non aggiornato”. Non esiste
+   un force-update nell'architettura attuale: comunicare l'aggiornamento agli
+   admin.
 3. Da **Authentication → Providers → Email**, disattiva "Confirm email" se vuoi che i
    nuovi giocatori entrino subito senza dover cliccare il link di conferma.
 4. Copia **Project URL** e **anon public key** da **Settings → API**.

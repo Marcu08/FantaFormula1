@@ -3,10 +3,14 @@ package com.fantaformula1.app.data.repository
 import com.fantaformula1.app.data.model.SeasonDto
 import com.fantaformula1.app.data.supabase.SupabaseHolder
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Stagione chiusa e consultabile nello storico: nome, data di archiviazione
@@ -39,9 +43,10 @@ interface SeasonHistoryRepository {
     suspend fun currentSeason(leagueId: String): CurrentSeason?
 
     /**
-     * Congela la classifica finale della stagione e la disattiva.
-     * Gli errori (già archiviata, permessi RLS) arrivano come [UserException]
-     * con messaggio in italiano.
+     * Congela la classifica finale della stagione e la disattiva in un'unica
+     * transazione server-side (RPC `archive_season`). Gli errori (già
+     * archiviata, stagione di un'altra lega, permessi) arrivano come
+     * [UserException] con messaggio in italiano.
      */
     suspend fun archiveSeason(
         leagueId: String,
@@ -55,8 +60,9 @@ interface SeasonHistoryRepository {
  * Riga di `season_snapshots`. I nomi dei campi sono in snake_case per
  * coincidere con le colonne (stesso criterio di [com.fantaformula1.app.data.model.SeasonDto]).
  *
- * `archived_at` ha default a null solo per la decodifica: l'insert lo omette
- * (il client usa encodeDefaults=false) e la colonna usa il default del server.
+ * Il client non inserisce piu' direttamente questa riga: l'archiviazione passa
+ * dalla RPC atomica `archive_season`. Il DTO resta per la lettura dello storico.
+ * `archived_at` ha default a null solo per la decodifica.
  */
 @Serializable
 internal data class SeasonSnapshotDto(
@@ -66,17 +72,6 @@ internal data class SeasonSnapshotDto(
     val standings: JsonElement,
     @SerialName("archived_by") val archivedBy: String? = null,
     @SerialName("archived_at") val archivedAt: String? = null,
-)
-
-/**
- * PATCH su `seasons` per disattivare la stagione dopo l'archiviazione.
- * Il campo NON ha default: con encodeDefaults=false un default a false
- * verrebbe omesso e la colonna resterebbe invariata (stesso problema di
- * B27 / RaceUpdateDto.deadline).
- */
-@Serializable
-internal data class SeasonUpdateDto(
-    @SerialName("is_active") val isActive: Boolean,
 )
 
 /**
@@ -125,8 +120,14 @@ internal fun mapSeasonHistoryError(rawMessage: String?, action: String): String 
             "La stagione è già stata archiviata"
 
         raw.contains("permission denied") || raw.contains("row-level security") ||
-            raw.contains("solo un amministratore") ->
+            raw.contains("insufficient privilege") ->
+            "Permessi insufficienti o versione dell'app non aggiornata. Aggiorna l'app e riprova."
+
+        raw.contains("solo un amministratore") ->
             "Solo un amministratore può $action"
+
+        raw.contains("could not find the function") || raw.contains("schema cache") ->
+            "Il server non è ancora aggiornato. Riprova più tardi o contatta l'amministratore."
 
         raw.contains("null value") || raw.contains("not-null") ->
             "Dati della stagione non validi"
@@ -138,8 +139,9 @@ internal fun mapSeasonHistoryError(rawMessage: String?, action: String): String 
 /**
  * Implementazione Supabase di [SeasonHistoryRepository].
  *
- * L'autorizzazione e' interamente nella RLS di 0012: leggono i membri della
- * lega, scrive solo l'amministratore (e solo per se stesso).
+ * La lettura resta filtrata dalla RLS di `season_snapshots`. La scrittura
+ * passa dalla RPC `archive_season`, che verifica admin/lega/stagione e
+ * aggiorna snapshot e stagione nella stessa transazione.
  */
 class SupabaseSeasonHistoryRepository(
     private val holder: SupabaseHolder,
@@ -176,32 +178,21 @@ class SupabaseSeasonHistoryRepository(
         standings: JsonElement,
     ) {
         val client = requireClient()
-        val archivedBy = authRepository.currentUserId()
+        // Controllo client per un errore immediato; l'autorizzazione vera
+        // viene ripetuta server-side dalla RPC.
+        authRepository.currentUserId()
             ?: throw UserException("Devi essere autenticato per archiviare la stagione")
 
-        // 1) Congela la classifica finale (PK = season_id: un doppio tentativo
-        //    viene rifiutato dalla RLS/vincolo con "La stagione e' gia' archiviata").
         try {
-            client.from("season_snapshots").insert(
-                SeasonSnapshotDto(
-                    seasonId = seasonId,
-                    leagueId = leagueId,
-                    seasonName = seasonName,
-                    standings = standings,
-                    archivedBy = archivedBy,
-                ),
+            client.postgrest.rpc(
+                function = "archive_season",
+                parameters = buildJsonObject {
+                    put("p_league", leagueId)
+                    put("p_season", seasonId)
+                    put("p_name", seasonName)
+                    put("p_standings", standings)
+                },
             )
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            throw UserException(mapSeasonHistoryError(throwable.message, "archiviare la stagione"))
-        }
-
-        // 2) Disattiva la stagione: le sue gare escono dalle schermate correnti.
-        try {
-            client.from("seasons").update(SeasonUpdateDto(isActive = false)) {
-                filter { eq("id", seasonId) }
-            }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {

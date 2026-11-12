@@ -31,13 +31,39 @@ class SeasonHistoryErrorTest {
     }
 
     @Test
-    fun `violazione RLS diventa solo un amministratore`() {
+    fun `violazione RLS indica permessi o app non aggiornata`() {
         val message = mapSeasonHistoryError(
             "new row violates row-level security policy for table \"season_snapshots\"",
             "archiviare la stagione",
         )
 
+        assertEquals(
+            "Permessi insufficienti o versione dell'app non aggiornata. Aggiorna l'app e riprova.",
+            message,
+        )
+    }
+
+    @Test
+    fun `messaggio esplicito di non-admin resta un errore di autorizzazione`() {
+        val message = mapSeasonHistoryError(
+            "Solo un amministratore puo archiviare la stagione",
+            "archiviare la stagione",
+        )
+
         assertEquals("Solo un amministratore può archiviare la stagione", message)
+    }
+
+    @Test
+    fun `funzione RPC assente indica server non aggiornato`() {
+        val message = mapSeasonHistoryError(
+            "Could not find the function public.archive_season(p_league, p_season, p_name, p_standings) in the schema cache",
+            "archiviare la stagione",
+        )
+
+        assertEquals(
+            "Il server non è ancora aggiornato. Riprova più tardi o contatta l'amministratore.",
+            message,
+        )
     }
 
     @Test
@@ -56,13 +82,16 @@ class SeasonHistoryErrorTest {
     }
 
     @Test
-    fun `permission denied di postgres diventa messaggio admin`() {
+    fun `permission denied di postgres non viene presentato come errore admin`() {
         val message = mapSeasonHistoryError(
             "permission denied for table season_snapshots",
             "archiviare la stagione",
         )
 
-        assertEquals("Solo un amministratore può archiviare la stagione", message)
+        assertEquals(
+            "Permessi insufficienti o versione dell'app non aggiornata. Aggiorna l'app e riprova.",
+            message,
+        )
     }
 
     @Test
@@ -73,5 +102,38 @@ class SeasonHistoryErrorTest {
         )
 
         assertEquals("Dati della stagione non validi", message)
+    }
+
+    @Test
+    fun `errore RPC stagione di altra lega resta comprensibile`() {
+        assertEquals(
+            "La stagione non appartiene a questa lega",
+            mapSeasonHistoryError(
+                "La stagione non appartiene a questa lega",
+                "archiviare la stagione",
+            ),
+        )
+    }
+
+    @Test
+    fun `errore RPC stagione non attiva resta comprensibile`() {
+        assertEquals(
+            "La stagione non è attiva e non può essere archiviata",
+            mapSeasonHistoryError(
+                "La stagione non è attiva e non può essere archiviata",
+                "archiviare la stagione",
+            ),
+        )
+    }
+
+    @Test
+    fun `errore RPC classifica non valida resta comprensibile`() {
+        assertEquals(
+            "La classifica archiviata non è valida",
+            mapSeasonHistoryError(
+                "La classifica archiviata non è valida",
+                "archiviare la stagione",
+            ),
+        )
     }
 }
