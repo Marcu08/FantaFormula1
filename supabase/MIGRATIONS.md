@@ -64,6 +64,8 @@ Il preflight SQL:
 - revoca `EXECUTE` da `PUBLIC`, `anon`, `authenticated`, `service_role`;
 - **non modifica** ruoli custom: se un ruolo custom conserva un grant, il
   preflight fallisce e richiede un intervento esplicito dell'owner;
+- quando `archive_season` non esiste, ispeziona `pg_default_acl` e fallisce se
+  un ruolo custom potrebbe ricevere `EXECUTE` alla creazione;
 - verifica con `has_function_privilege` che `authenticated`, `anon` e
   `service_role` non possano più eseguire la funzione;
 - crea/attiva `public.archive_season_deploy_lockout`.
@@ -153,8 +155,11 @@ Il repair include `20261109230000` e quindi:
 5. salva `pg_get_functiondef` nella tabella canonica;
 6. installa il guard esatto per `CREATE`, `ALTER` e `DROP`;
 7. ripristina le FK validated `RESTRICT`;
-8. revoca `authenticated`/`anon`/`service_role`;
-9. verifica SHA-256 e proprietà prima del commit.
+8. riasserisce `prediction_exists` e la policy `leagues_delete_admin` della
+   `0014`, indipendentemente dalla cronologia;
+9. revoca `authenticated`/`anon`/`service_role` e verifica che non restino
+   grantee custom su `archive_season`/`prediction_exists`;
+10. verifica SHA-256 e proprietà prima del commit.
 
 Il repair è idempotente. Può essere rieseguito dopo un'interruzione.
 
@@ -235,6 +240,8 @@ Policy esplicita:
   `service_role` sono revocati;
 - `complete_partial_season_archive`: eseguibile da `authenticated`; `PUBLIC`,
   `anon` e `service_role` revocati;
+- `prediction_exists`: eseguibile solo da `authenticated`, con policy
+  `leagues_delete_admin` basata su `is_league_admin(id)`;
 - helper (`season_snapshot_shape_is_valid`,
   `season_snapshot_participants_are_eligible`, `harden_season_archive_acl`,
   guardie, canonical store e deployment lockout): nessun accesso client;
@@ -300,6 +307,16 @@ remediation manuale.
 `0016`–`0019` restano necessari alla catena attuale; non sono stati rimossi
 solo perché la provenienza non è committed. Prima di un rilascio esterno la
 provenienza deve essere confermata dal maintainer.
+
+I template di test `0014`–`0019` sono stati importati dal worktree principale
+locale (file `0014_audit_fixes_tests.sql`,
+`0015_security_hardening_tests.sql`, `0016_atomic_prediction_revision_tests.sql`,
+`0017_server_revision_bigint_tests.sql`, `0018_initial_quotes_tests.sql`,
+`0019_quote_publish_lock_tests.sql`). Il runner
+`supabase/tests/legacy_dev_migrations.sh` sostituisce gli UUID placeholder e li
+esegue su un clone disposable con i grant tabellari Supabase-like; i test
+terminano intenzionalmente con self-rollback. Anche questi template non hanno
+una provenienza upstream committed.
 
 ## 13. Limiti
 

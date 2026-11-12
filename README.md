@@ -133,6 +133,8 @@ L'app non ha un server proprio: usa un progetto Supabase come unica fonte di ver
    [`supabase/tests/cli_lifecycle.sh`](supabase/tests/cli_lifecycle.sh),
    i test negativi di preflight/verifier in
    [`supabase/tests/security_negatives.sh`](supabase/tests/security_negatives.sh),
+   i template sviluppo `0014`–`0019` in
+   [`supabase/tests/legacy_dev_migrations.sh`](supabase/tests/legacy_dev_migrations.sh),
    le prove di concorrenza e la diagnostica pre-deploy in
    [`supabase/tests/legacy_season_archive_diagnostic.sql`](supabase/tests/legacy_season_archive_diagnostic.sql).
 

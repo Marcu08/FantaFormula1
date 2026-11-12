@@ -23,6 +23,7 @@ declare
     v_owner name;
     v_table_owner name;
     v_custom_roles text;
+    v_default_custom_roles text;
 begin
     if not exists (select 1 from pg_namespace where nspname = 'public') then
         raise exception 'PREFLIGHT FAIL: public schema is missing';
@@ -40,6 +41,26 @@ begin
     end if;
 
     if v_function_count = 0 then
+        -- A function created later can inherit EXECUTE from ALTER DEFAULT
+        -- PRIVILEGES. Standard client roles are handled by the migrations,
+        -- but an unexpected custom role must fail closed before creation.
+        select string_agg(distinct coalesce(r.rolname, 'PUBLIC'), ', ')
+        into v_default_custom_roles
+        from pg_default_acl d
+        cross join lateral aclexplode(d.defaclacl) a
+        left join pg_roles r on r.oid = a.grantee
+        where d.defaclobjtype = 'f'
+          and (d.defaclnamespace = 0 or d.defaclnamespace = 'public'::regnamespace)
+          and a.privilege_type = 'EXECUTE'
+          and a.grantee <> d.defaclrole
+          and a.grantee <> 0
+          and coalesce(r.rolname, '') not in ('anon', 'authenticated', 'service_role');
+
+        if v_default_custom_roles is not null then
+            raise exception 'PREFLIGHT FAIL: default EXECUTE privilege grants archive functions to custom role(s): %. Remove the default grant through an explicit owner action, then rerun.',
+                v_default_custom_roles;
+        end if;
+
         create table if not exists public.archive_season_deploy_lockout (
             singleton boolean primary key default true check (singleton),
             active boolean not null default true,

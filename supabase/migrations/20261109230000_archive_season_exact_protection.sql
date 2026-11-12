@@ -408,6 +408,43 @@ $archive_acl_gate$;
 
 select public.harden_season_archive_acl();
 
+-- 6b) Reassert the non-archive security fixes that live in 0014. This is
+-- deliberately independent of migration history: a database can have 0014
+-- recorded while its policy/function SQL was never executed.
+create or replace function public.prediction_exists(
+    p_race uuid,
+    p_user uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $prediction_exists$
+    -- Le policy passano auth.uid(); un client esterno puo' chiedere solo
+    -- il proprio stato. Per un altro utente restituisce false, senza
+    -- rivelare se la riga esiste.
+    select exists (
+        select 1
+        from public.predictions
+        where race_id = p_race
+          and user_id = p_user
+          and p_user = auth.uid()
+    );
+$prediction_exists$;
+
+comment on function public.prediction_exists(uuid, uuid) is
+    'True se l''utente indicato coincide con auth.uid() e ha un pronostico per la gara.';
+
+revoke execute on function public.prediction_exists(uuid, uuid)
+    from public, anon, service_role;
+grant execute on function public.prediction_exists(uuid, uuid) to authenticated;
+
+drop policy if exists leagues_delete_admin on public.leagues;
+create policy leagues_delete_admin on public.leagues
+    for delete to authenticated
+    using (public.is_league_admin(id));
+
 -- Snapshot history is private even to service_role/anon: service_role may
 -- bypass RLS and therefore must not receive access through default grants.
 revoke all on public.season_snapshots
@@ -450,6 +487,10 @@ declare
     v_config text[];
     v_definer boolean;
     v_guard_oid oid := to_regprocedure('public.enforce_archive_season_hardening()');
+    v_prediction_oid oid := to_regprocedure('public.prediction_exists(uuid,uuid)');
+    v_prediction_def text;
+    v_prediction_sha text;
+    v_policy_expr text;
 begin
     if v_oid is null then
         raise exception 'REPAIR FAIL: canonical archive_season missing';
@@ -537,6 +578,58 @@ begin
     end if;
     if not has_table_privilege('authenticated', 'public.season_snapshots', 'SELECT') then
         raise exception 'REPAIR FAIL: authenticated snapshot SELECT missing';
+    end if;
+
+    if v_prediction_oid is null then
+        raise exception 'REPAIR FAIL: prediction_exists missing';
+    end if;
+    select p.prosecdef, p.proconfig
+    into v_definer, v_config
+    from pg_proc p
+    where p.oid = v_prediction_oid;
+    if not coalesce(v_definer, false)
+       or v_config is null
+       or not (v_config @> array['search_path=public']) then
+        raise exception 'REPAIR FAIL: prediction_exists security properties invalid';
+    end if;
+    v_prediction_def := replace(
+        replace(pg_get_functiondef(v_prediction_oid), E'\r\n', E'\n'),
+        E'\r', E'\n'
+    );
+    v_prediction_sha := encode(digest(v_prediction_def, 'sha256'), 'hex');
+    if v_prediction_sha <> 'f27a51970636ecbb7cf0dcb3134545f22e0d8acfafaf9bf5b6591520e4d98189' then
+        raise exception 'REPAIR FAIL: prediction_exists canonical SHA-256 mismatch';
+    end if;
+    if not has_function_privilege('authenticated', v_prediction_oid, 'EXECUTE')
+       or has_function_privilege('anon', v_prediction_oid, 'EXECUTE')
+       or has_function_privilege('service_role', v_prediction_oid, 'EXECUTE') then
+        raise exception 'REPAIR FAIL: prediction_exists ACL invalid';
+    end if;
+    if exists (
+        select 1
+        from pg_proc p
+        cross join lateral aclexplode(
+            coalesce(p.proacl, acldefault('f', p.proowner))
+        ) a
+        where p.oid in (v_oid, v_prediction_oid)
+          and a.privilege_type = 'EXECUTE'
+          and a.grantee <> p.proowner
+          and a.grantee <> 0
+          and a.grantee not in (
+              select r.oid from pg_roles r
+              where r.rolname in ('anon', 'authenticated', 'service_role')
+          )
+    ) then
+        raise exception 'REPAIR FAIL: unexpected custom grantee has EXECUTE on archive_season/prediction_exists';
+    end if;
+
+    select pg_get_expr(polqual, polrelid)
+    into v_policy_expr
+    from pg_policy
+    where polname = 'leagues_delete_admin'
+      and polrelid = 'public.leagues'::regclass;
+    if v_policy_expr is distinct from 'is_league_admin(id)' then
+        raise exception 'REPAIR FAIL: leagues_delete_admin policy is not admin-only';
     end if;
 
     if not exists (

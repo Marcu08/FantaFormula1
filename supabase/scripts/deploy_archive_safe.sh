@@ -17,6 +17,7 @@
 #   SUPABASE_WORKDIR (default: repository root; must contain supabase/migrations)
 #   SUPABASE_SKIP_VAULT (default: 1; use --skip-vault)
 #   EXPECTED_DATABASE (default: database path in DATABASE_URL)
+#   FF1_DEPLOY_TEST_HOOKS (test-only; enables ARCHIVE_*_SQL_FILE overrides)
 #
 # Example (disposable/local):
 #   DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/ff1' \
@@ -31,8 +32,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SUPABASE_WORKDIR="${SUPABASE_WORKDIR:-$REPO_ROOT}"
 SUPABASE_SKIP_VAULT="${SUPABASE_SKIP_VAULT:-1}"
-ARCHIVE_REPAIR_SQL_FILE="${ARCHIVE_REPAIR_SQL_FILE:-$REPO_ROOT/supabase/repair/archive_season_repair.sql}"
-ARCHIVE_VERIFIER_SQL_FILE="${ARCHIVE_VERIFIER_SQL_FILE:-$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql}"
+REPAIR_SQL_OVERRIDE="${ARCHIVE_REPAIR_SQL_FILE:-}"
+VERIFIER_SQL_OVERRIDE="${ARCHIVE_VERIFIER_SQL_FILE:-}"
+ARCHIVE_REPAIR_SQL_FILE="${REPAIR_SQL_OVERRIDE:-$REPO_ROOT/supabase/repair/archive_season_repair.sql}"
+ARCHIVE_VERIFIER_SQL_FILE="${VERIFIER_SQL_OVERRIDE:-$REPO_ROOT/supabase/tests/verify_archive_season_hardening.sql}"
+
+# The SQL-file overrides are failure-injection hooks for the local/CI test
+# harness. They must never be available to an ordinary deployment shell.
+if [ "${FF1_DEPLOY_TEST_HOOKS:-0}" != "1" ] \
+   && { [ -n "$REPAIR_SQL_OVERRIDE" ] || [ -n "$VERIFIER_SQL_OVERRIDE" ]; }; then
+    echo "FAIL: ARCHIVE_REPAIR_SQL_FILE/ARCHIVE_VERIFIER_SQL_FILE require FF1_DEPLOY_TEST_HOOKS=1" >&2
+    exit 2
+fi
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
 

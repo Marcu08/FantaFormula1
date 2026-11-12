@@ -27,6 +27,7 @@ jobs:
       PGUSER: postgres
       PGSSLMODE: disable
       SUPABASE_CLI_VERSION: 2.114.0
+      SUPABASE_CLI_SHA256: f36a33ca867f1cce9ba5efa705863fdc545d1465d3719a721793ea67eb692c5a
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ff1_ci
     steps:
       - name: Checkout
@@ -40,6 +41,7 @@ jobs:
       - name: Install pinned Supabase CLI
         run: |
           curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" -o /tmp/supabase.tar.gz
+          echo "${SUPABASE_CLI_SHA256}  /tmp/supabase.tar.gz" | sha256sum -c -
           sudo tar -xzf /tmp/supabase.tar.gz -C /usr/local/bin supabase
           supabase --version
 
@@ -63,6 +65,13 @@ jobs:
 
       - name: Real Supabase CLI lifecycle (fresh, D2, D3, C1, C2, C3, failures, retries)
         run: bash supabase/tests/cli_lifecycle.sh
+
+      - name: Development migration templates 0014-0019
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'create database ff1_dev_tests template ff1_ci'
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/ff1_dev_tests \
+            bash supabase/tests/legacy_dev_migrations.sh
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'drop database ff1_dev_tests'
 
       - name: Preflight and verifier negative tests
         run: bash supabase/tests/security_negatives.sh

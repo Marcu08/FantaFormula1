@@ -149,6 +149,22 @@ SOURCE_LOCKOUT="$(psql_db "$SOURCE_DATABASE" -Atq -c "select active from public.
 [ "$SOURCE_LOCKOUT" = "f" ] || fail "source database '$SOURCE_DATABASE' must be finalized (lockout active)"
 echo "OK: source database '$SOURCE_DATABASE' is a finalized 24-migration deployment"
 
+echo "== wrapper rejects test-only SQL overrides without the test flag =="
+HOOK_LOG="$LOG_DIR/hook-guard.log"
+if EXPECTED_DATABASE="$SOURCE_DATABASE" \
+   SUPABASE_WORKDIR="$REPO_ROOT" \
+   PSQL="$PSQL" \
+   SUPABASE="${SUPABASE:-supabase}" \
+   DATABASE_URL="$(db_url "$SOURCE_DATABASE")" \
+   FF1_DEPLOY_TEST_HOOKS=0 \
+   ARCHIVE_VERIFIER_SQL_FILE=/tmp/untrusted-verifier.sql \
+   bash "$REPO_ROOT/supabase/scripts/deploy_archive_safe.sh" >"$HOOK_LOG" 2>&1; then
+    fail "wrapper accepted an override without FF1_DEPLOY_TEST_HOOKS=1"
+fi
+grep -q 'FF1_DEPLOY_TEST_HOOKS=1' "$HOOK_LOG" \
+    || { cat "$HOOK_LOG" >&2; fail "wrapper override rejection did not explain the test flag"; }
+echo "OK: test-only override rejected without flag"
+
 echo "== preflight with no archive_season =="
 DB_EMPTY=ff1_neg_empty
 new_empty_db "$DB_EMPTY"
@@ -157,6 +173,14 @@ run_preflight "$DB_EMPTY" "$LOG_DIR/empty2.log" || { cat "$LOG_DIR/empty2.log" >
 [ "$(psql_db "$DB_EMPTY" -Atq -c "select active from public.archive_season_deploy_lockout where singleton;" | tr -d '[:space:]')" = "t" ] \
     || fail "empty preflight did not arm lockout"
 echo "OK: empty preflight and rerun"
+
+echo "== preflight custom default EXECUTE privilege =="
+DB_DEFAULT=ff1_neg_default
+new_empty_db "$DB_DEFAULT"
+create_test_role neg_default
+psql_db "$DB_DEFAULT" -q -c "alter default privileges for role postgres in schema public grant execute on functions to neg_default;"
+expect_preflight_failure "$DB_DEFAULT" 'default EXECUTE privilege grants archive functions to custom role' "custom default EXECUTE"
+psql_db "$DB_DEFAULT" -q -c "alter default privileges for role postgres in schema public revoke execute on functions from neg_default;"
 
 echo "== preflight custom role inherited by authenticated =="
 DB_CUSTOM=ff1_neg_custom
@@ -237,6 +261,15 @@ psql_db "$DB_INVOKER" -q -c "alter event trigger archive_season_hardening_guard 
 expect_preflight_failure "$DB_INVOKER" 'SECURITY DEFINER' "incorrect security mode"
 expect_verifier_failure "$DB_INVOKER" 'SECURITY DEFINER' "incorrect security mode"
 
+echo "== verifier 0014 policy and prediction_exists history lie =="
+DB_0014=ff1_neg_0014
+clone_source "$DB_0014"
+psql_db "$DB_0014" -q -c "drop policy leagues_delete_admin on public.leagues;
+create or replace function public.prediction_exists(p_race uuid, p_user uuid)
+returns boolean language sql stable security definer set search_path=public
+as \$weak\$ select exists (select 1 from public.predictions where race_id = p_race and user_id = p_user) \$weak\$;"
+expect_verifier_failure "$DB_0014" 'prediction_exists canonical SHA-256|leagues_delete_admin policy' "0014 policy/prediction history lie"
+
 echo "== verifier missing composite FK =="
 DB_FK=ff1_neg_fk
 clone_source "$DB_FK"
@@ -268,6 +301,13 @@ DB_SERVICE=ff1_neg_service
 clone_source "$DB_SERVICE"
 psql_db "$DB_SERVICE" -q -c "grant execute on function public.archive_season(uuid,uuid,text,jsonb) to service_role;"
 expect_verifier_failure "$DB_SERVICE" 'service_role' "service_role grant"
+
+echo "== verifier unexpected custom archive grantee =="
+DB_CUSTOM_FINAL=ff1_neg_custom_final
+clone_source "$DB_CUSTOM_FINAL"
+create_test_role neg_custom_final
+psql_db "$DB_CUSTOM_FINAL" -q -c "grant execute on function public.archive_season(uuid,uuid,text,jsonb) to neg_custom_final;"
+expect_verifier_failure "$DB_CUSTOM_FINAL" 'unexpected custom grantee has EXECUTE on archive_season' "custom archive grantee"
 
 echo "== verifier missing authenticated grant =="
 DB_AUTH=ff1_neg_auth

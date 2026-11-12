@@ -143,6 +143,7 @@ run_wrapper() {
     PSQL="$PSQL" \
     SUPABASE="$SUPABASE" \
     SUPABASE_CLI_VERSION="$SUPABASE_CLI_VERSION" \
+    FF1_DEPLOY_TEST_HOOKS=1 \
     ARCHIVE_REPAIR_SQL_FILE="$repair_file" \
     ARCHIVE_VERIFIER_SQL_FILE="$verifier_file" \
     DATABASE_URL="$(db_url "$db")" \

@@ -53,6 +53,11 @@ declare
     v_canonical_sha text;
     v_lockout_active boolean;
     v_state text;
+    v_prediction_oid oid := to_regprocedure('public.prediction_exists(uuid,uuid)');
+    v_prediction_def text;
+    v_prediction_sha text;
+    v_prediction_expected_sha text := 'f27a51970636ecbb7cf0dcb3134545f22e0d8acfafaf9bf5b6591520e4d98189';
+    v_policy_expr text;
     v_conkey smallint[];
     v_confkey smallint[];
     v_confrelid oid;
@@ -121,6 +126,60 @@ begin
        or has_table_privilege('anon', 'public.archive_season_canonical_definition', 'SELECT')
        or has_table_privilege('service_role', 'public.archive_season_canonical_definition', 'SELECT') then
         raise exception 'VERIFY FAIL: canonical definition store readable by client roles';
+    end if;
+
+    -- 0014 non-archive security fixes must be present even when the migration
+    -- history says 0014 was applied without its SQL having executed.
+    if v_prediction_oid is null then
+        raise exception 'VERIFY FAIL: prediction_exists missing';
+    end if;
+    select p.prosecdef, p.proconfig
+    into v_security_definer, v_config
+    from pg_proc p
+    where p.oid = v_prediction_oid;
+    if not coalesce(v_security_definer, false)
+       or v_config is null
+       or not (v_config @> array['search_path=public']) then
+        raise exception 'VERIFY FAIL: prediction_exists security properties invalid';
+    end if;
+    v_prediction_def := replace(
+        replace(pg_get_functiondef(v_prediction_oid), E'\r\n', E'\n'),
+        E'\r', E'\n'
+    );
+    v_prediction_sha := encode(digest(v_prediction_def, 'sha256'), 'hex');
+    if v_prediction_sha is distinct from v_prediction_expected_sha then
+        raise exception 'VERIFY FAIL: prediction_exists canonical SHA-256 mismatch';
+    end if;
+    if not has_function_privilege('authenticated', v_prediction_oid, 'EXECUTE')
+       or has_function_privilege('anon', v_prediction_oid, 'EXECUTE')
+       or has_function_privilege('service_role', v_prediction_oid, 'EXECUTE') then
+        raise exception 'VERIFY FAIL: prediction_exists ACL invalid';
+    end if;
+    if exists (
+        select 1
+        from pg_proc p
+        cross join lateral aclexplode(
+            coalesce(p.proacl, acldefault('f', p.proowner))
+        ) a
+        where p.oid = v_prediction_oid
+          and a.privilege_type = 'EXECUTE'
+          and a.grantee <> p.proowner
+          and a.grantee <> 0
+          and a.grantee not in (
+              select r.oid from pg_roles r
+              where r.rolname in ('anon', 'authenticated', 'service_role')
+          )
+    ) then
+        raise exception 'VERIFY FAIL: unexpected custom grantee has EXECUTE on prediction_exists';
+    end if;
+
+    select pg_get_expr(polqual, polrelid)
+    into v_policy_expr
+    from pg_policy
+    where polname = 'leagues_delete_admin'
+      and polrelid = 'public.leagues'::regclass;
+    if v_policy_expr is distinct from 'is_league_admin(id)' then
+        raise exception 'VERIFY FAIL: leagues_delete_admin policy is not admin-only';
     end if;
 
     select r.rolname
@@ -225,6 +284,23 @@ begin
         'EXECUTE'
     ) then
         raise exception 'VERIFY FAIL: service_role puo'' eseguire archive_season';
+    end if;
+    if exists (
+        select 1
+        from pg_proc p
+        cross join lateral aclexplode(
+            coalesce(p.proacl, acldefault('f', p.proowner))
+        ) a
+        where p.oid = v_oid
+          and a.privilege_type = 'EXECUTE'
+          and a.grantee <> p.proowner
+          and a.grantee <> 0
+          and a.grantee not in (
+              select r.oid from pg_roles r
+              where r.rolname in ('anon', 'authenticated', 'service_role')
+          )
+    ) then
+        raise exception 'VERIFY FAIL: unexpected custom grantee has EXECUTE on archive_season';
     end if;
     if v_expect_auth = 'true' then
         if not has_function_privilege(
