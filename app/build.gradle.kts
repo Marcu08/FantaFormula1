@@ -26,6 +26,27 @@ fun localProp(vararg keys: String): String {
     return ""
 }
 
+// Firma RELEASE: nessun keystore nel repository. I valori arrivano solo
+// dall'ambiente (locale o GitHub Actions Secrets). Se mancano, il build
+// release fallisce esplicitamente: non esiste un fallback alla chiave debug.
+fun envVar(name: String, trim: Boolean = true): String? {
+    val value = System.getenv(name) ?: return null
+    return (if (trim) value.trim() else value).takeIf { it.isNotEmpty() }
+}
+
+val releaseKeystorePath = envVar("RELEASE_KEYSTORE_PATH")
+// Le password non vengono trimmate: spazi iniziali/finali fanno parte del
+// segreto e non devono essere alterati.
+val releaseKeystorePassword = envVar("RELEASE_KEYSTORE_PASSWORD", trim = false)
+val releaseKeyAlias = envVar("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = envVar("RELEASE_KEY_PASSWORD", trim = false)
+val releaseKeystoreFile = releaseKeystorePath?.let { rootProject.file(it) }
+val releaseSigningConfigured =
+    releaseKeystoreFile?.isFile == true &&
+        releaseKeystorePassword != null &&
+        releaseKeyAlias != null &&
+        releaseKeyPassword != null
+
 android {
     namespace = "com.fantaformula1.app"
     // 36 e' richiesto da androidx.browser:1.9.0 (transitivo di activity-compose),
@@ -34,22 +55,18 @@ android {
     compileSdk = 36
 
     /**
-     * Firma FISSA condivisa (app tra amici, non commerciale): il keystore e'
-     * nel repo cosi' OGNI APK da qualsiasi macchina o da CI ha la STESSA firma
-     * e puo' aggiornare le installazioni precedenti (il debug keystore per-
-     * macchina cambia da PC a PC e blocca gli update con "app non installata"
-     * senza motivo visibile).
-     * E' il keystore debug di questo progetto (alias androiddebugkey): gli APK
-     * gia' installati dal primo build del proprietario restano aggiornabili
-     * senza disinstallare. La chiave e' privata di valore: e' un keystore debug
-     * condiviso volutamente per un progetto non commerciale.
+     * Debug: usa la firma debug standard di Gradle (keystore locale della
+     * macchina, mai versionato). Release: solo keystore esterno passato via
+     * variabili d'ambiente. Nessuna delle due firme legge file dal repository.
      */
     signingConfigs {
-        create("shared") {
-            storeFile = file("fantaformula1.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -71,13 +88,19 @@ android {
 
     buildTypes {
         debug {
-            // Anche i build debug usano la firma condivisa: cosi' gli APK
-            // distribuiti fra amici si aggiornano l'un l'altro.
-            signingConfig = signingConfigs.getByName("shared")
+            // Firma debug standard: nessuna chiave condivisa e nessun segreto
+            // nel repository. La firma e' quella del keystore debug locale.
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("shared")
+            // Null se la configurazione release manca: il task di validazione
+            // sotto blocca assembleRelease/bundleRelease prima della firma.
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -108,6 +131,39 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+// Fail-closed: una release firmata senza keystore esterno non deve produrre
+// un artefatto non firmato o, peggio, firmato con la chiave debug. Il task
+// elenca solo i NOMI delle variabili mancanti, mai i valori.
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
+    group = "verification"
+    description = "Verifica che la firma release sia configurata tramite variabili d'ambiente."
+    doLast {
+        if (!releaseSigningConfigured) {
+            val missing = buildList {
+                if (releaseKeystorePath == null) add("RELEASE_KEYSTORE_PATH")
+                if (releaseKeystorePassword == null) add("RELEASE_KEYSTORE_PASSWORD")
+                if (releaseKeyAlias == null) add("RELEASE_KEY_ALIAS")
+                if (releaseKeyPassword == null) add("RELEASE_KEY_PASSWORD")
+            }
+            val detail = if (missing.isEmpty()) {
+                "RELEASE_KEYSTORE_PATH non punta a un file esistente"
+            } else {
+                "variabili mancanti: ${missing.joinToString(", ")}"
+            }
+            throw GradleException(
+                "Firma release non configurata ($detail). " +
+                    "Imposta il keystore esterno e riprova; la chiave debug non viene usata come fallback.",
+            )
+        }
+    }
+}
+
+tasks.matching {
+    it.name == "assembleRelease" || it.name == "bundleRelease" || it.name == "packageRelease"
+}.configureEach {
+    dependsOn(validateReleaseSigning)
 }
 
 kotlin {
